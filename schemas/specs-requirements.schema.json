@@ -1,16 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://NePA.local/schemas/specs-requirements.schema.json",
-  "title": "MQTT 3.1.1 Implementation Requirements",
-  "description": "Requirements ledger for MQTT 3.1.1 implementation slices.",
+  "title": "MQTT 3.1.1 Specification Requirements",
+  "description": "Traceable MQTT 3.1.1 packet structure and ledger of selected specification requirements.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "gold_set_id", "description", "source_sha256", "requirements"],
+  "required": ["$schema", "gold_set_id", "description", "source_sha256", "packet_structure", "requirements"],
   "properties": {
     "$schema": {"const": "https://NePA.local/schemas/specs-requirements.schema.json"},
     "gold_set_id": {"type": "string", "minLength": 1},
     "description": {"type": "string", "minLength": 1},
     "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "packet_structure": {"$ref": "#/$defs/packet_structure"},
     "requirements": {
       "type": "array",
       "minItems": 1,
@@ -35,6 +36,47 @@
         "page": {"type": "integer", "minimum": 1},
         "locator": {"type": "string", "minLength": 1},
         "excerpt": {"type": "string", "minLength": 1}
+      }
+    },
+    "packet_field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "representation", "definition"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "location": {"type": "string", "minLength": 1},
+        "representation": {"type": "string", "minLength": 1},
+        "definition": {"type": "string", "minLength": 1}
+      }
+    },
+    "packet_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "order", "presence", "definition", "fields"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "order": {"type": "integer", "minimum": 1},
+        "presence": {"enum": ["always", "conditional"]},
+        "definition": {"type": "string", "minLength": 1},
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/packet_field"}
+        }
+      }
+    },
+    "packet_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_data_unit", "definition", "source", "components"],
+      "properties": {
+        "protocol_data_unit": {"type": "string", "minLength": 1},
+        "definition": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"},
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/packet_component"}
+        }
       }
     },
     "requirement": {
