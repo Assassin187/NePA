@@ -1,60 +1,8 @@
 {
   "$schema": "https://NePA.local/schemas/specs-requirements.schema.json",
-  "gold_set_id": "mqtt-3.1.1-min-requirements-v1",
-  "description": "Human-annotated MQTT 3.1.1 packet structure and specification requirements selected from the source document. Packet structure is recorded separately from atomic normative or definition-derived requirements. Product scope, MVP decisions, implementation architecture, and acceptance-test requirements are intentionally not defined here.",
+  "gold_set_id": "mqtt-3.1.1-min-requirements-v2",
+  "description": "Human-annotated MQTT 3.1.1 atomic normative or definition-derived requirements selected from the source document. Wire-format definitions are maintained in the separately referenced wire-format specification. Product scope, MVP decisions, implementation architecture, and acceptance-test requirements are intentionally not defined here.",
   "source_sha256": "c45a1f4f3d0d9a66b3f890dce49a1e2ddeae69cfd67f907a5b6e97a6d64a0b54",
-  "packet_structure": {
-    "protocol_data_unit": "MQTT Control Packet",
-    "definition": "An MQTT Control Packet contains up to three components in order: a required fixed header, an optional packet-type-specific variable header, and an optional packet-type-specific payload.",
-    "source": {
-      "section": "2.1 Structure of an MQTT Control Packet through 2.3 Variable header",
-      "page": 16,
-      "locator": "page 16 lines 223-237; page 17 lines 242-246; page 18 lines 254-265; page 19 lines 312-315",
-      "excerpt": "An MQTT Control Packet consists of up to three parts, always in the following order as illustrated in Figure 2.1 - Structure of an MQTT Control Packet.\n\nFixed header, present in all MQTT Control Packets\nVariable header, present in some MQTT Control Packets\nPayload, present in some MQTT Control Packets\n\nEach MQTT Control Packet contains a fixed header.\n\nPosition: byte 1, bits 7-4. Represented as a 4-bit unsigned value, the values are listed in Table 2.1 - Control packet types.\n\nThe remaining bits [3-0] of byte 1 in the fixed header contain flags specific to each MQTT Control Packet type as listed in the Table 2.2 - Flag Bits below.\n\nPosition: starts at byte 2.\n\nThe Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length.\n\nThe Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. Larger values are handled as follows. The least significant seven bits of each byte encode the data, and the most significant bit is used to indicate that there are following bytes in the representation. Thus each byte encodes 128 values and a “continuation bit”. The maximum number of bytes in the Remaining Length field is four.\n\nSome types of MQTT Control Packets contain a variable header component. It resides between the fixed header and the payload. The content of the variable header varies depending on the Packet type."
-    },
-    "components": [
-      {
-        "name": "Fixed header",
-        "order": 1,
-        "presence": "always",
-        "definition": "Present in every MQTT Control Packet and contains the Control Packet type, packet-type-specific flags, and Remaining Length.",
-        "fields": [
-          {
-            "name": "MQTT Control Packet type",
-            "location": "byte 1, bits 7-4",
-            "representation": "4-bit unsigned integer",
-            "definition": "Identifies the MQTT Control Packet type using the values in Table 2.1."
-          },
-          {
-            "name": "Flags",
-            "location": "byte 1, bits 3-0",
-            "representation": "4 packet-type-specific bits",
-            "definition": "Contains the flag values defined for the MQTT Control Packet type in Table 2.2."
-          },
-          {
-            "name": "Remaining Length",
-            "location": "starts at byte 2",
-            "representation": "1-4 byte variable-length integer; seven data bits and one continuation bit per byte",
-            "definition": "Gives the number of bytes in the variable header and payload, excluding the bytes used to encode Remaining Length."
-          }
-        ]
-      },
-      {
-        "name": "Variable header",
-        "order": 2,
-        "presence": "conditional",
-        "definition": "Present in some MQTT Control Packet types between the fixed header and payload; its content depends on the packet type.",
-        "fields": []
-      },
-      {
-        "name": "Payload",
-        "order": 3,
-        "presence": "conditional",
-        "definition": "The third component in the defined packet order, present in some MQTT Control Packet types.",
-        "fields": []
-      }
-    ]
-  },
   "requirements": [
     {
       "id": "MQTT-2.2.2-1",
@@ -67,24 +15,13 @@
       "modality": "MUST",
       "statement": "Set every reserved fixed-header flag to the value defined for its MQTT Control Packet type.",
       "preconditions": [],
-      "constraints": [
-        "CONNECT fixed-header bits 3-0 MUST be 0000.",
-        "CONNACK fixed-header bits 3-0 MUST be 0000.",
-        "PUBLISH fixed-header bits 3-0 are not reserved: bit 3 is DUP, bits 2-1 encode QoS, and bit 0 is RETAIN.",
-        "PUBACK fixed-header bits 3-0 MUST be 0000.",
-        "PUBREC fixed-header bits 3-0 MUST be 0000.",
-        "PUBREL fixed-header bits 3-0 MUST be 0010.",
-        "PUBCOMP fixed-header bits 3-0 MUST be 0000.",
-        "SUBSCRIBE fixed-header bits 3-0 MUST be 0010.",
-        "SUBACK fixed-header bits 3-0 MUST be 0000.",
-        "UNSUBSCRIBE fixed-header bits 3-0 MUST be 0010.",
-        "UNSUBACK fixed-header bits 3-0 MUST be 0000.",
-        "PINGREQ fixed-header bits 3-0 MUST be 0000.",
-        "PINGRESP fixed-header bits 3-0 MUST be 0000.",
-        "DISCONNECT fixed-header bits 3-0 MUST be 0000."
-      ],
+      "constraints": [],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/fixed-header/flags",
+        "mqtt-control-packet/control-packet-type"
+      ],
       "confidence": 0.99
     },
     {
@@ -106,44 +43,10 @@
         "MQTT-2.2.2-1",
         "MQTT-4.8.0-1"
       ],
+      "structure_references": [
+        "mqtt-control-packet/fixed-header/flags"
+      ],
       "confidence": 0.97
-    },
-    {
-      "id": "MQTT-2.2.3-1",
-      "source": {
-        "section": "2.2.3 Remaining Length",
-        "page": 18,
-        "locator": "lines 257-259",
-        "excerpt": "The Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length."
-      },
-      "modality": "INFORMATIVE",
-      "statement": "Remaining Length is the number of bytes in the variable header and payload and does not include the bytes used to encode the Remaining Length field.",
-      "preconditions": [],
-      "constraints": [],
-      "exceptions": [],
-      "references": [],
-      "confidence": 0.95
-    },
-    {
-      "id": "MQTT-2.2.3-2",
-      "source": {
-        "section": "2.2.3 Remaining Length",
-        "page": 18,
-        "locator": "lines 261-265",
-        "excerpt": "The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. Larger values are handled as follows. The least significant seven bits of each byte encode the data, and the most significant bit is used to indicate that there are following bytes in the representation. Thus each byte encodes 128 values and a “continuation bit”. The maximum number of bytes in the Remaining Length field is four."
-      },
-      "modality": "INFORMATIVE",
-      "statement": "The Remaining Length field uses variable-length encoding and has a maximum length of four bytes.",
-      "preconditions": [],
-      "constraints": [
-        "The maximum representable value is 268435455.",
-        "A continuation bit on the fourth byte makes the packet malformed."
-      ],
-      "exceptions": [],
-      "references": [
-        "MQTT-4.8.0-1"
-      ],
-      "confidence": 0.94
     },
     {
       "id": "MQTT-7.1.1-1",
@@ -180,22 +83,6 @@
       "confidence": 1
     },
     {
-      "id": "MQTT-1.5.2-1",
-      "source": {
-        "section": "1.5.2 Integer data values",
-        "page": 13,
-        "locator": "lines 173-176",
-        "excerpt": "Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte. This means that a 16-bit word is presented on the network as Most Significant Byte (MSB), followed by Least Significant Byte (LSB)."
-      },
-      "modality": "INFORMATIVE",
-      "statement": "MQTT integer data values are 16-bit values in big-endian order, with the most significant byte first.",
-      "preconditions": [],
-      "constraints": [],
-      "exceptions": [],
-      "references": [],
-      "confidence": 0.96
-    },
-    {
       "id": "MQTT-1.5.3-1",
       "source": {
         "section": "1.5.3 UTF-8 encoded strings",
@@ -212,6 +99,9 @@
       "exceptions": [],
       "references": [
         "MQTT-1.5.3-2"
+      ],
+      "structure_references": [
+        "mqtt-utf8-encoded-string"
       ],
       "confidence": 0.96
     },
@@ -336,6 +226,9 @@
         "MQTT-3.1.3-4",
         "MQTT-3.1.3-5"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connect/payload/client-id"
+      ],
       "confidence": 0.91
     },
     {
@@ -418,6 +311,10 @@
         "MQTT-2.3.1-3",
         "MQTT-2.3.1-4"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/packet-identifier",
+        "mqtt-control-packet/control-packet-type/subscribe/variable-header/packet-identifier"
+      ],
       "confidence": 0.98
     },
     {
@@ -440,6 +337,9 @@
       "references": [
         "MQTT-3.8.3-1"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair"
+      ],
       "confidence": 0.96
     },
     {
@@ -460,6 +360,9 @@
       ],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/requested-qos"
+      ],
       "confidence": 1
     },
     {
@@ -556,6 +459,9 @@
         "MQTT-3.3.2-2",
         "MQTT-4.7.3-1",
         "MQTT-4.7.3-4"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name"
       ],
       "confidence": 0.92
     },
@@ -778,5 +684,9 @@
       ],
       "confidence": 0.88
     }
-  ]
+  ],
+  "wire_format_reference": {
+    "file": "mqtt-3.1.1-wire-format.json",
+    "wire_format_id": "mqtt-311-wire-format-v1"
+  }
 }

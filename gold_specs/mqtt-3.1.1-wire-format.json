@@ -1,0 +1,648 @@
+{
+  "$schema": "https://NePA.local/schemas/wire-format.schema.json",
+  "wire_format_id": "mqtt-311-wire-format-v1",
+  "protocol": "MQTT",
+  "protocol_version": "3.1.1",
+  "source_sha256": "c45a1f4f3d0d9a66b3f890dce49a1e2ddeae69cfd67f907a5b6e97a6d64a0b54",
+  "model_version": "1.1",
+  "description": "Protocol-independent wire-format model instantiated for MQTT 3.1.1. The model supports reusable wire data types, multiple protocol data units, binary/text/mixed encodings, alternative framing rules, ordered layouts, and message types selected by field value, syntax, context, or transport.",
+  "data_types": [
+    {
+      "id": "mqtt-two-byte-integer",
+      "name": "Two Byte Integer",
+      "kind": "unsigned integer",
+      "representation": "16 bits in big-endian byte order",
+      "definition": "The most significant byte precedes the least significant byte on the network.",
+      "constraints": [
+        "The encoded value occupies exactly two bytes."
+      ],
+      "source": {
+        "section": "1.5.2 Integer data values",
+        "page": 13,
+        "locator": "lines 173-176",
+        "excerpt": "Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte. This means that a 16-bit word is presented on the network as Most Significant Byte (MSB), followed by Least Significant Byte (LSB)."
+      }
+    },
+    {
+      "id": "mqtt-utf8-encoded-string",
+      "name": "UTF-8 Encoded String",
+      "kind": "length-prefixed string",
+      "representation": "two-byte big-endian byte length followed by UTF-8 encoded character data",
+      "definition": "The two-byte prefix gives the number of bytes in the UTF-8 encoded character data that follows.",
+      "constraints": [
+        "The encoded character data length is between 0 and 65535 bytes unless a field-specific rule states otherwise.",
+        "Character data MUST be well-formed UTF-8.",
+        "Character data MUST NOT contain U+0000."
+      ],
+      "source": {
+        "section": "1.5.3 UTF-8 encoded strings",
+        "page": 13,
+        "locator": "page 13 lines 177-188; page 14 lines 190-197",
+        "excerpt": "Each of these strings is prefixed with a two byte length field that gives the number of bytes in a UTF-8 encoded string itself, as illustrated in Figure 1.1 Structure of UTF-8 encoded strings below. Consequently there is a limit on the size of a string that can be passed in one of these UTF-8 encoded string components; you cannot use a string that would encode to more than 65535 bytes. Unless stated otherwise all UTF-8 encoded strings can have any length in the range 0 to 65535 bytes.\n\nThe character data in a UTF-8 encoded string MUST be well-formed UTF-8 as defined by the Unicode specification [Unicode] and restated in RFC 3629 [RFC3629]. In particular this data MUST NOT include encodings of code points between U+D800 and U+DFFF. If a Server or Client receives a Control Packet containing ill-formed UTF-8 it MUST close the Network Connection [MQTT-1.5.3-1].\n\nA UTF-8 encoded string MUST NOT include an encoding of the null character U+0000. If a receiver (Server or Client) receives a Control Packet containing U+0000 it MUST close the Network Connection [MQTT-1.5.3-2]."
+      }
+    }
+  ],
+  "protocol_data_units": [
+    {
+      "id": "mqtt-control-packet",
+      "name": "MQTT Control Packet",
+      "kind": "packet",
+      "definition": "The MQTT protocol data unit, consisting of up to three ordered components: fixed header, variable header, and payload.",
+      "encoding": {
+        "kind": "binary",
+        "unit": "octet",
+        "definition": "The common packet envelope is defined in bytes and bit fields; individual variable headers and payloads use the encodings defined by their packet types."
+      },
+      "source": {
+        "section": "2.1 Structure of an MQTT Control Packet through 2.3 Variable header",
+        "page": 16,
+        "locator": "page 16 lines 223-237; page 17 lines 242-246; page 18 lines 254-265; page 19 lines 312-315",
+        "excerpt": "An MQTT Control Packet consists of up to three parts, always in the following order as illustrated in Figure 2.1 - Structure of an MQTT Control Packet.\n\nFixed header, present in all MQTT Control Packets\nVariable header, present in some MQTT Control Packets\nPayload, present in some MQTT Control Packets\n\nEach MQTT Control Packet contains a fixed header.\n\nPosition: byte 1, bits 7-4. Represented as a 4-bit unsigned value, the values are listed in Table 2.1 - Control packet types.\n\nThe remaining bits [3-0] of byte 1 in the fixed header contain flags specific to each MQTT Control Packet type as listed in the Table 2.2 - Flag Bits below.\n\nPosition: starts at byte 2.\n\nThe Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length.\n\nSome types of MQTT Control Packets contain a variable header component. It resides between the fixed header and the payload. The content of the variable header varies depending on the Packet type."
+      },
+      "framing": [
+        {
+          "id": "remaining-length-framing",
+          "kind": "length_prefixed",
+          "applies_when": "Every MQTT Control Packet.",
+          "definition": "The packet boundary is determined from the fixed header and Remaining Length, whose value counts the bytes in the variable header and payload.",
+          "field_refs": [
+            "mqtt-control-packet/fixed-header/remaining-length"
+          ],
+          "source": {
+            "section": "2.2.3 Remaining Length",
+            "page": 18,
+            "locator": "lines 254-265",
+            "excerpt": "Position: starts at byte 2. The Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length. The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. The maximum number of bytes in the Remaining Length field is four."
+          }
+        }
+      ],
+      "layout": [
+        {
+          "id": "fixed-header",
+          "name": "Fixed header",
+          "order": 1,
+          "occurrence": "one",
+          "definition": "Present in every MQTT Control Packet and contains the Control Packet type, packet-type-specific flags, and Remaining Length.",
+          "fields": [
+            {
+              "id": "packet-type",
+              "name": "MQTT Control Packet type",
+              "occurrence": "one",
+              "location": "byte 1, bits 7-4",
+              "representation": "4-bit unsigned integer",
+              "definition": "Selects the MQTT Control Packet type using the values in Table 2.1.",
+              "constraints": [
+                "Values 0 and 15 are reserved and forbidden."
+              ]
+            },
+            {
+              "id": "flags",
+              "name": "Flags",
+              "occurrence": "one",
+              "location": "byte 1, bits 3-0",
+              "representation": "4 packet-type-specific bits",
+              "definition": "Uses either the fixed reserved value or PUBLISH-specific subfields defined for the selected packet type in Table 2.2.",
+              "constraints": []
+            },
+            {
+              "id": "remaining-length",
+              "name": "Remaining Length",
+              "occurrence": "one",
+              "location": "starts at byte 2",
+              "representation": "1-4 byte variable-length integer; seven data bits and one continuation bit per byte",
+              "definition": "Gives the number of bytes in the variable header and payload, excluding the bytes used to encode Remaining Length.",
+              "constraints": [
+                "The field contains at most four bytes.",
+                "The maximum representable value is 268435455.",
+                "A continuation bit on the fourth byte makes the packet malformed."
+              ],
+              "source": {
+                "section": "2.2.3 Remaining Length",
+                "page": 18,
+                "locator": "page 18 lines 254-278; page 19 lines 296-307",
+                "excerpt": "The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. Larger values are handled as follows. The least significant seven bits of each byte encode the data, and the most significant bit is used to indicate that there are following bytes in the representation. Thus each byte encodes 128 values and a “continuation bit”. The maximum number of bytes in the Remaining Length field is four.\n\nThis allows applications to send Control Packets of size up to 268,435,455 (256 MB). The representation of this number on the wire is: 0xFF, 0xFF, 0xFF, 0x7F.\n\nmultiplier *= 128\nif (multiplier > 128*128*128)\n    throw Error(Malformed Remaining Length)\nwhile ((encodedByte AND 128) != 0)"
+              }
+            }
+          ]
+        },
+        {
+          "id": "variable-header",
+          "name": "Variable header",
+          "order": 2,
+          "occurrence": "zero_or_one",
+          "definition": "Present in some MQTT Control Packet types between the fixed header and payload; its fields are defined by the selected message type."
+        },
+        {
+          "id": "payload",
+          "name": "Payload",
+          "order": 3,
+          "occurrence": "zero_or_one",
+          "definition": "Present in some MQTT Control Packet types as the third component in the defined packet order; its fields are defined by the selected message type."
+        }
+      ],
+      "type_selectors": [
+        {
+          "id": "control-packet-type",
+          "name": "MQTT Control Packet type",
+          "selection_method": "field_value",
+          "field_ref": "mqtt-control-packet/fixed-header/packet-type",
+          "definition": "The value in byte 1 bits 7-4 selects an MQTT Control Packet type and therefore the direction, flags interpretation, variable header, and payload format.",
+          "source": {
+            "section": "2.2.1 MQTT Control Packet type and 2.2.2 Flags",
+            "page": 16,
+            "locator": "page 16 lines 235-239; page 17 lines 239-248; page 18 table 2.2 continuation",
+            "excerpt": "Position: byte 1, bits 7-4. Represented as a 4-bit unsigned value, the values are listed in Table 2.1 - Control packet types.\n\nTable 2.1 - Control packet types:\nReserved 0 Forbidden Reserved\nCONNECT 1 Client to Server Client request to connect to Server\nCONNACK 2 Server to Client Connect acknowledgment\nPUBLISH 3 Client to Server or Server to Client Publish message\nPUBACK 4 Client to Server or Server to Client Publish acknowledgment\nPUBREC 5 Client to Server or Server to Client Publish received (assured delivery part 1)\nPUBREL 6 Client to Server or Server to Client Publish release (assured delivery part 2)\nPUBCOMP 7 Client to Server or Server to Client Publish complete (assured delivery part 3)\nSUBSCRIBE 8 Client to Server Client subscribe request\nSUBACK 9 Server to Client Subscribe acknowledgment\nUNSUBSCRIBE 10 Client to Server Unsubscribe request\nUNSUBACK 11 Server to Client Unsubscribe acknowledgment\nPINGREQ 12 Client to Server PING request\nPINGRESP 13 Server to Client PING response\nDISCONNECT 14 Client to Server Client is disconnecting\nReserved 15 Forbidden Reserved\n\nThe remaining bits [3-0] of byte 1 in the fixed header contain flags specific to each MQTT Control Packet type as listed in the Table 2.2 - Flag Bits below.\n\nTable 2.2 - Flag Bits:\nCONNECT Reserved 0 0 0 0\nCONNACK Reserved 0 0 0 0\nPUBLISH Used in MQTT 3.1.1 DUP QoS QoS RETAIN\nPUBACK Reserved 0 0 0 0\nPUBREC Reserved 0 0 0 0\nPUBREL Reserved 0 0 1 0\nPUBCOMP Reserved 0 0 0 0\nSUBSCRIBE Reserved 0 0 1 0\nSUBACK Reserved 0 0 0 0\nUNSUBSCRIBE Reserved 0 0 1 0\nUNSUBACK Reserved 0 0 0 0\nPINGREQ Reserved 0 0 0 0\nPINGRESP Reserved 0 0 0 0\nDISCONNECT Reserved 0 0 0 0"
+          },
+          "types": [
+            {
+              "id": "reserved-0",
+              "value": 0,
+              "name": "Reserved",
+              "status": "forbidden",
+              "definition": "Reserved Control Packet type value; use is forbidden.",
+              "directions": [],
+              "field_overrides": []
+            },
+            {
+              "id": "connect",
+              "value": 1,
+              "name": "CONNECT",
+              "status": "defined",
+              "definition": "Client request to connect to Server.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All CONNECT fixed-header flag bits are reserved and set to zero."
+                }
+              ],
+              "layout": [
+                {
+                  "id": "payload",
+                  "name": "Payload",
+                  "order": 3,
+                  "occurrence": "one",
+                  "definition": "The CONNECT payload begins with the Client Identifier; other payload fields are present according to the Connect Flags.",
+                  "fields": [
+                    {
+                      "id": "client-id",
+                      "name": "Client Identifier",
+                      "occurrence": "one",
+                      "location": "first field in the CONNECT payload",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Identifies the Client and the MQTT Session state associated with it.",
+                      "constraints": [
+                        "The Server MUST allow ClientIds between 1 and 23 UTF-8 encoded bytes that contain only 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ."
+                      ],
+                      "source": {
+                        "section": "3.1.3.1 Client Identifier",
+                        "page": 29,
+                        "locator": "lines 561-572",
+                        "excerpt": "The Client Identifier (ClientId) identifies the Client to the Server. Each Client connecting to the Server has a unique ClientId. The ClientId MUST be used by Clients and by Servers to identify state that they hold relating to this MQTT Session between the Client and the Server [MQTT-3.1.3-2].\n\nThe Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload [MQTT-3.1.3-3].\n\nThe ClientId MUST be a UTF-8 encoded string as defined in Section 1.5.3 [MQTT-3.1.3-4].\n\nThe Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters “0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ” [MQTT-3.1.3-5]."
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "connack",
+              "value": 2,
+              "name": "CONNACK",
+              "status": "defined",
+              "definition": "Connect acknowledgment.",
+              "directions": [
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All CONNACK fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "publish",
+              "value": 3,
+              "name": "PUBLISH",
+              "status": "defined",
+              "definition": "Publish message.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                },
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "representation": "bit 3 DUP; bits 2-1 QoS; bit 0 RETAIN",
+                  "definition": "PUBLISH assigns packet-specific meanings to all four fixed-header flag bits."
+                }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The PUBLISH variable header contains Topic Name followed by Packet Identifier when the Packet Identifier is present.",
+                  "fields": [
+                    {
+                      "id": "topic-name",
+                      "name": "Topic Name",
+                      "occurrence": "one",
+                      "location": "first field in the PUBLISH variable header",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Identifies the information channel to which payload data is published.",
+                      "constraints": [
+                        "The Topic Name MUST NOT contain wildcard characters."
+                      ],
+                      "source": {
+                        "section": "3.3.2.1 Topic Name",
+                        "page": 35,
+                        "locator": "lines 787-798",
+                        "excerpt": "The variable header contains the following fields in the order: Topic Name, Packet Identifier.\n\nThe Topic Name identifies the information channel to which payload data is published.\n\nThe Topic Name MUST be present as the first field in the PUBLISH Packet Variable header. It MUST be a UTF-8 encoded string [MQTT-3.3.2-1] as defined in section 1.5.3. The Topic Name in the PUBLISH Packet MUST NOT contain wildcard characters [MQTT-3.3.2-2]."
+                      }
+                    },
+                    {
+                      "id": "packet-identifier",
+                      "name": "Packet Identifier",
+                      "occurrence": "zero_or_one",
+                      "location": "after Topic Name; present when PUBLISH QoS is greater than 0",
+                      "representation": "non-zero MQTT Two Byte Integer",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Identifies a QoS 1 or QoS 2 PUBLISH exchange.",
+                      "constraints": [
+                        "The value MUST be non-zero when the field is present."
+                      ],
+                      "source": {
+                        "section": "2.3.1 Packet Identifier and 3.3.2.1 Topic Name",
+                        "page": 20,
+                        "locator": "page 20 lines 319-323; page 35 lines 787-792",
+                        "excerpt": "The variable header component of many of the Control Packet types includes a 2 byte Packet Identifier field. These Control Packets are PUBLISH (where QoS > 0), PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK.\n\nSUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier [MQTT-2.3.1-1].\n\nThe variable header contains the following fields in the order: Topic Name, Packet Identifier."
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "puback",
+              "value": 4,
+              "name": "PUBACK",
+              "status": "defined",
+              "definition": "Publish acknowledgment.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                },
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All PUBACK fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "pubrec",
+              "value": 5,
+              "name": "PUBREC",
+              "status": "defined",
+              "definition": "Publish received (assured delivery part 1).",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                },
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All PUBREC fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "pubrel",
+              "value": 6,
+              "name": "PUBREL",
+              "status": "defined",
+              "definition": "Publish release (assured delivery part 2).",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                },
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0010",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "PUBREL fixed-header flags use the reserved value 0010."
+                }
+              ]
+            },
+            {
+              "id": "pubcomp",
+              "value": 7,
+              "name": "PUBCOMP",
+              "status": "defined",
+              "definition": "Publish complete (assured delivery part 3).",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                },
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All PUBCOMP fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "subscribe",
+              "value": 8,
+              "name": "SUBSCRIBE",
+              "status": "defined",
+              "definition": "Client subscribe request.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0010",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "SUBSCRIBE fixed-header flags use the reserved value 0010."
+                }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The SUBSCRIBE variable header contains a Packet Identifier.",
+                  "fields": [
+                    {
+                      "id": "packet-identifier",
+                      "name": "Packet Identifier",
+                      "occurrence": "one",
+                      "location": "SUBSCRIBE variable header",
+                      "representation": "non-zero MQTT Two Byte Integer",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Identifies the SUBSCRIBE request and its corresponding SUBACK.",
+                      "constraints": [
+                        "The value MUST be non-zero."
+                      ],
+                      "source": {
+                        "section": "2.3.1 Packet Identifier",
+                        "page": 20,
+                        "locator": "lines 319-323",
+                        "excerpt": "The variable header component of many of the Control Packet types includes a 2 byte Packet Identifier field. These Control Packets are PUBLISH (where QoS > 0), PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK.\n\nSUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier [MQTT-2.3.1-1]."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "payload",
+                  "name": "Payload",
+                  "order": 3,
+                  "occurrence": "one",
+                  "definition": "The SUBSCRIBE payload contains one or more contiguous Topic Filter and Requested QoS pairs.",
+                  "fields": [
+                    {
+                      "id": "topic-filter-qos-pair",
+                      "name": "Topic Filter / Requested QoS pair",
+                      "occurrence": "one_or_more",
+                      "location": "SUBSCRIBE payload, pairs packed contiguously",
+                      "representation": "ordered composite value",
+                      "definition": "Each Topic Filter is immediately followed by its Requested QoS byte.",
+                      "constraints": [
+                        "A SUBSCRIBE payload MUST contain at least one pair."
+                      ],
+                      "source": {
+                        "section": "3.8.3 SUBSCRIBE Payload",
+                        "page": 41,
+                        "locator": "lines 930-940 and 948-951",
+                        "excerpt": "The payload of a SUBSCRIBE Packet contains a list of Topic Filters indicating the Topics to which the Client wants to subscribe. The Topic Filters in a SUBSCRIBE packet payload MUST be UTF-8 encoded strings as defined in Section 1.5.3 [MQTT-3.8.3-1]. Each filter is followed by a byte called the Requested QoS. This gives the maximum QoS level at which the Server can send Application Messages to the Client.\n\nThe payload of a SUBSCRIBE packet MUST contain at least one Topic Filter / QoS pair. A SUBSCRIBE packet with no payload is a protocol violation [MQTT-3.8.3-3].\n\nThe upper 6 bits of the Requested QoS byte are not used in the current version of the protocol. They are reserved for future use. The Server MUST treat a SUBSCRIBE packet as malformed and close the Network Connection if any of Reserved bits in the payload are non-zero, or QoS is not 0,1 or 2 [MQTT-3-8.3-4]."
+                      },
+                      "members": [
+                        {
+                          "id": "topic-filter",
+                          "name": "Topic Filter",
+                          "occurrence": "one",
+                          "location": "first member of each pair",
+                          "representation": "MQTT UTF-8 encoded string",
+                          "data_type_ref": "mqtt-utf8-encoded-string",
+                          "definition": "Identifies the set of Topics requested by the Subscription.",
+                          "constraints": []
+                        },
+                        {
+                          "id": "requested-qos",
+                          "name": "Requested QoS",
+                          "occurrence": "one",
+                          "location": "immediately after Topic Filter",
+                          "representation": "one byte",
+                          "definition": "Specifies the maximum QoS level at which the Server can send matching Application Messages.",
+                          "constraints": [
+                            "The upper six reserved bits MUST be zero.",
+                            "The Requested QoS value MUST be 0, 1, or 2."
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "suback",
+              "value": 9,
+              "name": "SUBACK",
+              "status": "defined",
+              "definition": "Subscribe acknowledgment.",
+              "directions": [
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All SUBACK fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "unsubscribe",
+              "value": 10,
+              "name": "UNSUBSCRIBE",
+              "status": "defined",
+              "definition": "Unsubscribe request.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0010",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "UNSUBSCRIBE fixed-header flags use the reserved value 0010."
+                }
+              ]
+            },
+            {
+              "id": "unsuback",
+              "value": 11,
+              "name": "UNSUBACK",
+              "status": "defined",
+              "definition": "Unsubscribe acknowledgment.",
+              "directions": [
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All UNSUBACK fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "pingreq",
+              "value": 12,
+              "name": "PINGREQ",
+              "status": "defined",
+              "definition": "PING request.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All PINGREQ fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "pingresp",
+              "value": 13,
+              "name": "PINGRESP",
+              "status": "defined",
+              "definition": "PING response.",
+              "directions": [
+                {
+                  "from": "Server",
+                  "to": "Client"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All PINGRESP fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "disconnect",
+              "value": 14,
+              "name": "DISCONNECT",
+              "status": "defined",
+              "definition": "Client is disconnecting.",
+              "directions": [
+                {
+                  "from": "Client",
+                  "to": "Server"
+                }
+              ],
+              "field_overrides": [
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/flags",
+                  "value": "0000",
+                  "representation": "4-bit fixed reserved value",
+                  "definition": "All DISCONNECT fixed-header flag bits are reserved and set to zero."
+                }
+              ]
+            },
+            {
+              "id": "reserved-15",
+              "value": 15,
+              "name": "Reserved",
+              "status": "forbidden",
+              "definition": "Reserved Control Packet type value; use is forbidden.",
+              "directions": [],
+              "field_overrides": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
