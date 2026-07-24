@@ -1,0 +1,822 @@
+{
+  "$schema": "https://NePA.local/schemas/specs-requirements.schema.json",
+  "gold_set_id": "mqtt-3.1.1-broker-mvp-v1",
+  "description": "Human-annotated MQTT 3.1.1 Broker MVP requirements. Scope: TCP transport, at least two concurrent clients, QoS 0 publication, CleanSession=1, in-memory online subscriptions, exact topic filters, PING keep-alive, and graceful disconnect. Persistent sessions, QoS 1/2 delivery, retained messages, Will messages, authentication, TLS, WebSocket, and wildcard subscriptions are outside this MVP. Confidence values remain below 1.0 until manual review.",
+  "source_sha256": "c45a1f4f3d0d9a66b3f890dce49a1e2ddeae69cfd67f907a5b6e97a6d64a0b54",
+  "requirements": [
+    {
+      "id": "MQTT-2.2.2-1",
+      "source": {
+        "section": "2.2.2 Flags",
+        "page": 17,
+        "locator": "lines 242-246",
+        "excerpt": "The remaining bits [3-0] of byte 1 in the fixed header contain flags specific to each MQTT Control Packet type as listed in the Table 2.2 - Flag Bits below. Where a flag bit is marked as “Reserved” in Table 2.2 - Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If invalid flags are received, the receiver MUST close the Network Connection [MQTT-2.2.2-2]. See Section 4.8 for details about handling errors."
+      },
+      "modality": "MUST",
+      "statement": "Set every reserved fixed-header flag to the value defined for its MQTT Control Packet type.",
+      "preconditions": [],
+      "constraints": [
+        "Table 2.2 defines the required four-bit value for each packet type."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.99
+    },
+    {
+      "id": "MQTT-2.2.2-2",
+      "source": {
+        "section": "2.2.2 Flags",
+        "page": 17,
+        "locator": "lines 242-246",
+        "excerpt": "The remaining bits [3-0] of byte 1 in the fixed header contain flags specific to each MQTT Control Packet type as listed in the Table 2.2 - Flag Bits below. Where a flag bit is marked as “Reserved” in Table 2.2 - Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If invalid flags are received, the receiver MUST close the Network Connection [MQTT-2.2.2-2]. See Section 4.8 for details about handling errors."
+      },
+      "modality": "MUST",
+      "statement": "Close only the offending Network Connection when a fixed header contains invalid reserved flags.",
+      "preconditions": [
+        "A Control Packet with invalid fixed-header flags was received."
+      ],
+      "constraints": [
+        "Other client connections and the broker process remain operational."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.2.2-1",
+        "MQTT-4.8.0-1"
+      ],
+      "confidence": 0.97
+    },
+    {
+      "id": "MQTT-2.2.3-1",
+      "source": {
+        "section": "2.2.3 Remaining Length",
+        "page": 18,
+        "locator": "lines 257-259",
+        "excerpt": "The Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length."
+      },
+      "modality": "REQUIRED",
+      "statement": "Compute Remaining Length from the variable header and payload only when encoding a Control Packet.",
+      "preconditions": [],
+      "constraints": [
+        "Do not include bytes occupied by the Remaining Length field."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.95
+    },
+    {
+      "id": "MQTT-2.2.3-2",
+      "source": {
+        "section": "2.2.3 Remaining Length",
+        "page": 18,
+        "locator": "lines 261-265",
+        "excerpt": "The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. Larger values are handled as follows. The least significant seven bits of each byte encode the data, and the most significant bit is used to indicate that there are following bytes in the representation. Thus each byte encodes 128 values and a “continuation bit”. The maximum number of bytes in the Remaining Length field is four."
+      },
+      "modality": "REQUIRED",
+      "statement": "Encode and accept no more than four bytes for the Remaining Length field.",
+      "preconditions": [],
+      "constraints": [
+        "The maximum representable value is 268435455.",
+        "A continuation bit on the fourth byte makes the packet malformed."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.8.0-1"
+      ],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-7.1.1-1",
+      "source": {
+        "section": "7.1.1 MQTT Server conformance clause",
+        "page": 79,
+        "locator": "conformance statement MQTT-7.1.1-1",
+        "excerpt": "A conformant Server MUST support the use of one or more underlying transport protocols that provide an ordered, lossless, stream of bytes from the Client to Server and Server to Client."
+      },
+      "modality": "MUST",
+      "statement": "Listen for and accept MQTT client connections over TCP, providing an ordered, lossless, bidirectional byte stream.",
+      "preconditions": [
+        "The broker process has started with a configured listen address and port."
+      ],
+      "constraints": [
+        "TCP is the only transport required by this MVP."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.9
+    },
+    {
+      "id": "MQTT-1.2.0-1",
+      "source": {
+        "section": "1.2 Terminology",
+        "page": 9,
+        "locator": "page 9 lines 30-34 and page 10 lines 35-36",
+        "excerpt": "Server:\nA program or device that acts as an intermediary between Clients which publish Application Messages and Clients which have made Subscriptions. A Server\n\nAccepts Network Connections from Clients.\nAccepts Application Messages published by Clients.\nProcesses Subscribe and Unsubscribe requests from Clients.\nForwards Application Messages that match Client Subscriptions."
+      },
+      "modality": "REQUIRED",
+      "statement": "Maintain at least two simultaneous, independent client connections so that one publisher and one subscriber can be connected concurrently.",
+      "preconditions": [
+        "The TCP listener is active."
+      ],
+      "constraints": [
+        "Connection state, input buffers, output buffers, and failures are isolated per client."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-7.1.1-1"
+      ],
+      "confidence": 0.74
+    },
+    {
+      "id": "MQTT-2.1.0-1",
+      "source": {
+        "section": "2.1 Structure of an MQTT Control Packet",
+        "page": 16,
+        "locator": "lines 223-226, 229-231, and 235-237",
+        "excerpt": "The MQTT protocol works by exchanging a series of MQTT Control Packets in a defined way. This section describes the format of these packets. An MQTT Control Packet consists of up to three parts, always in the following order as illustrated in Figure 2.1 - Structure of an MQTT Control Packet.\n\nEach MQTT Control Packet contains a fixed header. Figure 2.2 - Fixed header format illustrates the fixed header format.\n\nPosition: byte 1, bits 7-4. Represented as a 4-bit unsigned value, the values are listed in Table 2.1 - Control packet types."
+      },
+      "modality": "REQUIRED",
+      "statement": "Incrementally frame MQTT Control Packets from the TCP byte stream and dispatch each complete packet by Control Packet type.",
+      "preconditions": [
+        "Bytes have been received from an accepted TCP connection."
+      ],
+      "constraints": [
+        "A packet may arrive across multiple reads.",
+        "One read may contain multiple packets.",
+        "Unconsumed bytes remain buffered for the next decode operation."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.2.3-1",
+        "MQTT-2.2.3-2"
+      ],
+      "confidence": 0.78
+    },
+    {
+      "id": "MQTT-1.5.2-1",
+      "source": {
+        "section": "1.5.2 Integer data values",
+        "page": 13,
+        "locator": "lines 173-176",
+        "excerpt": "Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte. This means that a 16-bit word is presented on the network as Most Significant Byte (MSB), followed by Least Significant Byte (LSB)."
+      },
+      "modality": "REQUIRED",
+      "statement": "Decode and encode MQTT 16-bit integer fields in big-endian byte order.",
+      "preconditions": [],
+      "constraints": [
+        "This applies to UTF-8 lengths, Keep Alive, and Packet Identifiers used by the MVP."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-1.5.3-1",
+      "source": {
+        "section": "1.5.3 UTF-8 encoded strings",
+        "page": 14,
+        "locator": "lines 190-197",
+        "excerpt": "The character data in a UTF-8 encoded string MUST be well-formed UTF-8 as defined by the Unicode specification [Unicode] and restated in RFC 3629 [RFC3629]. In particular this data MUST NOT include encodings of code points between U+D800 and U+DFFF. If a Server or Client receives a Control Packet containing ill-formed UTF-8 it MUST close the Network Connection [MQTT-1.5.3-1].\n\nA UTF-8 encoded string MUST NOT include an encoding of the null character U+0000. If a receiver (Server or Client) receives a Control Packet containing U+0000 it MUST close the Network Connection [MQTT-1.5.3-2]."
+      },
+      "modality": "MUST",
+      "statement": "Decode two-byte-length-prefixed UTF-8 strings and close the offending connection when a string is ill-formed or contains U+0000.",
+      "preconditions": [
+        "A Control Packet field is defined as an MQTT UTF-8 encoded string."
+      ],
+      "constraints": [
+        "The encoded string length cannot exceed 65535 bytes."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-1.5.3-2"
+      ],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-3.1.0-1",
+      "source": {
+        "section": "3.1 CONNECT",
+        "page": 23,
+        "locator": "lines 363-366",
+        "excerpt": "After a Network Connection is established by a Client to a Server, the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1]."
+      },
+      "modality": "MUST",
+      "statement": "Require CONNECT to be the first MQTT Control Packet received on each Network Connection.",
+      "preconditions": [
+        "A new Network Connection has been accepted."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.8.0-1"
+      ],
+      "confidence": 0.99
+    },
+    {
+      "id": "MQTT-3.1.0-2",
+      "source": {
+        "section": "3.1 CONNECT",
+        "page": 23,
+        "locator": "lines 368-370",
+        "excerpt": "A Client can only send the CONNECT Packet once over a Network Connection. The Server MUST process a second CONNECT Packet sent from a Client as a protocol violation and disconnect the Client [MQTT-3.1.0-2]."
+      },
+      "modality": "MUST",
+      "statement": "Treat a second CONNECT on the same Network Connection as a protocol violation and disconnect that client.",
+      "preconditions": [
+        "A valid CONNECT has already been processed on the connection."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.8.0-1"
+      ],
+      "confidence": 0.99
+    },
+    {
+      "id": "MQTT-3.1.2-2",
+      "source": {
+        "section": "3.1.2.1 Protocol Name and 3.1.2.2 Protocol Level",
+        "page": 24,
+        "locator": "lines 387-392 and 399-402",
+        "excerpt": "The Protocol Name is a UTF-8 encoded string that represents the protocol name “MQTT”, capitalized as shown. The string, its offset and length will not be changed by future versions of the MQTT specification.\n\nIf the protocol name is incorrect the Server MAY disconnect the Client, or it MAY continue processing the CONNECT packet in accordance with some other specification. In the latter case, the Server MUST NOT continue to process the CONNECT packet in line with this specification [MQTT-3.1.2-1].\n\nThe 8 bit unsigned value that represents the revision level of the protocol used by the Client. The value of the Protocol Level field for the version 3.1.1 of the protocol is 4 (0x04). The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 (unacceptable protocol level) and then disconnect the Client if the Protocol Level is not supported by the Server [MQTT-3.1.2-2]."
+      },
+      "modality": "MUST",
+      "statement": "Accept the MQTT 3.1.1 protocol name \"MQTT\" and Protocol Level 4; for another level send CONNACK 0x01 and then disconnect.",
+      "preconditions": [
+        "A CONNECT packet is being validated."
+      ],
+      "constraints": [
+        "An incorrect protocol name is not processed as MQTT 3.1.1."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.1.2-1",
+        "MQTT-3.2.2-5"
+      ],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-3.1.2-3",
+      "source": {
+        "section": "3.1.2.3 Connect Flags",
+        "page": 24,
+        "locator": "lines 403-408",
+        "excerpt": "The Connect Flags byte contains a number of parameters specifying the behavior of the MQTT connection. It also indicates the presence or absence of fields in the payload.\n\nThe Server MUST validate that the reserved flag in the CONNECT Control Packet is set to zero and disconnect the Client if it is not zero [MQTT-3.1.2-3]."
+      },
+      "modality": "MUST",
+      "statement": "Parse Connect Flags, require the reserved bit to be zero, and enforce the Broker MVP connection profile.",
+      "preconditions": [
+        "A CONNECT packet is being validated."
+      ],
+      "constraints": [
+        "This MVP accepts CleanSession=1.",
+        "Will Flag, Will QoS, and Will Retain must all be zero.",
+        "Username and Password authentication is outside this MVP; fields indicated by their flags are still decoded safely."
+      ],
+      "exceptions": [
+        "A connection outside the declared MVP profile may be rejected without claiming full MQTT 3.1.1 conformance."
+      ],
+      "references": [
+        "MQTT-3.1.2-6",
+        "MQTT-3.1.2-11",
+        "MQTT-3.1.2-15"
+      ],
+      "confidence": 0.8
+    },
+    {
+      "id": "MQTT-3.1.2-6",
+      "source": {
+        "section": "3.1.2.4 Clean Session",
+        "page": 25,
+        "locator": "lines 425-427",
+        "excerpt": "If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one. This Session lasts as long as the Network Connection. State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6]."
+      },
+      "modality": "MUST",
+      "statement": "For an accepted CleanSession=1 connection, create a connection-scoped session and discard any earlier session state for the ClientId.",
+      "preconditions": [
+        "CONNECT validation succeeded with CleanSession=1."
+      ],
+      "constraints": [
+        "Subscriptions in this MVP are in memory and last no longer than the Network Connection."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-3.1.3-3",
+      "source": {
+        "section": "3.1.3.1 Client Identifier",
+        "page": 29,
+        "locator": "lines 561-572",
+        "excerpt": "The Client Identifier (ClientId) identifies the Client to the Server. Each Client connecting to the Server has a unique ClientId. The ClientId MUST be used by Clients and by Servers to identify state that they hold relating to this MQTT Session between the Client and the Server [MQTT-3.1.3-2].\n\nThe Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload [MQTT-3.1.3-3].\n\nThe ClientId MUST be a UTF-8 encoded string as defined in Section 1.5.3 [MQTT-3.1.3-4].\n\nThe Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters “0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ” [MQTT-3.1.3-5]."
+      },
+      "modality": "MUST",
+      "statement": "Decode ClientId as the first CONNECT payload field and accept valid ClientIds of 1 to 23 bytes using the required alphanumeric character set.",
+      "preconditions": [
+        "A CONNECT payload is being decoded."
+      ],
+      "constraints": [
+        "The ClientId is used as the key for the connection-scoped session."
+      ],
+      "exceptions": [
+        "Zero-byte ClientIds and extended ClientId forms are outside this MVP."
+      ],
+      "references": [
+        "MQTT-3.1.3-2",
+        "MQTT-3.1.3-4",
+        "MQTT-3.1.3-5"
+      ],
+      "confidence": 0.91
+    },
+    {
+      "id": "MQTT-3.1.4-2",
+      "source": {
+        "section": "3.1.4 Response",
+        "page": 30,
+        "locator": "lines 631-637",
+        "excerpt": "If validation is successful the Server performs the following steps.\n\n1. If the ClientId represents a Client already connected to the Server then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].\n\n2. The Server MUST perform the processing of CleanSession that is described in section 3.1.2.4 [MQTT-3.1.4-3]."
+      },
+      "modality": "MUST",
+      "statement": "Disconnect an existing client connection before accepting a new connection with the same ClientId.",
+      "preconditions": [
+        "CONNECT validation succeeded.",
+        "The ClientId is already associated with an active connection."
+      ],
+      "constraints": [
+        "Cleanup of the old CleanSession=1 connection must not remove state belonging to the new connection."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.1.2-6"
+      ],
+      "confidence": 0.95
+    },
+    {
+      "id": "MQTT-3.1.4-4",
+      "source": {
+        "section": "3.1.4 Response and 3.2 CONNACK",
+        "page": 30,
+        "locator": "page 30 lines 631-640; page 31 lines 655-658; page 32 lines 679-681",
+        "excerpt": "If validation is successful the Server performs the following steps.\n\n1. If the ClientId represents a Client already connected to the Server then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].\n\n2. The Server MUST perform the processing of CleanSession that is described in section 3.1.2.4 [MQTT-3.1.4-3].\n\n3. The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].\n\nThe CONNACK Packet is the packet sent by the Server in response to a CONNECT Packet received from a Client. The first packet sent from the Server to the Client MUST be a CONNACK Packet [MQTT-3.2.0-1].\n\nIf the Server accepts a connection with CleanSession set to 1, the Server MUST set Session Present to 0 in the CONNACK packet in addition to setting a zero return code in the CONNACK packet [MQTT-3.2.2-1]."
+      },
+      "modality": "MUST",
+      "statement": "On successful CONNECT validation, send CONNACK as the first server packet with return code 0x00 and Session Present set to 0.",
+      "preconditions": [
+        "CONNECT validation succeeded for the CleanSession=1 MVP profile."
+      ],
+      "constraints": [
+        "CONNACK Remaining Length is 2 and it has no payload."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.2.0-1",
+        "MQTT-3.2.2-1"
+      ],
+      "confidence": 0.93
+    },
+    {
+      "id": "MQTT-3.1.4-5",
+      "source": {
+        "section": "3.1.4 Response",
+        "page": 31,
+        "locator": "lines 644-647",
+        "excerpt": "Clients are allowed to send further Control Packets immediately after sending a CONNECT Packet. If the Server rejects the CONNECT, it MUST NOT process any data sent by the Client after the CONNECT Packet [MQTT-3.1.4-5]."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not dispatch or process packets following a rejected CONNECT on the same Network Connection.",
+      "preconditions": [
+        "The CONNECT packet was rejected."
+      ],
+      "constraints": [
+        "Close the rejected connection as required by the applicable rejection path."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.98
+    },
+    {
+      "id": "MQTT-2.3.1-1",
+      "source": {
+        "section": "2.3.1 Packet Identifier",
+        "page": 20,
+        "locator": "lines 319-331",
+        "excerpt": "The variable header component of many of the Control Packet types includes a 2 byte Packet Identifier field. These Control Packets are PUBLISH (where QoS > 0), PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK.\n\nSUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier [MQTT-2.3.1-1]. Each time a Client sends a new packet of one of these types it MUST assign it a currently unused Packet Identifier [MQTT-2.3.1-2]. If a Client re-sends a particular Control Packet, then it MUST use the same Packet Identifier in subsequent re-sends of that packet. The Packet Identifier becomes available for reuse after the Client has processed the corresponding acknowledgement packet. In the case of a QoS 1 PUBLISH this is the corresponding PUBACK; in the case of QoS 2 it is PUBCOMP. For SUBSCRIBE or UNSUBSCRIBE it is the corresponding SUBACK or UNSUBACK [MQTT-2.3.1-3]. The same conditions apply to a Server when it sends a PUBLISH with QoS > 0 [MQTT-2.3.1-4]."
+      },
+      "modality": "MUST",
+      "statement": "Require a non-zero 16-bit Packet Identifier in every SUBSCRIBE and UNSUBSCRIBE packet.",
+      "preconditions": [
+        "A SUBSCRIBE or UNSUBSCRIBE packet is being decoded."
+      ],
+      "constraints": [
+        "QoS 0 PUBLISH packets do not contain a Packet Identifier."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.3.1-5"
+      ],
+      "confidence": 0.98
+    },
+    {
+      "id": "MQTT-3.8.3-3",
+      "source": {
+        "section": "3.8.3 SUBSCRIBE Payload",
+        "page": 41,
+        "locator": "lines 930-940",
+        "excerpt": "The payload of a SUBSCRIBE Packet contains a list of Topic Filters indicating the Topics to which the Client wants to subscribe. The Topic Filters in a SUBSCRIBE packet payload MUST be UTF-8 encoded strings as defined in Section 1.5.3 [MQTT-3.8.3-1]. A Server SHOULD support Topic filters that contain the wildcard characters defined in Section 4.7.1. If it chooses not to support topic filters that contain wildcard characters it MUST reject any Subscription request whose filter contains them [MQTT-3.8.3-2]. Each filter is followed by a byte called the Requested QoS. This gives the maximum QoS level at which the Server can send Application Messages to the Client.\n\nThe payload of a SUBSCRIBE packet MUST contain at least one Topic Filter / QoS pair. A SUBSCRIBE packet with no payload is a protocol violation [MQTT-3.8.3-3]. See section 4.8 for information about handling errors."
+      },
+      "modality": "MUST",
+      "statement": "Decode at least one contiguous UTF-8 Topic Filter and Requested QoS pair from every SUBSCRIBE payload.",
+      "preconditions": [
+        "A SUBSCRIBE packet has passed fixed-header validation."
+      ],
+      "constraints": [
+        "An empty SUBSCRIBE payload is a protocol violation."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.8.3-1"
+      ],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-3.8.3-4",
+      "source": {
+        "section": "3.8.3 SUBSCRIBE Payload",
+        "page": 41,
+        "locator": "lines 931-937 and 948-951",
+        "excerpt": "The payload of a SUBSCRIBE Packet contains a list of Topic Filters indicating the Topics to which the Client wants to subscribe. The Topic Filters in a SUBSCRIBE packet payload MUST be UTF-8 encoded strings as defined in Section 1.5.3 [MQTT-3.8.3-1]. A Server SHOULD support Topic filters that contain the wildcard characters defined in Section 4.7.1. If it chooses not to support topic filters that contain wildcard characters it MUST reject any Subscription request whose filter contains them [MQTT-3.8.3-2]. Each filter is followed by a byte called the Requested QoS. This gives the maximum QoS level at which the Server can send Application Messages to the Client.\n\nThe upper 6 bits of the Requested QoS byte are not used in the current version of the protocol. They are reserved for future use. The Server MUST treat a SUBSCRIBE packet as malformed and close the Network Connection if any of Reserved bits in the payload are non-zero, or QoS is not 0,1 or 2 [MQTT-3-8.3-4]."
+      },
+      "modality": "MUST",
+      "statement": "Validate each Requested QoS byte and reject wildcard Topic Filters that are outside the exact-match MVP profile.",
+      "preconditions": [
+        "A Topic Filter / Requested QoS pair has been decoded."
+      ],
+      "constraints": [
+        "Non-zero reserved bits or Requested QoS outside 0, 1, and 2 make the packet malformed.",
+        "The MVP grants QoS 0 for accepted exact filters.",
+        "A filter containing '+' or '#' receives SUBACK failure code 0x80."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.8.3-2",
+        "MQTT-3.9.3-2"
+      ],
+      "confidence": 0.88
+    },
+    {
+      "id": "MQTT-3.8.4-3",
+      "source": {
+        "section": "3.8.4 SUBSCRIBE Response",
+        "page": 43,
+        "locator": "lines 967-978",
+        "excerpt": "If a Server receives a SUBSCRIBE Packet containing a Topic Filter that is identical to an existing Subscription’s Topic Filter then it MUST completely replace that existing Subscription with a new Subscription. The Topic Filter in the new Subscription will be identical to that in the previous Subscription, although its maximum QoS value could be different. Any existing retained messages matching the Topic Filter MUST be re-sent, but the flow of publications MUST NOT be interrupted [MQTT-3.8.4-3].\n\nWhere the Topic Filter is not identical to any existing Subscription’s filter, a new Subscription is created and all matching retained messages are sent.\n\nIf a Server receives a SUBSCRIBE packet that contains multiple Topic Filters it MUST handle that packet as if it had received a sequence of multiple SUBSCRIBE packets, except that it combines their responses into a single SUBACK response [MQTT-3.8.4-4]."
+      },
+      "modality": "MUST",
+      "statement": "Create an in-memory subscription for each accepted exact Topic Filter and completely replace an existing identical filter for the same client.",
+      "preconditions": [
+        "The Topic Filter has been accepted."
+      ],
+      "constraints": [
+        "Subscriptions are associated with the current CleanSession=1 connection.",
+        "The granted maximum QoS is 0 for this MVP."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-3.8.4-1",
+      "source": {
+        "section": "3.8.4 Response and 3.9.3 SUBACK Payload",
+        "page": 42,
+        "locator": "lines 959-962; page 43 lines 980-982; page 44 lines 1023-1037",
+        "excerpt": "When the Server receives a SUBSCRIBE Packet from a Client, the Server MUST respond with a SUBACK Packet [MQTT-3.8.4-1]. The SUBACK Packet MUST have the same Packet Identifier as the SUBSCRIBE Packet that it is acknowledging [MQTT-3.8.4-2].\n\nThe SUBACK Packet sent by the Server to the Client MUST contain a return code for each Topic Filter/QoS pair. This return code MUST either show the maximum QoS that was granted for that Subscription or indicate that the subscription failed [MQTT-3.8.4-5]. The Server might grant a lower maximum QoS than the subscriber requested. The QoS of Payload Messages sent in response to a Subscription MUST be the minimum of the QoS of the originally published message and the maximum QoS granted by the Server. The server is permitted to send duplicate copies of a message to a subscriber in the case where the original message was published with QoS 1 and the maximum QoS granted was QoS 0 [MQTT-3.8.4-6].\n\nThe payload contains a list of return codes. Each return code corresponds to a Topic Filter in the SUBSCRIBE Packet being acknowledged. The order of return codes in the SUBACK Packet MUST match the order of Topic Filters in the SUBSCRIBE Packet [MQTT-3.9.3-1].\n\nAllowed return codes:\n0x00 - Success - Maximum QoS 0\n0x01 - Success - Maximum QoS 1\n0x02 - Success - Maximum QoS 2\n0x80 - Failure\n\nSUBACK return codes other than 0x00, 0x01, 0x02 and 0x80 are reserved and MUST NOT be used [MQTT-3.9.3-2]."
+      },
+      "modality": "MUST",
+      "statement": "Send one SUBACK for every valid SUBSCRIBE using the same Packet Identifier and one ordered return code per requested filter.",
+      "preconditions": [
+        "A syntactically valid SUBSCRIBE packet has been processed."
+      ],
+      "constraints": [
+        "Use 0x00 for an accepted QoS 0 subscription.",
+        "Use 0x80 for a rejected filter.",
+        "Return-code order matches Topic Filter order."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.8.4-2",
+        "MQTT-3.8.4-5",
+        "MQTT-3.9.3-1",
+        "MQTT-3.9.3-2"
+      ],
+      "confidence": 0.91
+    },
+    {
+      "id": "MQTT-4.3.1-1",
+      "source": {
+        "section": "4.3.1 QoS 0: At most once delivery",
+        "page": 52,
+        "locator": "lines 1225-1234",
+        "excerpt": "The message is delivered according to the capabilities of the underlying network. No response is sent by the receiver and no retry is performed by the sender. The message arrives at the receiver either once or not at all.\n\nIn the QoS 0 delivery protocol, the Sender\nMUST send a PUBLISH packet with QoS=0, DUP=0 [MQTT-4.3.1-1].\n\nIn the QoS 0 delivery protocol, the Receiver\nAccepts ownership of the message when it receives the PUBLISH packet."
+      },
+      "modality": "MUST",
+      "statement": "Accept and forward MVP PUBLISH packets at QoS 0 with DUP set to 0, without sending a publish acknowledgement.",
+      "preconditions": [
+        "The client has completed CONNECT successfully."
+      ],
+      "constraints": [
+        "QoS 1 and QoS 2 delivery are outside this MVP.",
+        "A QoS 0 PUBLISH contains no Packet Identifier."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.3.1-5",
+        "MQTT-3.3.1-2",
+        "MQTT-3.3.4-1"
+      ],
+      "confidence": 0.9
+    },
+    {
+      "id": "MQTT-3.3.2-1",
+      "source": {
+        "section": "3.3.2.1 Topic Name",
+        "page": 35,
+        "locator": "lines 787-798",
+        "excerpt": "The variable header contains the following fields in the order: Topic Name, Packet Identifier.\n\nThe Topic Name identifies the information channel to which payload data is published.\n\nThe Topic Name MUST be present as the first field in the PUBLISH Packet Variable header. It MUST be a UTF-8 encoded string [MQTT-3.3.2-1] as defined in section 1.5.3. The Topic Name in the PUBLISH Packet MUST NOT contain wildcard characters [MQTT-3.3.2-2]. The Topic Name in a PUBLISH Packet sent by a Server to a subscribing Client MUST match the Subscription’s Topic Filter according to the matching process defined in Section 4.7 [MQTT-3.3.2-3]. However, since the Server is permitted to override the Topic Name, it might not be the same as the Topic Name in the original PUBLISH Packet."
+      },
+      "modality": "MUST",
+      "statement": "Decode a non-empty UTF-8 Topic Name as the first PUBLISH variable-header field and reject Topic Names containing '+' or '#'.",
+      "preconditions": [
+        "A PUBLISH packet is being decoded."
+      ],
+      "constraints": [
+        "Topic matching is case-sensitive and performs no normalization."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.3.2-2",
+        "MQTT-4.7.3-1",
+        "MQTT-4.7.3-4"
+      ],
+      "confidence": 0.92
+    },
+    {
+      "id": "MQTT-3.3.1-12",
+      "source": {
+        "section": "3.3.1.3 RETAIN",
+        "page": 35,
+        "locator": "lines 778-779",
+        "excerpt": "If the RETAIN flag is 0, in a PUBLISH Packet sent by a Client to a Server, the Server MUST NOT store the message and MUST NOT remove or replace any existing retained message [MQTT-3.3.1-12]."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not store a QoS 0 PUBLISH as a retained message when RETAIN is 0.",
+      "preconditions": [
+        "The broker receives an in-scope PUBLISH with RETAIN=0."
+      ],
+      "constraints": [
+        "Retained-message support and RETAIN=1 inputs are outside this MVP."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-4.5.0-1",
+      "source": {
+        "section": "4.5 Message receipt",
+        "page": 56,
+        "locator": "lines 1325-1328",
+        "excerpt": "When a Server takes ownership of an incoming Application Message it MUST add it to the Session state of those clients that have matching Subscriptions. Matching rules are defined in Section 4.7 [MQTT-4.5.0-1]."
+      },
+      "modality": "MUST",
+      "statement": "Route each accepted QoS 0 Application Message to every currently connected client with an exact matching subscription.",
+      "preconditions": [
+        "A valid in-scope QoS 0 PUBLISH has been received."
+      ],
+      "constraints": [
+        "Match Topic Name and Topic Filter character-for-character without normalization.",
+        "A client may receive its own publication if it has a matching subscription.",
+        "Each target connection is handled independently."
+      ],
+      "exceptions": [
+        "Disconnected clients have no session or offline queue in this MVP."
+      ],
+      "references": [
+        "MQTT-3.3.2-3",
+        "MQTT-4.7.3-4"
+      ],
+      "confidence": 0.89
+    },
+    {
+      "id": "MQTT-3.3.1-9",
+      "source": {
+        "section": "3.3.1.1 DUP and 3.3.1.3 RETAIN",
+        "page": 34,
+        "locator": "lines 731-734 and 766-769",
+        "excerpt": "The value of the DUP flag from an incoming PUBLISH packet is not propagated when the PUBLISH Packet is sent to subscribers by the Server. The DUP flag in the outgoing PUBLISH packet is set independently to the incoming PUBLISH packet, its value MUST be determined solely by whether the outgoing PUBLISH packet is a retransmission [MQTT-3.3.1-3].\n\nWhen sending a PUBLISH Packet to a Client the Server MUST set the RETAIN flag to 1 if a message is sent as a result of a new subscription being made by a Client [MQTT-3.3.1-8]. It MUST set the RETAIN flag to 0 when a PUBLISH Packet is sent to a Client because it matches an established subscription regardless of how the flag was set in the message it received [MQTT-3.3.1-9]."
+      },
+      "modality": "MUST",
+      "statement": "Serialize each routed PUBLISH with the original Topic Name and payload, QoS 0, DUP=0, RETAIN=0, and a correctly encoded Remaining Length.",
+      "preconditions": [
+        "An Application Message is being forwarded because it matched an established subscription."
+      ],
+      "constraints": [
+        "Write operations for a single connection must not interleave bytes from different Control Packets."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.2.3-1",
+        "MQTT-3.3.1-2",
+        "MQTT-3.3.2-3"
+      ],
+      "confidence": 0.82
+    },
+    {
+      "id": "MQTT-3.10.3-2",
+      "source": {
+        "section": "3.10.2 Variable header and 3.10.3 Payload",
+        "page": 45,
+        "locator": "lines 1055-1065",
+        "excerpt": "The variable header contains a Packet Identifier. Section 2.3.1 provides more information about Packet Identifiers.\n\nThe payload for the UNSUBSCRIBE Packet contains the list of Topic Filters that the Client wishes to unsubscribe from. The Topic Filters in an UNSUBSCRIBE packet MUST be UTF-8 encoded strings as defined in Section 1.5.3, packed contiguously [MQTT-3.10.3-1].\n\nThe Payload of an UNSUBSCRIBE packet MUST contain at least one Topic Filter. An UNSUBSCRIBE packet with no payload is a protocol violation [MQTT-3.10.3-2]. See section 4.8 for information about handling errors."
+      },
+      "modality": "MUST",
+      "statement": "Decode a non-zero Packet Identifier and at least one contiguous UTF-8 Topic Filter from every UNSUBSCRIBE packet.",
+      "preconditions": [
+        "An UNSUBSCRIBE packet has passed fixed-header validation."
+      ],
+      "constraints": [
+        "An empty UNSUBSCRIBE payload is a protocol violation."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-2.3.1-1",
+        "MQTT-3.10.3-1"
+      ],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-3.10.4-1",
+      "source": {
+        "section": "3.10.4 Response",
+        "page": 46,
+        "locator": "lines 1073-1083",
+        "excerpt": "The Topic Filters (whether they contain wildcards or not) supplied in an UNSUBSCRIBE packet MUST be compared character-by-character with the current set of Topic Filters held by the Server for the Client. If any filter matches exactly then its owning Subscription is deleted, otherwise no additional processing occurs [MQTT-3.10.4-1].\n\nIf a Server deletes a Subscription:\nIt MUST stop adding any new messages for delivery to the Client [MQTT-3.10.4-2].\nIt MUST complete the delivery of any QoS 1 or QoS 2 messages which it has started to send to the Client [MQTT-3.10.4-3].\nIt MAY continue to deliver any existing messages buffered for delivery to the Client."
+      },
+      "modality": "MUST",
+      "statement": "Delete each character-for-character matching subscription and stop routing new matching messages; treat an absent subscription as a no-op.",
+      "preconditions": [
+        "A valid UNSUBSCRIBE request is being processed."
+      ],
+      "constraints": [
+        "Only subscriptions owned by the requesting connection are considered."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.10.4-2"
+      ],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-3.10.4-4",
+      "source": {
+        "section": "3.10.4 Response",
+        "page": 47,
+        "locator": "lines 1085-1088",
+        "excerpt": "The Server MUST respond to an UNSUBSUBCRIBE request by sending an UNSUBACK packet. The UNSUBACK Packet MUST have the same Packet Identifier as the UNSUBSCRIBE Packet. Even where no Topic Subscriptions are deleted, the Server MUST respond with an UNSUBACK."
+      },
+      "modality": "MUST",
+      "statement": "Send exactly one UNSUBACK with the request Packet Identifier for every valid UNSUBSCRIBE, even when no subscription was deleted.",
+      "preconditions": [
+        "A syntactically valid UNSUBSCRIBE packet has been processed."
+      ],
+      "constraints": [
+        "UNSUBACK Remaining Length is 2 and it has no payload."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.10.4-5",
+        "MQTT-3.10.4-6"
+      ],
+      "confidence": 0.96
+    },
+    {
+      "id": "MQTT-3.12.4-1",
+      "source": {
+        "section": "3.12.4 PINGREQ Response",
+        "page": 48,
+        "locator": "lines 1124-1128",
+        "excerpt": "The Server MUST send a PINGRESP Packet in response to a PINGREQ Packet [MQTT-3.12.4-1]. A PINGRESP Packet is sent by the Server to the Client in response to a PINGREQ Packet. It indicates that the Server is alive."
+      },
+      "modality": "MUST",
+      "statement": "Send a correctly encoded PINGRESP for each valid PINGREQ.",
+      "preconditions": [
+        "A connected client sends PINGREQ."
+      ],
+      "constraints": [
+        "PINGREQ and PINGRESP have Remaining Length 0 and no variable header or payload."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.98
+    },
+    {
+      "id": "MQTT-3.1.2-24",
+      "source": {
+        "section": "3.1.2.10 Keep Alive",
+        "page": 27,
+        "locator": "lines 529-546",
+        "excerpt": "The Keep Alive is a time interval measured in seconds. Expressed as a 16-bit word, it is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one Control Packet and the point it starts sending the next. It is the responsibility of the Client to ensure that the interval between Control Packets being sent does not exceed the Keep Alive value. In the absence of sending any other Control Packets, the Client MUST send a PINGREQ Packet [MQTT-3.1.2-23].\n\nThe Client can send PINGREQ at any time, irrespective of the Keep Alive value, and use the PINGRESP to determine that the network and the Server are working.\n\nIf the Keep Alive value is non-zero and the Server does not receive a Control Packet from the Client within one and a half times the Keep Alive time period, it MUST disconnect the Network Connection to the Client as if the network had failed [MQTT-3.1.2-24].\n\nIf a Client does not receive a PINGRESP Packet within a reasonable amount of time after it has sent a PINGREQ, it SHOULD close the Network Connection to the Server.\n\nA Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism. This means that, in this case, the Server is not required to disconnect the Client on the grounds of inactivity."
+      },
+      "modality": "MUST",
+      "statement": "Track the last complete Control Packet received and disconnect a client after 1.5 times its non-zero Keep Alive interval.",
+      "preconditions": [
+        "The accepted CONNECT specified a non-zero Keep Alive value."
+      ],
+      "constraints": [
+        "Keep Alive 0 disables inactivity-based disconnection.",
+        "Timeout cleanup follows the same CleanSession=1 cleanup path as other connection loss."
+      ],
+      "exceptions": [],
+      "references": [],
+      "confidence": 0.94
+    },
+    {
+      "id": "MQTT-3.14.0-1",
+      "source": {
+        "section": "3.14 DISCONNECT",
+        "page": 49,
+        "locator": "lines 1138-1140 and 1149-1156",
+        "excerpt": "The DISCONNECT Packet is the final Control Packet sent from the Client to the Server. It indicates that the Client is disconnecting cleanly.\n\nAfter sending a DISCONNECT Packet the Client:\nMUST close the Network Connection [MQTT-3.14.4-1].\nMUST NOT send any more Control Packets on that Network Connection [MQTT-3.14.4-2].\n\nOn receipt of DISCONNECT the Server:\nMUST discard any Will Message associated with the current connection without publishing it, as described in Section 3.1.2.5 [MQTT-3.14.4-3]."
+      },
+      "modality": "REQUIRED",
+      "statement": "Handle DISCONNECT as the final packet, close the client connection, and remove its CleanSession=1 subscriptions and connection state.",
+      "preconditions": [
+        "A connected client sends a valid DISCONNECT packet."
+      ],
+      "constraints": [
+        "The same state cleanup is performed for EOF, I/O failure, protocol error, and Keep Alive timeout.",
+        "Cleanup must not remove a newer connection that reused the same ClientId."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-3.1.2-6",
+        "MQTT-3.14.4-2"
+      ],
+      "confidence": 0.76
+    },
+    {
+      "id": "MQTT-4.8.0-1",
+      "source": {
+        "section": "4.8 Handling errors",
+        "page": 59,
+        "locator": "lines 1474-1484",
+        "excerpt": "Unless stated otherwise, if either the Server or Client encounters a protocol violation, it MUST close the Network Connection on which it received that Control Packet which caused the protocol violation [MQTT-4.8.0-1].\n\nA Client or Server implementation might encounter a Transient Error (for example an internal buffer full condition) that prevents successful processing of an MQTT packet.\n\nIf the Client or Server encounters a Transient Error while processing an inbound Control Packet it MUST close the Network Connection on which it received that Control Packet [MQTT-4.8.0-2]. If a Server detects a Transient Error it SHOULD NOT disconnect or have any other effect on its interactions with any other Client."
+      },
+      "modality": "MUST",
+      "statement": "For malformed packets or protocol violations without a specified negative response, close only the offending connection and keep the broker and other clients operational.",
+      "preconditions": [
+        "A parser, validator, or handler detects a protocol violation."
+      ],
+      "constraints": [
+        "MQTT 3.1.1 has no generic failure packet.",
+        "Specified responses such as CONNACK 0x01 and SUBACK 0x80 are used only in their defined cases.",
+        "Malformed input must not crash, hang, or corrupt broker state."
+      ],
+      "exceptions": [
+        "Follow a packet-specific error response when the specification explicitly defines one."
+      ],
+      "references": [
+        "MQTT-4.8.0-2"
+      ],
+      "confidence": 0.88
+    },
+    {
+      "id": "MQTT-1.2.0-2",
+      "source": {
+        "section": "1.2 Terminology",
+        "page": 9,
+        "locator": "page 9 lines 30-34 and page 10 lines 35-36",
+        "excerpt": "Server:\nA program or device that acts as an intermediary between Clients which publish Application Messages and Clients which have made Subscriptions. A Server\n\nAccepts Network Connections from Clients.\nAccepts Application Messages published by Clients.\nProcesses Subscribe and Unsubscribe requests from Clients.\nForwards Application Messages that match Client Subscriptions."
+      },
+      "modality": "REQUIRED",
+      "statement": "Provide a runnable broker main loop and client dispatcher that completes an end-to-end two-client QoS 0 publish/subscribe workflow.",
+      "preconditions": [
+        "The broker is started with a usable TCP listen endpoint."
+      ],
+      "constraints": [
+        "A subscriber connects and subscribes to an exact Topic Filter.",
+        "A second client connects and publishes a QoS 0 message to the matching Topic Name.",
+        "The subscriber receives the forwarded Topic Name and byte-identical payload.",
+        "PING, unsubscribe, disconnect cleanup, malformed-packet isolation, split-packet, and coalesced-packet smoke cases are also exercised."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-1.2.0-1",
+        "MQTT-2.1.0-1",
+        "MQTT-3.8.4-1",
+        "MQTT-4.5.0-1"
+      ],
+      "confidence": 0.72
+    }
+  ]
+}
