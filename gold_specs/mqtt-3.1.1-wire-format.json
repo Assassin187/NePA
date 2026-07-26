@@ -1,6 +1,6 @@
 {
   "$schema": "https://NePA.local/schemas/wire-format.schema.json",
-  "wire_format_id": "mqtt-311-wire-format-v1",
+  "wire_format_id": "mqtt-311-wire-format-v2",
   "protocol": "MQTT",
   "protocol_version": "3.1.1",
   "source_sha256": "c45a1f4f3d0d9a66b3f890dce49a1e2ddeae69cfd67f907a5b6e97a6d64a0b54",
@@ -39,6 +39,22 @@
         "page": 13,
         "locator": "page 13 lines 177-188; page 14 lines 190-197",
         "excerpt": "Each of these strings is prefixed with a two byte length field that gives the number of bytes in a UTF-8 encoded string itself, as illustrated in Figure 1.1 Structure of UTF-8 encoded strings below. Consequently there is a limit on the size of a string that can be passed in one of these UTF-8 encoded string components; you cannot use a string that would encode to more than 65535 bytes. Unless stated otherwise all UTF-8 encoded strings can have any length in the range 0 to 65535 bytes.\n\nThe character data in a UTF-8 encoded string MUST be well-formed UTF-8 as defined by the Unicode specification [Unicode] and restated in RFC 3629 [RFC3629]. In particular this data MUST NOT include encodings of code points between U+D800 and U+DFFF. If a Server or Client receives a Control Packet containing ill-formed UTF-8 it MUST close the Network Connection [MQTT-1.5.3-1].\n\nA UTF-8 encoded string MUST NOT include an encoding of the null character U+0000. If a receiver (Server or Client) receives a Control Packet containing U+0000 it MUST close the Network Connection [MQTT-1.5.3-2]."
+      }
+    },
+    {
+      "id": "mqtt-binary-data",
+      "name": "Binary Data",
+      "kind": "length-prefixed byte sequence",
+      "representation": "two-byte big-endian byte length followed by that many data bytes",
+      "definition": "The two-byte prefix gives the number of binary data bytes that follow and is not included in the length.",
+      "constraints": [
+        "The binary data length is between 0 and 65535 bytes."
+      ],
+      "source": {
+        "section": "3.1.3.3 Will Message and 3.1.3.5 Password",
+        "page": 29,
+        "locator": "lines 596-612",
+        "excerpt": "If the Will Flag is set to 1 the Will Message is the next field in the payload. The Will Message defines the Application Message that is to be published to the Will Topic as described in Section 3.1.2.5. This field consists of a two byte length followed by the payload for the Will Message expressed as a sequence of zero or more bytes. The length gives the number of bytes in the data that follows and does not include the 2 bytes taken up by the length itself.\n\nIf the Password Flag is set to 1, this is the next field in the payload. The Password field contains 0 to 65535 bytes of binary data prefixed with a two byte length field which indicates the number of bytes used by the binary data (it does not include the two bytes taken up by the length field itself)."
       }
     }
   ],
@@ -185,11 +201,175 @@
               ],
               "layout": [
                 {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The CONNECT variable header contains Protocol Name, Protocol Level, Connect Flags, and Keep Alive in that order.",
+                  "fields": [
+                    {
+                      "id": "protocol-name",
+                      "name": "Protocol Name",
+                      "occurrence": "one",
+                      "location": "first field in the CONNECT variable header",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Identifies the protocol as MQTT.",
+                      "constraints": [
+                        "For MQTT 3.1.1 the value is exactly \"MQTT\", encoded as 0x00 0x04 0x4D 0x51 0x54 0x54."
+                      ],
+                      "source": {
+                        "section": "3.1.2 Variable header and 3.1.2.1 Protocol Name",
+                        "page": 23,
+                        "locator": "lines 381-388",
+                        "excerpt": "The variable header for the CONNECT Packet consists of four fields in the following order: Protocol Name, Protocol Level, Connect Flags, and Keep Alive.\n\nThe Protocol Name is a UTF-8 encoded string that represents the protocol name “MQTT”, capitalized as shown."
+                      }
+                    },
+                    {
+                      "id": "protocol-level",
+                      "name": "Protocol Level",
+                      "occurrence": "one",
+                      "location": "after Protocol Name",
+                      "representation": "one-byte unsigned integer",
+                      "definition": "Identifies the MQTT protocol revision used by the Client.",
+                      "constraints": [
+                        "The MQTT 3.1.1 Protocol Level is 4 (0x04)."
+                      ],
+                      "source": {
+                        "section": "3.1.2.2 Protocol Level",
+                        "page": 24,
+                        "locator": "lines 396-402",
+                        "excerpt": "The 8 bit unsigned value that represents the revision level of the protocol used by the Client. The value of the Protocol Level field for the version 3.1.1 of the protocol is 4 (0x04)."
+                      }
+                    },
+                    {
+                      "id": "connect-flags",
+                      "name": "Connect Flags",
+                      "occurrence": "one",
+                      "location": "after Protocol Level",
+                      "representation": "one-byte bit field",
+                      "definition": "Controls Session handling and the presence and interpretation of conditional CONNECT payload fields.",
+                      "constraints": [
+                        "Bit 0 is reserved and MUST be zero.",
+                        "If Will Flag is zero, Will QoS and Will Retain MUST be zero.",
+                        "Will QoS MUST NOT be 3.",
+                        "If User Name Flag is zero, Password Flag MUST be zero."
+                      ],
+                      "source": {
+                        "section": "3.1.2.3 through 3.1.2.9 Connect Flags",
+                        "page": 24,
+                        "locator": "page 24 lines 403-408; pages 26-27 lines 484-524",
+                        "excerpt": "The Connect Flags byte contains a number of parameters specifying the behavior of the MQTT connection. It also indicates the presence or absence of fields in the payload.\n\nBit 7 User Name Flag; bit 6 Password Flag; bit 5 Will Retain; bits 4-3 Will QoS; bit 2 Will Flag; bit 1 Clean Session; bit 0 Reserved.\n\nIf the Will Flag is set to 0 the Will QoS and Will Retain fields in the Connect Flags MUST be set to zero. If the Will Flag is set to 1, the value of Will QoS can be 0, 1, or 2. It MUST NOT be 3. If the User Name Flag is set to 0, the Password Flag MUST be set to 0."
+                      },
+                      "members": [
+                        {
+                          "id": "user-name-flag",
+                          "name": "User Name Flag",
+                          "occurrence": "one",
+                          "location": "bit 7",
+                          "representation": "one bit",
+                          "definition": "Indicates whether User Name is present in the payload.",
+                          "constraints": [
+                            "The value is 0 or 1."
+                          ]
+                        },
+                        {
+                          "id": "password-flag",
+                          "name": "Password Flag",
+                          "occurrence": "one",
+                          "location": "bit 6",
+                          "representation": "one bit",
+                          "definition": "Indicates whether Password is present in the payload.",
+                          "constraints": [
+                            "The value is 0 or 1.",
+                            "The value MUST be zero when User Name Flag is zero."
+                          ]
+                        },
+                        {
+                          "id": "will-retain",
+                          "name": "Will Retain",
+                          "occurrence": "one",
+                          "location": "bit 5",
+                          "representation": "one bit",
+                          "definition": "Selects retained or non-retained publication of the Will Message.",
+                          "constraints": [
+                            "The value is 0 or 1.",
+                            "The value MUST be zero when Will Flag is zero."
+                          ]
+                        },
+                        {
+                          "id": "will-qos",
+                          "name": "Will QoS",
+                          "occurrence": "one",
+                          "location": "bits 4-3",
+                          "representation": "two-bit unsigned integer",
+                          "definition": "Specifies the QoS used when the Will Message is published.",
+                          "constraints": [
+                            "The value MUST be 0, 1, or 2.",
+                            "The value MUST be zero when Will Flag is zero."
+                          ]
+                        },
+                        {
+                          "id": "will-flag",
+                          "name": "Will Flag",
+                          "occurrence": "one",
+                          "location": "bit 2",
+                          "representation": "one bit",
+                          "definition": "Indicates whether Will Topic and Will Message are present in the payload.",
+                          "constraints": [
+                            "The value is 0 or 1."
+                          ]
+                        },
+                        {
+                          "id": "clean-session",
+                          "name": "Clean Session",
+                          "occurrence": "one",
+                          "location": "bit 1",
+                          "representation": "one bit",
+                          "definition": "Controls the lifetime and reuse of Session state.",
+                          "constraints": [
+                            "The value is 0 or 1."
+                          ]
+                        },
+                        {
+                          "id": "reserved",
+                          "name": "Reserved",
+                          "occurrence": "one",
+                          "location": "bit 0",
+                          "representation": "one bit",
+                          "definition": "Reserved Connect Flag bit.",
+                          "constraints": [
+                            "The value MUST be zero."
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "keep-alive",
+                      "name": "Keep Alive",
+                      "occurrence": "one",
+                      "location": "after Connect Flags",
+                      "representation": "MQTT Two Byte Integer measured in seconds",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Gives the maximum permitted interval between Control Packets sent by the Client; zero disables Keep Alive inactivity disconnection.",
+                      "constraints": [
+                        "The value is between 0 and 65535 seconds."
+                      ],
+                      "source": {
+                        "section": "3.1.2.10 Keep Alive",
+                        "page": 27,
+                        "locator": "lines 526-546",
+                        "excerpt": "The Keep Alive is a time interval measured in seconds. Expressed as a 16-bit word, it is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one Control Packet and the point it starts sending the next. A Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism."
+                      }
+                    }
+                  ]
+                },
+                {
                   "id": "payload",
                   "name": "Payload",
                   "order": 3,
                   "occurrence": "one",
-                  "definition": "The CONNECT payload begins with the Client Identifier; other payload fields are present according to the Connect Flags.",
+                  "definition": "The CONNECT payload contains Client Identifier followed conditionally by Will Topic, Will Message, User Name, and Password in that order.",
                   "fields": [
                     {
                       "id": "client-id",
@@ -208,6 +388,78 @@
                         "locator": "lines 561-572",
                         "excerpt": "The Client Identifier (ClientId) identifies the Client to the Server. Each Client connecting to the Server has a unique ClientId. The ClientId MUST be used by Clients and by Servers to identify state that they hold relating to this MQTT Session between the Client and the Server [MQTT-3.1.3-2].\n\nThe Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload [MQTT-3.1.3-3].\n\nThe ClientId MUST be a UTF-8 encoded string as defined in Section 1.5.3 [MQTT-3.1.3-4].\n\nThe Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters “0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ” [MQTT-3.1.3-5]."
                       }
+                    },
+                    {
+                      "id": "will-topic",
+                      "name": "Will Topic",
+                      "occurrence": "zero_or_one",
+                      "location": "after Client Identifier; present exactly when Will Flag is 1",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Identifies the Topic Name to which the Will Message is published.",
+                      "constraints": [
+                        "The field MUST be present when Will Flag is 1 and MUST NOT be present when Will Flag is 0."
+                      ],
+                      "source": {
+                        "section": "3.1.3 Payload and 3.1.3.2 Will Topic",
+                        "page": 29,
+                        "locator": "lines 556-559 and 593-595",
+                        "excerpt": "These fields, if present, MUST appear in the order Client Identifier, Will Topic, Will Message, User Name, Password. If the Will Flag is set to 1, the Will Topic is the next field in the payload. The Will Topic MUST be a UTF-8 encoded string."
+                      }
+                    },
+                    {
+                      "id": "will-message",
+                      "name": "Will Message",
+                      "occurrence": "zero_or_one",
+                      "location": "after Will Topic; present exactly when Will Flag is 1",
+                      "representation": "MQTT Binary Data",
+                      "data_type_ref": "mqtt-binary-data",
+                      "definition": "Contains the Application Message to publish to the Will Topic.",
+                      "constraints": [
+                        "The field MUST be present when Will Flag is 1 and MUST NOT be present when Will Flag is 0."
+                      ],
+                      "source": {
+                        "section": "3.1.3.3 Will Message",
+                        "page": 29,
+                        "locator": "lines 596-604",
+                        "excerpt": "If the Will Flag is set to 1 the Will Message is the next field in the payload. This field consists of a two byte length followed by the payload for the Will Message expressed as a sequence of zero or more bytes. The length gives the number of bytes in the data that follows and does not include the 2 bytes taken up by the length itself."
+                      }
+                    },
+                    {
+                      "id": "user-name",
+                      "name": "User Name",
+                      "occurrence": "zero_or_one",
+                      "location": "after Will Message when present; present exactly when User Name Flag is 1",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Carries the user name supplied for authentication or authorization.",
+                      "constraints": [
+                        "The field MUST be present when User Name Flag is 1 and MUST NOT be present when User Name Flag is 0."
+                      ],
+                      "source": {
+                        "section": "3.1.3.4 User Name",
+                        "page": 30,
+                        "locator": "lines 605-608",
+                        "excerpt": "If the User Name Flag is set to 1, this is the next field in the payload. The User Name MUST be a UTF-8 encoded string as defined in Section 1.5.3."
+                      }
+                    },
+                    {
+                      "id": "password",
+                      "name": "Password",
+                      "occurrence": "zero_or_one",
+                      "location": "after User Name when present; present exactly when Password Flag is 1",
+                      "representation": "MQTT Binary Data",
+                      "data_type_ref": "mqtt-binary-data",
+                      "definition": "Carries the binary password supplied by the Client.",
+                      "constraints": [
+                        "The field MUST be present when Password Flag is 1 and MUST NOT be present when Password Flag is 0."
+                      ],
+                      "source": {
+                        "section": "3.1.3.5 Password",
+                        "page": 30,
+                        "locator": "lines 609-613",
+                        "excerpt": "If the Password Flag is set to 1, this is the next field in the payload. The Password field contains 0 to 65535 bytes of binary data prefixed with a two byte length field which indicates the number of bytes used by the binary data."
+                      }
                     }
                   ]
                 }
@@ -218,7 +470,7 @@
               "value": 2,
               "name": "CONNACK",
               "status": "defined",
-              "definition": "Connect acknowledgment.",
+              "definition": "Connect acknowledgment with a two-byte variable header and no payload.",
               "directions": [
                 {
                   "from": "Server",
@@ -231,6 +483,71 @@
                   "value": "0000",
                   "representation": "4-bit fixed reserved value",
                   "definition": "All CONNACK fixed-header flag bits are reserved and set to zero."
+                },
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/remaining-length",
+                  "value": 2,
+                  "representation": "one-byte Remaining Length encoding",
+                  "definition": "CONNACK Remaining Length is exactly 2.",
+                  "source": {
+                    "section": "3.2.1 CONNACK Fixed header",
+                    "page": 31,
+                    "locator": "lines 663-668",
+                    "excerpt": "Remaining Length field: This is the length of the variable header. For the CONNACK Packet this has the value 2."
+                  }
+                }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The CONNACK variable header contains Connect Acknowledge Flags followed by Connect Return Code.",
+                  "fields": [
+                    {
+                      "id": "connect-acknowledge-flags",
+                      "name": "Connect Acknowledge Flags",
+                      "occurrence": "one",
+                      "location": "first byte of the CONNACK variable header",
+                      "representation": "one-byte bit field; bits 7-1 reserved, bit 0 Session Present",
+                      "definition": "Carries the Session Present flag.",
+                      "constraints": [
+                        "Bits 7-1 MUST be zero.",
+                        "Bit 0 is Session Present and MUST be 0 or 1.",
+                        "Session Present MUST be zero when Connect Return Code is non-zero."
+                      ],
+                      "source": {
+                        "section": "3.2.2.1 Connect Acknowledge Flags and 3.2.2.2 Session Present",
+                        "page": 31,
+                        "locator": "lines 672-699",
+                        "excerpt": "Byte 1 is the \"Connect Acknowledge Flags\". Bits 7-1 are reserved and MUST be set to 0. Bit 0 (SP) is the Session Present Flag. If a server sends a CONNACK packet containing a non-zero return code it MUST set Session Present to 0."
+                      }
+                    },
+                    {
+                      "id": "connect-return-code",
+                      "name": "Connect Return Code",
+                      "occurrence": "one",
+                      "location": "second byte of the CONNACK variable header",
+                      "representation": "one-byte unsigned integer",
+                      "definition": "Reports whether the connection was accepted or why it was refused.",
+                      "constraints": [
+                        "0x00 means Connection Accepted.",
+                        "0x01 means Connection Refused, unacceptable protocol version.",
+                        "0x02 means Connection Refused, identifier rejected.",
+                        "0x03 means Connection Refused, Server unavailable.",
+                        "0x04 means Connection Refused, bad user name or password.",
+                        "0x05 means Connection Refused, not authorized.",
+                        "Values 0x06 through 0xFF are reserved and MUST NOT be used."
+                      ],
+                      "source": {
+                        "section": "3.2.2.3 Connect Return code",
+                        "page": 32,
+                        "locator": "lines 701-712 and Table 3.1",
+                        "excerpt": "Byte 2 in the Variable header. The values for the one byte unsigned Connect Return code field are: 0x00 Connection Accepted; 0x01 unacceptable protocol version; 0x02 identifier rejected; 0x03 Server unavailable; 0x04 bad user name or password; 0x05 not authorized. Values 6-255 are reserved for future use."
+                      }
+                    }
+                  ]
                 }
               ]
             },
@@ -254,7 +571,7 @@
                 {
                   "field_ref": "mqtt-control-packet/fixed-header/flags",
                   "representation": "bit 3 DUP; bits 2-1 QoS; bit 0 RETAIN",
-                  "definition": "PUBLISH assigns packet-specific meanings to all four fixed-header flag bits."
+                  "definition": "PUBLISH assigns packet-specific meanings to all four fixed-header flag bits; QoS bit value 3 is reserved and MUST NOT be used."
                 }
               ],
               "layout": [
@@ -274,7 +591,8 @@
                       "data_type_ref": "mqtt-utf8-encoded-string",
                       "definition": "Identifies the information channel to which payload data is published.",
                       "constraints": [
-                        "The Topic Name MUST NOT contain wildcard characters."
+                        "The Topic Name MUST NOT contain wildcard characters.",
+                        "The Topic Name MUST be at least one character long."
                       ],
                       "source": {
                         "section": "3.3.2.1 Topic Name",
@@ -299,6 +617,33 @@
                         "page": 20,
                         "locator": "page 20 lines 319-323; page 35 lines 787-792",
                         "excerpt": "The variable header component of many of the Control Packet types includes a 2 byte Packet Identifier field. These Control Packets are PUBLISH (where QoS > 0), PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK.\n\nSUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier [MQTT-2.3.1-1].\n\nThe variable header contains the following fields in the order: Topic Name, Packet Identifier."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "payload",
+                  "name": "Payload",
+                  "order": 3,
+                  "occurrence": "one",
+                  "definition": "The PUBLISH payload contains the Application Message and occupies all bytes after the variable header.",
+                  "fields": [
+                    {
+                      "id": "application-message",
+                      "name": "Application Message",
+                      "occurrence": "one",
+                      "location": "all bytes after the PUBLISH variable header through the end of Remaining Length",
+                      "representation": "zero or more application-defined bytes without an additional MQTT length prefix",
+                      "definition": "Carries the application-specific content being published.",
+                      "constraints": [
+                        "A zero-length Application Message is valid.",
+                        "Its byte length is Remaining Length minus the PUBLISH variable-header length."
+                      ],
+                      "source": {
+                        "section": "3.3.3 PUBLISH Payload",
+                        "page": 36,
+                        "locator": "lines 809-813",
+                        "excerpt": "The Payload contains the Application Message that is being published. The content and format of the data is application specific. The length of the payload can be calculated by subtracting the length of the variable header from the Remaining Length field that is in the Fixed Header. It is valid for a PUBLISH Packet to contain a zero length payload."
                       }
                     }
                   ]
@@ -510,7 +855,7 @@
               "value": 9,
               "name": "SUBACK",
               "status": "defined",
-              "definition": "Subscribe acknowledgment.",
+              "definition": "Subscribe acknowledgment containing the acknowledged Packet Identifier and one return code per requested Topic Filter.",
               "directions": [
                 {
                   "from": "Server",
@@ -524,6 +869,63 @@
                   "representation": "4-bit fixed reserved value",
                   "definition": "All SUBACK fixed-header flag bits are reserved and set to zero."
                 }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The SUBACK variable header contains the Packet Identifier from the acknowledged SUBSCRIBE.",
+                  "fields": [
+                    {
+                      "id": "packet-identifier",
+                      "name": "Packet Identifier",
+                      "occurrence": "one",
+                      "location": "SUBACK variable header",
+                      "representation": "MQTT Two Byte Integer",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Identifies the SUBSCRIBE Packet being acknowledged.",
+                      "constraints": [
+                        "The value equals the Packet Identifier of the acknowledged SUBSCRIBE."
+                      ],
+                      "source": {
+                        "section": "3.9.2 SUBACK Variable header",
+                        "page": 44,
+                        "locator": "lines 1018-1021",
+                        "excerpt": "The variable header contains the Packet Identifier from the SUBSCRIBE Packet that is being acknowledged."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "payload",
+                  "name": "Payload",
+                  "order": 3,
+                  "occurrence": "one",
+                  "definition": "The SUBACK payload contains an ordered list of one-byte return codes.",
+                  "fields": [
+                    {
+                      "id": "return-code",
+                      "name": "Return Code",
+                      "occurrence": "one_or_more",
+                      "location": "SUBACK payload, packed contiguously in the order of Topic Filters in the acknowledged SUBSCRIBE",
+                      "representation": "one-byte unsigned integer",
+                      "definition": "Reports the granted maximum QoS or failure for the corresponding Topic Filter.",
+                      "constraints": [
+                        "The only allowed values are 0x00, 0x01, 0x02, and 0x80.",
+                        "There is exactly one Return Code for each Topic Filter in the acknowledged SUBSCRIBE.",
+                        "Return Code order MUST match Topic Filter order."
+                      ],
+                      "source": {
+                        "section": "3.9.3 SUBACK Payload",
+                        "page": 44,
+                        "locator": "lines 1022-1037",
+                        "excerpt": "The payload contains a list of return codes. Each return code corresponds to a Topic Filter in the SUBSCRIBE Packet being acknowledged. The order of return codes in the SUBACK Packet MUST match the order of Topic Filters in the SUBSCRIBE Packet. Allowed return codes: 0x00, 0x01, 0x02, 0x80. SUBACK return codes other than 0x00, 0x01, 0x02 and 0x80 are reserved and MUST NOT be used."
+                      }
+                    }
+                  ]
+                }
               ]
             },
             {
@@ -531,7 +933,7 @@
               "value": 10,
               "name": "UNSUBSCRIBE",
               "status": "defined",
-              "definition": "Unsubscribe request.",
+              "definition": "Unsubscribe request containing a Packet Identifier and one or more Topic Filters.",
               "directions": [
                 {
                   "from": "Client",
@@ -545,6 +947,63 @@
                   "representation": "4-bit fixed reserved value",
                   "definition": "UNSUBSCRIBE fixed-header flags use the reserved value 0010."
                 }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The UNSUBSCRIBE variable header contains a Packet Identifier.",
+                  "fields": [
+                    {
+                      "id": "packet-identifier",
+                      "name": "Packet Identifier",
+                      "occurrence": "one",
+                      "location": "UNSUBSCRIBE variable header",
+                      "representation": "non-zero MQTT Two Byte Integer",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Identifies the UNSUBSCRIBE request and corresponding UNSUBACK.",
+                      "constraints": [
+                        "The value MUST be non-zero."
+                      ],
+                      "source": {
+                        "section": "3.10.2 UNSUBSCRIBE Variable header",
+                        "page": 45,
+                        "locator": "lines 1055-1059",
+                        "excerpt": "The variable header contains a Packet Identifier. Section 2.3.1 provides more information about Packet Identifiers."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "payload",
+                  "name": "Payload",
+                  "order": 3,
+                  "occurrence": "one",
+                  "definition": "The UNSUBSCRIBE payload contains one or more MQTT UTF-8 encoded Topic Filters packed contiguously.",
+                  "fields": [
+                    {
+                      "id": "topic-filter",
+                      "name": "Topic Filter",
+                      "occurrence": "one_or_more",
+                      "location": "UNSUBSCRIBE payload, packed contiguously",
+                      "representation": "MQTT UTF-8 encoded string",
+                      "data_type_ref": "mqtt-utf8-encoded-string",
+                      "definition": "Identifies a Subscription to remove by exact Topic Filter value.",
+                      "constraints": [
+                        "The payload MUST contain at least one Topic Filter.",
+                        "Each Topic Filter MUST be at least one character long."
+                      ],
+                      "source": {
+                        "section": "3.10.3 UNSUBSCRIBE Payload",
+                        "page": 46,
+                        "locator": "lines 1060-1065",
+                        "excerpt": "The payload for the UNSUBSCRIBE Packet contains the list of Topic Filters that the Client wishes to unsubscribe from. The Topic Filters in an UNSUBSCRIBE packet MUST be UTF-8 encoded strings as defined in Section 1.5.3, packed contiguously. The Payload of an UNSUBSCRIBE packet MUST contain at least one Topic Filter."
+                      }
+                    }
+                  ]
+                }
               ]
             },
             {
@@ -552,7 +1011,7 @@
               "value": 11,
               "name": "UNSUBACK",
               "status": "defined",
-              "definition": "Unsubscribe acknowledgment.",
+              "definition": "Unsubscribe acknowledgment with a two-byte variable header and no payload.",
               "directions": [
                 {
                   "from": "Server",
@@ -565,6 +1024,47 @@
                   "value": "0000",
                   "representation": "4-bit fixed reserved value",
                   "definition": "All UNSUBACK fixed-header flag bits are reserved and set to zero."
+                },
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/remaining-length",
+                  "value": 2,
+                  "representation": "one-byte Remaining Length encoding",
+                  "definition": "UNSUBACK Remaining Length is exactly 2.",
+                  "source": {
+                    "section": "3.11.1 UNSUBACK Fixed header",
+                    "page": 47,
+                    "locator": "lines 1097-1100",
+                    "excerpt": "Remaining Length field: This is the length of the variable header. For the UNSUBACK Packet this has the value 2."
+                  }
+                }
+              ],
+              "layout": [
+                {
+                  "id": "variable-header",
+                  "name": "Variable header",
+                  "order": 2,
+                  "occurrence": "one",
+                  "definition": "The UNSUBACK variable header contains the Packet Identifier from the acknowledged UNSUBSCRIBE.",
+                  "fields": [
+                    {
+                      "id": "packet-identifier",
+                      "name": "Packet Identifier",
+                      "occurrence": "one",
+                      "location": "UNSUBACK variable header",
+                      "representation": "MQTT Two Byte Integer",
+                      "data_type_ref": "mqtt-two-byte-integer",
+                      "definition": "Identifies the UNSUBSCRIBE Packet being acknowledged.",
+                      "constraints": [
+                        "The value equals the Packet Identifier of the acknowledged UNSUBSCRIBE."
+                      ],
+                      "source": {
+                        "section": "3.11.2 UNSUBACK Variable header",
+                        "page": 47,
+                        "locator": "lines 1101-1104",
+                        "excerpt": "The variable header contains the Packet Identifier of the UNSUBSCRIBE Packet that is being acknowledged."
+                      }
+                    }
+                  ]
                 }
               ]
             },
@@ -573,7 +1073,7 @@
               "value": 12,
               "name": "PINGREQ",
               "status": "defined",
-              "definition": "PING request.",
+              "definition": "PING request consisting only of a fixed header with Remaining Length 0; it has no variable header or payload.",
               "directions": [
                 {
                   "from": "Client",
@@ -586,6 +1086,18 @@
                   "value": "0000",
                   "representation": "4-bit fixed reserved value",
                   "definition": "All PINGREQ fixed-header flag bits are reserved and set to zero."
+                },
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/remaining-length",
+                  "value": 0,
+                  "representation": "one-byte Remaining Length encoding",
+                  "definition": "PINGREQ Remaining Length is exactly 0; the packet has no variable header or payload.",
+                  "source": {
+                    "section": "3.12.1 through 3.12.3 PINGREQ",
+                    "page": 48,
+                    "locator": "lines 1117-1123",
+                    "excerpt": "PINGREQ Remaining Length is 0. The PINGREQ Packet has no variable header. The PINGREQ Packet has no payload."
+                  }
                 }
               ]
             },
@@ -594,7 +1106,7 @@
               "value": 13,
               "name": "PINGRESP",
               "status": "defined",
-              "definition": "PING response.",
+              "definition": "PING response consisting only of a fixed header with Remaining Length 0; it has no variable header or payload.",
               "directions": [
                 {
                   "from": "Server",
@@ -607,6 +1119,18 @@
                   "value": "0000",
                   "representation": "4-bit fixed reserved value",
                   "definition": "All PINGRESP fixed-header flag bits are reserved and set to zero."
+                },
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/remaining-length",
+                  "value": 0,
+                  "representation": "one-byte Remaining Length encoding",
+                  "definition": "PINGRESP Remaining Length is exactly 0; the packet has no variable header or payload.",
+                  "source": {
+                    "section": "3.13.1 through 3.13.3 PINGRESP",
+                    "page": 48,
+                    "locator": "lines 1131-1137",
+                    "excerpt": "PINGRESP Remaining Length is 0. The PINGRESP Packet has no variable header. The PINGRESP Packet has no payload."
+                  }
                 }
               ]
             },
@@ -615,7 +1139,7 @@
               "value": 14,
               "name": "DISCONNECT",
               "status": "defined",
-              "definition": "Client is disconnecting.",
+              "definition": "Client disconnect notification consisting only of a fixed header with Remaining Length 0; it has no variable header or payload.",
               "directions": [
                 {
                   "from": "Client",
@@ -628,6 +1152,18 @@
                   "value": "0000",
                   "representation": "4-bit fixed reserved value",
                   "definition": "All DISCONNECT fixed-header flag bits are reserved and set to zero."
+                },
+                {
+                  "field_ref": "mqtt-control-packet/fixed-header/remaining-length",
+                  "value": 0,
+                  "representation": "one-byte Remaining Length encoding",
+                  "definition": "DISCONNECT Remaining Length is exactly 0; the packet has no variable header or payload.",
+                  "source": {
+                    "section": "3.14.1 through 3.14.3 DISCONNECT",
+                    "page": 49,
+                    "locator": "lines 1141-1148",
+                    "excerpt": "DISCONNECT Remaining Length is 0. The DISCONNECT Packet has no variable header. The DISCONNECT Packet has no payload."
+                  }
                 }
               ]
             },

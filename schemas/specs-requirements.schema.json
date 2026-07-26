@@ -186,7 +186,8 @@
         "field_ref": {"$ref": "#/$defs/structure_reference"},
         "value": {"type": ["string", "integer"]},
         "representation": {"type": "string", "minLength": 1},
-        "definition": {"type": "string", "minLength": 1}
+        "definition": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"}
       }
     },
     "type_option": {

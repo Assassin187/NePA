@@ -1,6 +1,8 @@
 # Gold Spec 字段说明
 
-`mqtt-3.1.1-wire-format.json` 与 `mqtt-3.1.1-min-requirements.json` 分别记录从同一不可变 MQTT 3.1.1 规范源文档中抽取并人工确认的线缆格式和原子规范条目。前者声明协议数据单元如何定界、编码、排列和区分消息类型；后者只声明协议参与方必须、应当或可以执行的行为，并用 `wire_format_reference` 关联前者。两份文件都保留来源追溯信息，但不承载产品范围、MVP 决策、实现架构或验收测试要求。
+`mqtt-3.1.1-wire-format.json` 与 `mqtt-3.1.1-min-requirements.json` 分别记录从同一不可变 MQTT 3.1.1 规范源文档中抽取并人工确认的线缆格式和规范条目。前者声明协议数据单元如何定界、编码、排列和区分消息类型；后者只声明协议参与方必须、应当或可以执行的行为，并用 `wire_format_reference` 关联前者。两份协议事实文件都保留来源追溯信息，但不承载产品范围、MVP 决策、实现架构或验收测试要求。
+
+`mqtt-3.1.1-min-profile.json` 是独立的生成范围契约。它引用上述两份协议事实文件，选择首个实验所需的最小 Broker 功能及明确排除项，但不改变或覆盖任何协议事实。该文件遵循 `generation-profile.schema.json`。
 
 ## 通用抽象
 
@@ -45,6 +47,16 @@
 - 规范中的 MUST、SHOULD、MAY 等行为约束。
 
 例如，MQTT 每种 Control Packet 的类型值和固定头标志位定义在 wire-format 规格文件；“保留标志必须使用结构表中的值”和“收到非法标志必须关闭连接”仍是 requirements 文件中的条目。
+
+最小功能选择属于独立 profile：
+
+- 生成的协议角色和承载绑定；
+- 必须收发的 Control Packet；
+- QoS、Session、Topic matching 等必需能力；
+- Retain、Will、认证、持久会话等明确排除项；
+- 评估会提供的范围内输入和不会要求处理的合法但范围外输入。
+
+profile 不是协议规范，也不声称所选子集是完整的 MQTT 3.1.1 一致性实现。
 
 ## 文件级字段
 
@@ -151,7 +163,7 @@
 | `source` | 类型目录或语法分支的原文追溯信息。 |
 | `types` | 选择器定义的消息类型。 |
 
-每个 `types[]` 条目记录稳定 `id`、选择值 `value`、名称、状态、定义、允许方向和 `field_overrides`。`field_overrides` 用于表达固定标志值或同一公共字段在不同消息类型中的不同解释；可选 `layout` 用于表达类型专属结构。
+每个 `types[]` 条目记录稳定 `id`、选择值 `value`、名称、状态、定义、允许方向和 `field_overrides`。`field_overrides` 用于表达固定标志值或同一公共字段在不同消息类型中的不同解释，并可用可选 `source` 追溯该覆盖值；可选 `layout` 用于表达类型专属结构。
 
 ## 结构引用
 

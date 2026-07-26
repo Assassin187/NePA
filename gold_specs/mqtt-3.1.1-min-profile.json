@@ -1,0 +1,393 @@
+{
+  "$schema": "https://NePA.local/schemas/generation-profile.schema.json",
+  "profile_id": "mqtt-311-min-broker-profile-v1",
+  "profile_version": "1.0",
+  "protocol": "MQTT",
+  "protocol_version": "3.1.1",
+  "role": "Server acting as a minimal Broker",
+  "description": "Experimental minimum MQTT 3.1.1 Broker scope for deterministic spec-to-code generation. This file selects product scope only; protocol wire facts and behavioral facts remain in the referenced specifications.",
+  "conformance_claim": "This is a deliberately incomplete MQTT 3.1.1 feature profile and MUST NOT be described as a conformant full MQTT 3.1.1 Server.",
+  "spec_references": {
+    "wire_format": {
+      "file": "mqtt-3.1.1-wire-format.json",
+      "id": "mqtt-311-wire-format-v2"
+    },
+    "requirements": {
+      "file": "mqtt-3.1.1-min-requirements.json",
+      "id": "mqtt-3.1.1-min-requirements-v3"
+    }
+  },
+  "transport": {
+    "binding": "TCP",
+    "stream_properties": [
+      "ordered",
+      "lossless",
+      "bidirectional byte stream"
+    ],
+    "endpoint": "The listen address and port are implementation-defined inputs rather than protocol facts."
+  },
+  "packet_scope": {
+    "client_to_server": [
+      {
+        "type": "CONNECT",
+        "support": "required",
+        "constraints": [
+          "Protocol Name is MQTT and Protocol Level is 4.",
+          "Clean Session is 1.",
+          "Will Flag, User Name Flag, and Password Flag are 0.",
+          "ClientId is 1 to 23 UTF-8 encoded bytes and contains only the required alphanumeric characters."
+        ],
+        "requirement_refs": [
+          "MQTT-3.1.0-1",
+          "MQTT-3.1.0-2",
+          "MQTT-3.1.2-2",
+          "MQTT-3.1.2-3",
+          "MQTT-3.1.2-6",
+          "MQTT-3.1.3-3",
+          "MQTT-3.1.4-2",
+          "MQTT-3.1.4-4",
+          "MQTT-3.1.4-5"
+        ]
+      },
+      {
+        "type": "PUBLISH",
+        "support": "required",
+        "constraints": [
+          "QoS is 0.",
+          "DUP is 0.",
+          "RETAIN is 0.",
+          "The Application Message may contain any number of bytes, including zero."
+        ],
+        "requirement_refs": [
+          "MQTT-4.3.1-1",
+          "MQTT-3.3.2-1",
+          "MQTT-3.3.1-12",
+          "MQTT-4.5.0-1",
+          "MQTT-3.3.1-9"
+        ]
+      },
+      {
+        "type": "SUBSCRIBE",
+        "support": "required",
+        "constraints": [
+          "The payload contains one or more Topic Filter and Requested QoS pairs.",
+          "Requested QoS may be 0, 1, or 2.",
+          "Every accepted subscription is granted maximum QoS 0.",
+          "The full Section 4.7 wildcard and matching rules are supported."
+        ],
+        "requirement_refs": [
+          "MQTT-2.3.1-1",
+          "MQTT-3.8.3-3",
+          "MQTT-3.8.3-4",
+          "MQTT-3.8.4-3",
+          "MQTT-3.8.4-1",
+          "MQTT-4.7.1-1",
+          "MQTT-4.7.1-2",
+          "MQTT-4.7.1-3",
+          "MQTT-4.7.2-1",
+          "MQTT-4.7.3-1",
+          "MQTT-4.7.3-2",
+          "MQTT-4.7.3-3",
+          "MQTT-4.7.3-4"
+        ]
+      },
+      {
+        "type": "UNSUBSCRIBE",
+        "support": "required",
+        "constraints": [
+          "The payload contains one or more Topic Filters.",
+          "Subscription removal compares each supplied Topic Filter exactly with the stored Topic Filter."
+        ],
+        "requirement_refs": [
+          "MQTT-2.3.1-1",
+          "MQTT-3.10.3-2",
+          "MQTT-3.10.4-1",
+          "MQTT-3.10.4-4"
+        ]
+      },
+      {
+        "type": "PINGREQ",
+        "support": "required",
+        "constraints": [
+          "Remaining Length is 0."
+        ],
+        "requirement_refs": [
+          "MQTT-3.12.4-1"
+        ]
+      },
+      {
+        "type": "DISCONNECT",
+        "support": "required",
+        "constraints": [
+          "Remaining Length is 0.",
+          "The Server closes the connection after clean disconnect processing."
+        ],
+        "requirement_refs": [
+          "MQTT-3.14.0-1"
+        ]
+      },
+      {
+        "type": "PUBACK",
+        "support": "excluded",
+        "constraints": [
+          "QoS 1 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBREC",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBREL",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBCOMP",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      }
+    ],
+    "server_to_client": [
+      {
+        "type": "CONNACK",
+        "support": "required",
+        "constraints": [
+          "Successful in-profile CONNECT receives return code 0x00.",
+          "Session Present is 0."
+        ],
+        "requirement_refs": [
+          "MQTT-3.1.2-2",
+          "MQTT-3.1.4-4"
+        ]
+      },
+      {
+        "type": "PUBLISH",
+        "support": "required",
+        "constraints": [
+          "Forwarded messages use QoS 0, DUP 0, and RETAIN 0.",
+          "The Topic Name and Application Message are forwarded to every connected Session with a matching Subscription."
+        ],
+        "requirement_refs": [
+          "MQTT-4.3.1-1",
+          "MQTT-4.5.0-1",
+          "MQTT-3.3.1-9"
+        ]
+      },
+      {
+        "type": "SUBACK",
+        "support": "required",
+        "constraints": [
+          "One return code is sent for each requested Topic Filter in request order.",
+          "Accepted filters receive return code 0x00 and rejected filters receive 0x80."
+        ],
+        "requirement_refs": [
+          "MQTT-3.8.4-1"
+        ]
+      },
+      {
+        "type": "UNSUBACK",
+        "support": "required",
+        "constraints": [
+          "The Packet Identifier equals the acknowledged UNSUBSCRIBE Packet Identifier."
+        ],
+        "requirement_refs": [
+          "MQTT-3.10.4-4"
+        ]
+      },
+      {
+        "type": "PINGRESP",
+        "support": "required",
+        "constraints": [
+          "Remaining Length is 0."
+        ],
+        "requirement_refs": [
+          "MQTT-3.12.4-1"
+        ]
+      },
+      {
+        "type": "PUBACK",
+        "support": "excluded",
+        "constraints": [
+          "QoS 1 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBREC",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBREL",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      },
+      {
+        "type": "PUBCOMP",
+        "support": "excluded",
+        "constraints": [
+          "QoS 2 delivery is outside this profile."
+        ],
+        "requirement_refs": []
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "concurrent-clients",
+      "support": "required",
+      "statement": "Accept multiple concurrently connected Clients and isolate connection-specific parsing and failures.",
+      "constraints": [
+        "A new connection using an already-connected ClientId disconnects the existing connection."
+      ],
+      "requirement_refs": [
+        "MQTT-3.1.4-2",
+        "MQTT-4.8.0-1"
+      ]
+    },
+    {
+      "id": "ephemeral-sessions",
+      "support": "required",
+      "statement": "Maintain subscriptions only for the lifetime of the Clean Session network connection.",
+      "constraints": [
+        "Session Present is always 0.",
+        "No subscription or message state survives disconnection."
+      ],
+      "requirement_refs": [
+        "MQTT-3.1.2-6",
+        "MQTT-3.1.4-4"
+      ]
+    },
+    {
+      "id": "topic-routing",
+      "support": "required",
+      "statement": "Route each incoming QoS 0 Application Message to connected Clients whose stored Subscriptions match its Topic Name.",
+      "constraints": [
+        "Implement all Section 4.7 level, wildcard, leading-$, case, and no-normalization rules.",
+        "Subscription replacement and exact-filter unsubscription are supported."
+      ],
+      "requirement_refs": [
+        "MQTT-4.5.0-1",
+        "MQTT-3.8.4-3",
+        "MQTT-3.10.4-1",
+        "MQTT-4.7.1-1",
+        "MQTT-4.7.1-2",
+        "MQTT-4.7.1-3",
+        "MQTT-4.7.2-1",
+        "MQTT-4.7.3-4"
+      ]
+    },
+    {
+      "id": "keep-alive",
+      "support": "required",
+      "statement": "Monitor non-zero Keep Alive values and disconnect inactive Clients after one and a half times the declared period.",
+      "constraints": [
+        "Keep Alive 0 disables inactivity-based disconnection.",
+        "PINGREQ receives PINGRESP."
+      ],
+      "requirement_refs": [
+        "MQTT-3.1.2-24",
+        "MQTT-3.12.4-1"
+      ]
+    },
+    {
+      "id": "protocol-error-handling",
+      "support": "required",
+      "statement": "Validate in-profile packet framing, fixed flags, required fields, UTF-8, identifiers, and Topic syntax and close only the offending Network Connection on a protocol violation.",
+      "constraints": [
+        "Malformed Remaining Length and truncated or structurally inconsistent in-profile packets are rejected.",
+        "A failure on one Client does not terminate unrelated Client connections."
+      ],
+      "requirement_refs": [
+        "MQTT-2.2.2-2",
+        "MQTT-1.5.3-1",
+        "MQTT-3.8.3-4",
+        "MQTT-4.8.0-1"
+      ]
+    },
+    {
+      "id": "qos-one-and-two",
+      "support": "excluded",
+      "statement": "QoS 1 and QoS 2 PUBLISH delivery and acknowledgment state machines are outside this profile.",
+      "constraints": [
+        "No PUBACK, PUBREC, PUBREL, or PUBCOMP generation is required."
+      ],
+      "requirement_refs": []
+    },
+    {
+      "id": "retained-messages",
+      "support": "excluded",
+      "statement": "Retained-message storage, replacement, deletion, and replay on subscription are outside this profile.",
+      "constraints": [
+        "In-profile Client PUBLISH packets always use RETAIN 0."
+      ],
+      "requirement_refs": []
+    },
+    {
+      "id": "will-messages",
+      "support": "excluded",
+      "statement": "Will Message storage and publication are outside this profile.",
+      "constraints": [
+        "In-profile CONNECT packets use Will Flag 0."
+      ],
+      "requirement_refs": []
+    },
+    {
+      "id": "authentication",
+      "support": "excluded",
+      "statement": "User Name, Password, authentication, and authorization are outside this profile.",
+      "constraints": [
+        "In-profile CONNECT packets use User Name Flag 0 and Password Flag 0."
+      ],
+      "requirement_refs": []
+    },
+    {
+      "id": "persistent-sessions",
+      "support": "excluded",
+      "statement": "Clean Session 0, offline buffering, and state restoration across Network Connections are outside this profile.",
+      "constraints": [
+        "In-profile CONNECT packets always use Clean Session 1."
+      ],
+      "requirement_refs": []
+    },
+    {
+      "id": "alternative-transports",
+      "support": "excluded",
+      "statement": "TLS configuration, WebSocket transport, and other transport bindings are outside this profile.",
+      "constraints": [
+        "Only a plain TCP byte stream is required for the experiment."
+      ],
+      "requirement_refs": []
+    }
+  ],
+  "evaluation_input_contract": {
+    "in_profile_inputs": [
+      "Evaluation may exercise any required packet and capability listed in this profile, including fragmented and coalesced TCP delivery.",
+      "Evaluation may use multiple Clients, multiple Topic Filters per request, wildcard filters, empty Application Message payloads, and Keep Alive values including zero."
+    ],
+    "excluded_valid_inputs": [
+      "Evaluation does not require protocol-conformant handling of otherwise valid QoS 1 or QoS 2 PUBLISH flows.",
+      "Evaluation does not send valid RETAIN 1 publications, Will-enabled CONNECT packets, authentication fields, or Clean Session 0 connections.",
+      "Evaluation does not require packet types or transports marked excluded."
+    ],
+    "malformed_input_expectation": "Malformed variants of required in-profile packets are handled according to the referenced protocol requirements; behavior for well-formed but explicitly excluded feature combinations is outside the evaluation contract."
+  }
+}

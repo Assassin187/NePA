@@ -1,6 +1,6 @@
 {
   "$schema": "https://NePA.local/schemas/specs-requirements.schema.json",
-  "gold_set_id": "mqtt-3.1.1-min-requirements-v2",
+  "gold_set_id": "mqtt-3.1.1-min-requirements-v3",
   "description": "Human-annotated MQTT 3.1.1 atomic normative or definition-derived requirements selected from the source document. Wire-format definitions are maintained in the separately referenced wire-format specification. Product scope, MVP decisions, implementation architecture, and acceptance-test requirements are intentionally not defined here.",
   "source_sha256": "c45a1f4f3d0d9a66b3f890dce49a1e2ddeae69cfd67f907a5b6e97a6d64a0b54",
   "requirements": [
@@ -166,6 +166,11 @@
         "MQTT-3.1.2-1",
         "MQTT-3.2.2-5"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connect/variable-header/protocol-name",
+        "mqtt-control-packet/control-packet-type/connect/variable-header/protocol-level",
+        "mqtt-control-packet/control-packet-type/connack/variable-header/connect-return-code"
+      ],
       "confidence": 0.94
     },
     {
@@ -184,6 +189,9 @@
       "constraints": [],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connect/variable-header/connect-flags/reserved"
+      ],
       "confidence": 1
     },
     {
@@ -202,6 +210,9 @@
       "constraints": [],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connect/variable-header/connect-flags/clean-session"
+      ],
       "confidence": 0.96
     },
     {
@@ -271,6 +282,10 @@
         "MQTT-3.2.0-1",
         "MQTT-3.2.2-1"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connack/variable-header/connect-acknowledge-flags",
+        "mqtt-control-packet/control-packet-type/connack/variable-header/connect-return-code"
+      ],
       "confidence": 0.93
     },
     {
@@ -313,7 +328,8 @@
       ],
       "structure_references": [
         "mqtt-control-packet/control-packet-type/publish/variable-header/packet-identifier",
-        "mqtt-control-packet/control-packet-type/subscribe/variable-header/packet-identifier"
+        "mqtt-control-packet/control-packet-type/subscribe/variable-header/packet-identifier",
+        "mqtt-control-packet/control-packet-type/unsubscribe/variable-header/packet-identifier"
       ],
       "confidence": 0.98
     },
@@ -411,6 +427,10 @@
         "MQTT-3.8.4-5",
         "MQTT-3.9.3-1",
         "MQTT-3.9.3-2"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/suback/variable-header/packet-identifier",
+        "mqtt-control-packet/control-packet-type/suback/payload/return-code"
       ],
       "confidence": 0.91
     },
@@ -550,6 +570,10 @@
         "MQTT-2.3.1-1",
         "MQTT-3.10.3-1"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/unsubscribe/variable-header/packet-identifier",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
       "confidence": 0.94
     },
     {
@@ -587,13 +611,14 @@
       "preconditions": [
         "A Server receives a valid UNSUBSCRIBE Packet."
       ],
-      "constraints": [
-        "UNSUBACK Remaining Length is 2 and it has no payload."
-      ],
+      "constraints": [],
       "exceptions": [],
       "references": [
         "MQTT-3.10.4-5",
         "MQTT-3.10.4-6"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/unsuback/variable-header/packet-identifier"
       ],
       "confidence": 0.96
     },
@@ -610,11 +635,13 @@
       "preconditions": [
         "A connected client sends PINGREQ."
       ],
-      "constraints": [
-        "PINGREQ and PINGRESP have Remaining Length 0 and no variable header or payload."
-      ],
+      "constraints": [],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/pingreq",
+        "mqtt-control-packet/control-packet-type/pingresp"
+      ],
       "confidence": 0.98
     },
     {
@@ -635,6 +662,9 @@
       ],
       "exceptions": [],
       "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/connect/variable-header/keep-alive"
+      ],
       "confidence": 0.94
     },
     {
@@ -657,7 +687,259 @@
         "MQTT-3.14.4-2",
         "MQTT-3.14.4-3"
       ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/disconnect"
+      ],
       "confidence": 0.76
+    },
+    {
+      "id": "MQTT-4.7.1-1",
+      "source": {
+        "section": "4.7.1 Topic wildcards",
+        "page": 57,
+        "locator": "lines 1368-1375",
+        "excerpt": "The topic level separator is used to introduce structure into the Topic Name. If present, it divides the Topic Name into multiple “topic levels”. A subscription’s Topic Filter can contain special wildcard characters, which allow you to subscribe to multiple topics at once. The wildcard characters can be used in Topic Filters, but MUST NOT be used within a Topic Name [MQTT-4.7.1-1]."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not use the Topic Filter wildcard characters \"+\" or \"#\" within a Topic Name.",
+      "preconditions": [
+        "A Topic Name is encoded or validated."
+      ],
+      "constraints": [
+        "Wildcard characters are permitted in Topic Filters only according to the Topic Filter syntax rules."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-2",
+        "MQTT-4.7.1-3"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.1-SEP",
+      "source": {
+        "section": "4.7.1.1 Topic level separator",
+        "page": 57,
+        "locator": "lines 1376-1381",
+        "excerpt": "The forward slash (‘/’ U+002F) is used to separate each level within a topic tree and provide a hierarchical structure to the Topic Names. The use of the topic level separator is significant when either of the two wildcard characters is encountered in Topic Filters specified by subscribing Clients. Topic level separators can appear anywhere in a Topic Filter or Topic Name. Adjacent Topic level separators indicate a zero length topic level."
+      },
+      "modality": "INFORMATIVE",
+      "statement": "The forward slash \"/\" separates topic levels; it may appear anywhere in a Topic Name or Topic Filter, and adjacent separators create a zero-length topic level.",
+      "preconditions": [],
+      "constraints": [],
+      "exceptions": [],
+      "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.1-2",
+      "source": {
+        "section": "4.7.1.2 Multi-level wildcard",
+        "page": 57,
+        "locator": "lines 1382-1386",
+        "excerpt": "The number sign (‘#’ U+0023) is a wildcard character that matches any number of levels within a topic. The multi-level wildcard represents the parent and any number of child levels. The multi-level wildcard character MUST be specified either on its own or following a topic level separator. In either case it MUST be the last character specified in the Topic Filter [MQTT-4.7.1-2]."
+      },
+      "modality": "MUST",
+      "statement": "Interpret \"#\" as matching the parent level and any number of child levels, and accept it only when it is alone or follows a topic level separator and is the final character of the Topic Filter.",
+      "preconditions": [
+        "A Topic Filter contains the multi-level wildcard \"#\"."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-SEP"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.1-3",
+      "source": {
+        "section": "4.7.1.3 Single level wildcard",
+        "page": 57,
+        "locator": "lines 1401-1406",
+        "excerpt": "The plus sign (‘+’ U+002B) is a wildcard character that matches only one topic level. The single-level wildcard can be used at any level in the Topic Filter, including first and last levels. Where it is used it MUST occupy an entire level of the filter [MQTT-4.7.1-3]. It can be used at more than one level in the Topic Filter and can be used in conjunction with the multilevel wildcard."
+      },
+      "modality": "MUST",
+      "statement": "Interpret \"+\" as matching exactly one topic level and accept it only when it occupies an entire level of the Topic Filter.",
+      "preconditions": [
+        "A Topic Filter contains the single-level wildcard \"+\"."
+      ],
+      "constraints": [
+        "The wildcard may occur at multiple levels and may be combined with the multi-level wildcard."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-SEP",
+        "MQTT-4.7.1-2"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.2-1",
+      "source": {
+        "section": "4.7.2 Topics beginning with $",
+        "page": 58,
+        "locator": "lines 1419-1423",
+        "excerpt": "The Server MUST NOT match Topic Filters starting with a wildcard character (# or +) with Topic Names beginning with a $ character [MQTT-4.7.2-1]. The Server SHOULD prevent Clients from using such Topic Names to exchange messages with other Clients. Server implementations MAY use Topic Names that start with a leading $ character for other purposes."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not match a Topic Filter whose first character is \"#\" or \"+\" with a Topic Name whose first character is \"$\".",
+      "preconditions": [
+        "The Server performs subscription matching."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-2",
+        "MQTT-4.7.1-3"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.3-1",
+      "source": {
+        "section": "4.7.3 Topic semantic and usage",
+        "page": 58,
+        "locator": "lines 1441-1443",
+        "excerpt": "The following rules apply to Topic Names and Topic Filters: All Topic Names and Topic Filters MUST be at least one character long [MQTT-4.7.3-1]."
+      },
+      "modality": "MUST",
+      "statement": "Require every Topic Name and Topic Filter to contain at least one character.",
+      "preconditions": [
+        "A Topic Name or Topic Filter is encoded or validated."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.3-2",
+      "source": {
+        "section": "4.7.3 Topic semantic and usage",
+        "page": 58,
+        "locator": "lines 1441-1449",
+        "excerpt": "Topic Names and Topic Filters MUST NOT include the null character (Unicode U+0000) [Unicode] [MQTT-4.7.3-2]."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not include the null character U+0000 in a Topic Name or Topic Filter.",
+      "preconditions": [
+        "A Topic Name or Topic Filter is encoded or validated."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-1.5.3-1"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.3-3",
+      "source": {
+        "section": "4.7.3 Topic semantic and usage",
+        "page": 58,
+        "locator": "lines 1441-1451",
+        "excerpt": "Topic Names and Topic Filters are UTF-8 encoded strings, they MUST NOT encode to more than 65535 bytes [MQTT-4.7.3-3]. See Section 1.5.3."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not encode a Topic Name or Topic Filter to more than 65535 UTF-8 bytes.",
+      "preconditions": [
+        "A Topic Name or Topic Filter is encoded or validated."
+      ],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-1.5.3-1"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.3-SEMANTICS",
+      "source": {
+        "section": "4.7.3 Topic semantic and usage",
+        "page": 58,
+        "locator": "lines 1441-1453",
+        "excerpt": "Topic Names and Topic Filters are case sensitive. Topic Names and Topic Filters can include the space character. A leading or trailing ‘/’ creates a distinct Topic Name or Topic Filter. A Topic Name or Topic Filter consisting only of the ‘/’ character is valid. There is no limit to the number of levels in a Topic Name or Topic Filter, other than that imposed by the overall length of a UTF-8 encoded string."
+      },
+      "modality": "INFORMATIVE",
+      "statement": "Topic Names and Topic Filters are case-sensitive, may contain spaces, preserve leading and trailing separators as distinct levels, may consist only of \"/\", and have no level-count limit beyond the encoded string length.",
+      "preconditions": [],
+      "constraints": [],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-SEP",
+        "MQTT-4.7.3-3"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter",
+        "mqtt-control-packet/control-packet-type/unsubscribe/payload/topic-filter"
+      ],
+      "confidence": 1
+    },
+    {
+      "id": "MQTT-4.7.3-4",
+      "source": {
+        "section": "4.7.3 Topic semantic and usage",
+        "page": 58,
+        "locator": "lines 1454-1457",
+        "excerpt": "When it performs subscription matching the Server MUST NOT perform any normalization of Topic Names or Topic Filters, or any modification or substitution of unrecognized characters [MQTT-4.7.3-4]. Each non-wildcarded level in the Topic Filter has to match the corresponding level in the Topic Name character for character for the match to succeed."
+      },
+      "modality": "MUST_NOT",
+      "statement": "Do not normalize Topic Names or Topic Filters or modify or substitute unrecognized characters during matching; require every non-wildcarded filter level to match the corresponding Topic Name level character-for-character.",
+      "preconditions": [
+        "The Server performs subscription matching."
+      ],
+      "constraints": [
+        "Matching is case-sensitive."
+      ],
+      "exceptions": [],
+      "references": [
+        "MQTT-4.7.1-2",
+        "MQTT-4.7.1-3",
+        "MQTT-4.7.2-1",
+        "MQTT-4.7.3-SEMANTICS"
+      ],
+      "structure_references": [
+        "mqtt-control-packet/control-packet-type/publish/variable-header/topic-name",
+        "mqtt-control-packet/control-packet-type/subscribe/payload/topic-filter-qos-pair/topic-filter"
+      ],
+      "confidence": 1
     },
     {
       "id": "MQTT-4.8.0-1",
@@ -687,6 +969,6 @@
   ],
   "wire_format_reference": {
     "file": "mqtt-3.1.1-wire-format.json",
-    "wire_format_id": "mqtt-311-wire-format-v1"
+    "wire_format_id": "mqtt-311-wire-format-v2"
   }
 }
