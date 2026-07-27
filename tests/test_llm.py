@@ -35,7 +35,9 @@ SCHEMA: dict[str, Any] = {
 }
 
 
-def openai_body(content: str, *, tin: int = 10, tout: int = 5, model: str = "test-model") -> dict[str, Any]:
+def openai_body(
+    content: str, *, tin: int = 10, tout: int = 5, model: str = "test-model"
+) -> dict[str, Any]:
     return {
         "model": model,
         "choices": [{"message": {"role": "assistant", "content": content}}],

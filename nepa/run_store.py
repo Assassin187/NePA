@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,18 +23,9 @@ Outcome = Literal["success", "degraded", "failed"]  # 9.1.2 三值
 
 _ENTRIES: frozenset[str] = frozenset({"spec-run", "doc-run"})
 
-# 阶段名与 8.2 的 stages/ 模块文件一一对应（s1_ingest.py … s9_report.py）
-STAGE_NAMES: tuple[str, ...] = (
-    "s1_ingest",
-    "s2_extract",
-    "s3_review",
-    "s4_plan",
-    "s5_scaffold",
-    "s6_code",
-    "s7_test",
-    "s8_repair",
-    "s9_report",
-)
+# run.json 的稳定工件键。具体实现模块名（如 s1_ingest.py）不得泄漏进
+# 跨阶段工件；这组键与 run.schema.json/设计文档中的 S1～S9 对齐。
+STAGE_NAMES: tuple[str, ...] = tuple(f"s{i}" for i in range(1, 10))
 
 # 合法状态迁移（4.8）。done/skipped 为终态：重复执行已完成阶段
 # 应是无害空操作而非状态回退；failed→running 供 resume 重试（4.8）。
@@ -69,9 +60,7 @@ class InvalidTransitionError(ValueError):
 
 def _utc_now_iso() -> str:
     """UTC ISO8601 时间戳（5.6.2 created_at 等）。"""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
-        "+00:00", "Z"
-    )
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 class StageState(BaseModel):
@@ -116,9 +105,7 @@ class RunMeta(BaseModel):
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     """写临时文件 + os.replace 原子改名（4.8）。临时文件与目标同目录。"""
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=path.name + ".", suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=2)
@@ -146,7 +133,7 @@ class RunStore:
         self._meta: RunMeta = meta
 
     @classmethod
-    def load(cls, run_dir: str | Path) -> "RunStore":
+    def load(cls, run_dir: str | Path) -> RunStore:
         """从磁盘加载已有运行（resume/status 入口，4.8）。"""
         run_dir = Path(run_dir)
         raw = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
@@ -165,13 +152,9 @@ class RunStore:
         return self._dump()
 
     def _dump(self) -> dict[str, Any]:
-        data = self._meta.model_dump(mode="json")
-        # 5.6.2：outcome/exit_code 为终态字段，未终结前不出现在文件中
-        if data.get("outcome") is None:
-            data.pop("outcome", None)
-        if data.get("exit_code") is None:
-            data.pop("exit_code", None)
-        return data
+        # 可选时间/错误/终态字段在未赋值时必须省略；JSON Schema 将它们定义
+        # 为“可选 string/enum”，而不是显式 null。
+        return self._meta.model_dump(mode="json", exclude_none=True)
 
     def save(self) -> None:
         """原子落盘 run.json（4.8）。"""
@@ -199,9 +182,7 @@ class RunStore:
         if status not in _ALLOWED_TRANSITIONS:
             raise ValueError(f"未知阶段状态: {status!r}")
         if status not in _ALLOWED_TRANSITIONS[state.status]:
-            raise InvalidTransitionError(
-                f"阶段 {stage!r} 不允许 {state.status!r} → {status!r}"
-            )
+            raise InvalidTransitionError(f"阶段 {stage!r} 不允许 {state.status!r} → {status!r}")
         if error is not None and status != "failed":
             raise ValueError("error 只随 failed 状态写入")
         now = _utc_now_iso()
@@ -245,9 +226,7 @@ class RunStore:
             raise ValueError(f"未知 outcome: {outcome!r}")
         expected = _OUTCOME_EXIT_CODES[outcome]
         if exit_code != expected:
-            raise ValueError(
-                f"outcome {outcome!r} 对应退出码 {expected}（8.7），实际 {exit_code}"
-            )
+            raise ValueError(f"outcome {outcome!r} 对应退出码 {expected}（8.7），实际 {exit_code}")
         self._meta.outcome = outcome
         self._meta.exit_code = exit_code
         self.save()
@@ -274,7 +253,7 @@ def create_run(
 
     root = Path(runs_root)
     root.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stamp = now.strftime("%Y%m%dT%H%MZ")  # 4.4 示例：20260726T1432Z
     run_id = f"{stamp}_{protocol}_{entry}"
     n = 2

@@ -1,0 +1,229 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "protocol_name": "MQTT",
+    "protocol_version": "3.1.1",
+    "source": {"kind": "manual"},
+    "created_at": "2026-07-27T12:00:00Z"
+  },
+  "scope": {
+    "roles": ["client", "broker"],
+    "features_included": [
+      "CONNECT/CONNACK",
+      "PUBLISH QoS 0",
+      "SUBSCRIBE/SUBACK",
+      "UNSUBSCRIBE/UNSUBACK",
+      "PINGREQ/PINGRESP",
+      "DISCONNECT",
+      "clean_session=1",
+      "keep_alive timeout",
+      "literal topic matching",
+      "plain TCP IPv4 single-threaded"
+    ],
+    "features_excluded": [
+      {"name": "QoS 1 and QoS 2", "reason": "Deferred to M5"},
+      {"name": "persistent sessions", "reason": "Deferred to M5"},
+      {"name": "Will and authentication", "reason": "Deferred to M5"},
+      {"name": "wildcards, retain, and $SYS", "reason": "Deferred to M5"},
+      {"name": "TLS, WebSocket, and IPv6", "reason": "Outside the M0 baseline"}
+    ],
+    "assumptions": ["one broker process", "no bridge mode", "bounded test payloads"]
+  },
+  "transport": {"layer": "tcp", "default_port": 1883, "byte_order": "big_endian"},
+  "types": [
+    {
+      "id": "mqtt_varint",
+      "name": "MQTT Variable Byte Integer",
+      "encoding": {"kind": "varint", "max_bytes": 4, "data_bits": 7, "continuation_bit": 7},
+      "constraints": [{"max": 268435455}],
+      "req_ids": ["REQ-FRAME-001"]
+    },
+    {
+      "id": "mqtt_utf8_string",
+      "name": "MQTT UTF-8 encoded string",
+      "encoding": {"kind": "length_prefixed_string", "length_type": "uint16_be", "charset": "utf-8"},
+      "constraints": [{"max_len": 65535}]
+    },
+    {
+      "id": "mqtt_subscription_list",
+      "name": "MQTT subscription entries",
+      "encoding": {"kind": "fixed", "item": "mqtt_utf8_string followed by requested_qos", "repeat": "one_or_more"},
+      "req_ids": ["REQ-SUBSCRIBE-001"]
+    },
+    {
+      "id": "mqtt_topic_filter_list",
+      "name": "MQTT topic filter list",
+      "encoding": {"kind": "fixed", "item": "mqtt_utf8_string", "repeat": "one_or_more"},
+      "req_ids": ["REQ-UNSUBSCRIBE-001"]
+    }
+  ],
+  "messages": [
+    {
+      "id": "connect", "name": "CONNECT", "packet_type_code": 1,
+      "direction": "client_to_server",
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 1}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}, "on_violation": {"action": "close_connection"}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header", "payload"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "protocol_name", "loc": "variable_header", "type": "mqtt_utf8_string", "constraint": {"const": "MQTT"}, "on_violation": {"action": "close_connection"}, "req_ids": ["REQ-CONNECT-001"]},
+        {"name": "protocol_level", "loc": "variable_header", "type": "uint8", "constraint": {"const": 4}, "on_violation": {"action": "connack_then_close", "connack_rc": 1}, "req_ids": ["REQ-CONNECT-002"]},
+        {"name": "connect_flags", "loc": "variable_header", "type": "bitfield8", "bits": [{"name": "clean_session", "offset": 1, "width": 1, "constraint": {"const": 1}}, {"name": "will_flag", "offset": 2, "width": 1, "constraint": {"const": 0}}, {"name": "username_flag", "offset": 7, "width": 1, "constraint": {"const": 0}}, {"name": "password_flag", "offset": 6, "width": 1, "constraint": {"const": 0}}], "req_ids": ["REQ-CONNECT-003"]},
+        {"name": "keep_alive", "loc": "variable_header", "type": "uint16_be", "req_ids": ["REQ-KEEPALIVE-001"]},
+        {"name": "client_id", "loc": "payload", "type": "mqtt_utf8_string", "constraint": {"min_len": 1, "max_len": 23, "charset": "0-9a-zA-Z"}, "on_violation": {"action": "connack_then_close", "connack_rc": 2}, "req_ids": ["REQ-CONNECT-004"]}
+      ],
+      "req_ids": ["REQ-CONNECT-001", "REQ-CONNECT-002", "REQ-CONNECT-003", "REQ-CONNECT-004"]
+    },
+    {
+      "id": "connack", "name": "CONNACK", "packet_type_code": 2,
+      "direction": "server_to_client", "wire_layout": ["fixed_header", "variable_header"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 2}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "session_present", "loc": "variable_header", "type": "uint8", "constraint": {"const": 0}, "req_ids": ["REQ-CONNACK-001"]},
+        {"name": "return_code", "loc": "variable_header", "type": "uint8", "constraint": {"min": 0, "max": 5}, "req_ids": ["REQ-CONNACK-001", "REQ-CONNECT-002"]}
+      ],
+      "req_ids": ["REQ-CONNACK-001"]
+    },
+    {
+      "id": "publish", "name": "PUBLISH", "packet_type_code": 3,
+      "direction": "both", "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 3}}, {"name": "dup", "offset": 3, "width": 1, "constraint": {"const": 0}}, {"name": "qos", "offset": 1, "width": 2, "constraint": {"const": 0}}, {"name": "retain", "offset": 0, "width": 1, "constraint": {"const": 0}}], "req_ids": ["REQ-PUBLISH-001"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header", "payload"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "topic_name", "loc": "variable_header", "type": "mqtt_utf8_string", "constraint": {"min_len": 1, "max_len": 65535}, "req_ids": ["REQ-PUBLISH-001"]},
+        {"name": "payload", "loc": "payload", "type": "bytes", "req_ids": ["REQ-PUBLISH-001"]}
+      ],
+      "req_ids": ["REQ-PUBLISH-001", "REQ-ROUTE-001"]
+    },
+    {
+      "id": "subscribe", "name": "SUBSCRIBE", "packet_type_code": 8,
+      "direction": "client_to_server", "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 8}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 2}, "on_violation": {"action": "close_connection"}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header", "payload"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "packet_identifier", "loc": "variable_header", "type": "uint16_be", "constraint": {"min": 1, "max": 65535}, "req_ids": ["REQ-SUBSCRIBE-001"]},
+        {"name": "subscriptions", "loc": "payload", "type": "mqtt_subscription_list", "req_ids": ["REQ-SUBSCRIBE-001"]}
+      ],
+      "req_ids": ["REQ-SUBSCRIBE-001"]
+    },
+    {
+      "id": "suback", "name": "SUBACK", "packet_type_code": 9,
+      "direction": "server_to_client", "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 9}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header", "payload"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "packet_identifier", "loc": "variable_header", "type": "uint16_be", "req_ids": ["REQ-SUBACK-001"]},
+        {"name": "return_codes", "loc": "payload", "type": "bytes", "constraint": {"min_len": 1}, "req_ids": ["REQ-SUBACK-001"]}
+      ],
+      "req_ids": ["REQ-SUBACK-001"]
+    },
+    {
+      "id": "unsubscribe", "name": "UNSUBSCRIBE", "packet_type_code": 10,
+      "direction": "client_to_server", "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 10}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 2}, "on_violation": {"action": "close_connection"}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header", "payload"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "packet_identifier", "loc": "variable_header", "type": "uint16_be", "constraint": {"min": 1, "max": 65535}, "req_ids": ["REQ-UNSUBSCRIBE-001"]},
+        {"name": "topic_filters", "loc": "payload", "type": "mqtt_topic_filter_list", "req_ids": ["REQ-UNSUBSCRIBE-001"]}
+      ],
+      "req_ids": ["REQ-UNSUBSCRIBE-001"]
+    },
+    {
+      "id": "unsuback", "name": "UNSUBACK", "packet_type_code": 11,
+      "direction": "server_to_client", "wire_layout": ["fixed_header", "variable_header"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 11}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "derived": {"kind": "length_of", "of": ["variable_header"]}, "req_ids": ["REQ-FRAME-001"]},
+        {"name": "packet_identifier", "loc": "variable_header", "type": "uint16_be", "req_ids": ["REQ-UNSUBACK-001"]}
+      ],
+      "req_ids": ["REQ-UNSUBACK-001"]
+    },
+    {
+      "id": "pingreq", "name": "PINGREQ", "packet_type_code": 12,
+      "direction": "client_to_server", "wire_layout": ["fixed_header"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 12}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "constraint": {"const": 0}, "req_ids": ["REQ-PING-001"]}
+      ],
+      "req_ids": ["REQ-PING-001"]
+    },
+    {
+      "id": "pingresp", "name": "PINGRESP", "packet_type_code": 13,
+      "direction": "server_to_client", "wire_layout": ["fixed_header"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 13}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "constraint": {"const": 0}, "req_ids": ["REQ-PING-001"]}
+      ],
+      "req_ids": ["REQ-PING-001"]
+    },
+    {
+      "id": "disconnect", "name": "DISCONNECT", "packet_type_code": 14,
+      "direction": "client_to_server", "wire_layout": ["fixed_header"],
+      "fields": [
+        {"name": "packet_type", "loc": "fixed_header", "type": "bitfield8", "bits": [{"name": "type", "offset": 4, "width": 4, "constraint": {"const": 14}}, {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}], "req_ids": ["REQ-FRAME-002"]},
+        {"name": "remaining_length", "loc": "fixed_header", "type": "mqtt_varint", "constraint": {"const": 0}, "req_ids": ["REQ-DISCONNECT-001"]}
+      ],
+      "req_ids": ["REQ-DISCONNECT-001"]
+    }
+  ],
+  "state_machines": [
+    {
+      "id": "broker_session", "role": "broker",
+      "states": ["wait_connect", "connected", "closed"], "initial": "wait_connect",
+      "transitions": [
+        {"from": "wait_connect", "event": "recv:CONNECT", "guard": "connect.protocol_level == 4", "actions": ["send:CONNACK(rc=0)"], "to": "connected", "req_ids": ["REQ-CONNACK-001"]},
+        {"from": "wait_connect", "event": "recv:CONNECT", "guard": "connect.protocol_level != 4", "actions": ["send:CONNACK(rc=1)", "close"], "to": "closed", "req_ids": ["REQ-CONNECT-002"]},
+        {"from": "connected", "event": "recv:CONNECT", "actions": ["close"], "to": "closed", "req_ids": ["REQ-STATE-001"]},
+        {"from": "connected", "event": "recv:PINGREQ", "actions": ["send:PINGRESP"], "to": "connected", "req_ids": ["REQ-PING-001"]},
+        {"from": "connected", "event": "recv:DISCONNECT", "actions": ["close"], "to": "closed", "req_ids": ["REQ-DISCONNECT-001"]},
+        {"from": "connected", "event": "timer:keep_alive", "guard": "session.keep_alive > 0", "actions": ["close"], "to": "closed", "req_ids": ["REQ-KEEPALIVE-001"]}
+      ]
+    },
+    {
+      "id": "client_session", "role": "client",
+      "states": ["disconnected", "wait_connack", "connected", "closed"], "initial": "disconnected",
+      "transitions": [
+        {"from": "disconnected", "event": "transport:connected", "actions": ["send:CONNECT"], "to": "wait_connack", "req_ids": ["REQ-CONNECT-001"]},
+        {"from": "wait_connack", "event": "recv:CONNACK", "guard": "connack.return_code == 0", "actions": ["deliver:connected"], "to": "connected", "req_ids": ["REQ-CONNACK-001"]},
+        {"from": "connected", "event": "api:disconnect", "actions": ["send:DISCONNECT", "close"], "to": "closed", "req_ids": ["REQ-DISCONNECT-001"]}
+      ]
+    }
+  ],
+  "behaviors": [
+    {"id": "BEH-BROKER-001", "role": "broker", "trigger": "A connected client sends a QoS 0 PUBLISH to a literal topic.", "requirement": "MUST forward the topic and payload exactly once to every connected subscriber with the same literal topic filter.", "level": "MUST", "observable_check": "Subscribe client A to a randomized literal topic, publish from client B, and observe one identical message at A.", "req_ids": ["REQ-ROUTE-001"]},
+    {"id": "BEH-BROKER-002", "role": "broker", "trigger": "A connected client sends SUBSCRIBE with one or more literal filters.", "requirement": "MUST store each filter and return a SUBACK entry in request order.", "level": "MUST", "observable_check": "Send a randomized single-filter subscription and verify SUBACK packet identifier and return code 0.", "req_ids": ["REQ-SUBSCRIBE-001", "REQ-SUBACK-001"]},
+    {"id": "BEH-BROKER-003", "role": "broker", "trigger": "A connected client sends UNSUBSCRIBE.", "requirement": "MUST remove exact matching subscriptions and send UNSUBACK even when no subscription existed.", "level": "MUST", "observable_check": "Unsubscribe a randomized topic, verify UNSUBACK, publish again, and observe no delivery.", "req_ids": ["REQ-UNSUBSCRIBE-001", "REQ-UNSUBACK-001"]},
+    {"id": "BEH-BOTH-001", "role": "both", "trigger": "A malformed control packet or invalid fixed-header flags are received.", "requirement": "MUST close the affected network connection unless a packet-specific response is defined.", "level": "MUST", "observable_check": "Send invalid flags and observe EOF without affecting a separate healthy connection.", "req_ids": ["REQ-ERROR-001"]}
+  ],
+  "timers": [
+    {"id": "keep_alive", "name": "Broker keep alive timer", "source": "CONNECT.keep_alive", "on_timeout": "Close after 1.5 times the non-zero keep_alive interval without receiving a control packet; disabled when zero.", "req_ids": ["REQ-KEEPALIVE-001"]}
+  ],
+  "errors": [
+    {"id": "malformed_packet", "condition": "Malformed packet, invalid fixed-header flags, or truncated encoding.", "action": "Close only the offending network connection.", "req_ids": ["REQ-ERROR-001"]},
+    {"id": "bad_protocol_level", "condition": "CONNECT protocol_level is not 4.", "action": "Send CONNACK return_code 1, then close.", "req_ids": ["REQ-CONNECT-002"]}
+  ],
+  "constants": [
+    {"name": "default_port", "value": 1883, "description": "IANA MQTT TCP port"},
+    {"name": "keep_alive_multiplier", "value": 1.5, "description": "Broker inactivity timeout multiplier", "req_ids": ["REQ-KEEPALIVE-001"]}
+  ],
+  "requirements": [
+    {"id": "REQ-FRAME-001", "text": "Remaining Length MUST use the MQTT variable byte integer encoding and equal the bytes after the fixed header.", "level": "MUST", "category": "syntax", "source_ref": {"section": "2.2.3 Remaining Length", "quote": "The Remaining Length is encoded using a variable length encoding scheme."}, "covered_by": {"elements": ["types/mqtt_varint", "messages/*/fields/remaining_length"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_varint_boundaries"]}},
+    {"id": "REQ-FRAME-002", "text": "Every Control Packet MUST use its assigned type code and reserved fixed-header flags; invalid flags cause the connection to close.", "level": "MUST", "category": "error_handling", "source_ref": {"section": "2.2.2 MQTT Control Packet type", "quote": "If invalid flags are received, the receiver MUST close the Network Connection."}, "covered_by": {"elements": ["messages/*/fields/packet_type", "errors/malformed_packet"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_fixed_headers", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_invalid_fixed_header_disconnects"]}},
+    {"id": "REQ-CONNECT-001", "text": "CONNECT MUST encode Protocol Name MQTT and establish the client session before other packets.", "level": "MUST", "category": "syntax", "source_ref": {"section": "3.1.2.1 Protocol Name", "quote": "The UTF-8 encoded string that represents the Protocol Name MUST be MQTT."}, "covered_by": {"elements": ["messages/connect/fields/protocol_name", "state_machines/client_session"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_connect_bytes", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_connect_success"]}},
+    {"id": "REQ-CONNECT-002", "text": "A broker receiving protocol_level other than 4 MUST send CONNACK return code 1 and then close.", "level": "MUST", "category": "error_handling", "source_ref": {"section": "3.1.2.2 Protocol Level", "quote": "The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 and then disconnect the Client."}, "covered_by": {"elements": ["messages/connect/fields/protocol_level", "state_machines/broker_session", "errors/bad_protocol_level"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_bad_protocol_level"]}},
+    {"id": "REQ-CONNECT-003", "text": "The M0 CONNECT profile MUST set clean_session=1 and disable Will, user name, and password.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.1.2.3 Connect Flags", "quote": "The Server MUST validate that the reserved flag in the CONNECT Control Packet is set to zero."}, "covered_by": {"elements": ["messages/connect/fields/connect_flags"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_connect_bytes"]}},
+    {"id": "REQ-CONNECT-004", "text": "The M0 client identifier MUST be 1 to 23 alphanumeric UTF-8 bytes.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.1.3.1 Client Identifier", "quote": "The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length."}, "covered_by": {"elements": ["messages/connect/fields/client_id"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_connect_success"]}},
+    {"id": "REQ-CONNACK-001", "text": "A valid clean-session CONNECT MUST receive CONNACK with session_present 0 and return_code 0.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.2.2 CONNACK Variable header", "quote": "If the Server accepts a connection with CleanSession set to 1, the Server MUST set Session Present to 0."}, "covered_by": {"elements": ["messages/connack", "state_machines/broker_session"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_connect_success"]}},
+    {"id": "REQ-PUBLISH-001", "text": "M0 PUBLISH MUST use QoS 0, DUP 0, RETAIN 0 and carry the exact topic name and application payload.", "level": "MUST", "category": "syntax", "source_ref": {"section": "3.3 PUBLISH", "quote": "A PUBLISH Packet is sent from a Client to a Server or from a Server to a Client to transport an Application Message."}, "covered_by": {"elements": ["messages/publish"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_publish_bytes", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_publish_is_forwarded"]}},
+    {"id": "REQ-SUBSCRIBE-001", "text": "SUBSCRIBE MUST contain a non-zero Packet Identifier and one or more Topic Filter/requested QoS entries.", "level": "MUST", "category": "syntax", "source_ref": {"section": "3.8.3 SUBSCRIBE Payload", "quote": "The Payload MUST contain at least one Topic Filter and Subscription QoS pair."}, "covered_by": {"elements": ["messages/subscribe", "behaviors/BEH-BROKER-002"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_subscribe_bytes", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_subscribe_acknowledged"]}},
+    {"id": "REQ-SUBACK-001", "text": "SUBACK MUST repeat the SUBSCRIBE Packet Identifier and return one code per filter; M0 grants QoS 0.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.9 SUBACK", "quote": "The SUBACK Packet MUST have the same Packet Identifier as the SUBSCRIBE Packet that it is acknowledging."}, "covered_by": {"elements": ["messages/suback", "behaviors/BEH-BROKER-002"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_subscribe_acknowledged"]}},
+    {"id": "REQ-UNSUBSCRIBE-001", "text": "UNSUBSCRIBE MUST contain a non-zero Packet Identifier and one or more exact Topic Filters to remove.", "level": "MUST", "category": "syntax", "source_ref": {"section": "3.10.3 UNSUBSCRIBE Payload", "quote": "The Payload MUST contain at least one Topic Filter."}, "covered_by": {"elements": ["messages/unsubscribe", "behaviors/BEH-BROKER-003"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_unsubscribe_bytes", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_unsubscribe_stops_delivery"]}},
+    {"id": "REQ-UNSUBACK-001", "text": "The broker MUST send UNSUBACK with the request Packet Identifier even if no subscription was removed.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.10.4 UNSUBSCRIBE Response", "quote": "Even where no Topic Subscriptions are deleted, the Server MUST respond with an UNSUBACK."}, "covered_by": {"elements": ["messages/unsuback", "behaviors/BEH-BROKER-003"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_unsubscribe_stops_delivery"]}},
+    {"id": "REQ-PING-001", "text": "The broker MUST answer PINGREQ with PINGRESP; both packets have Remaining Length zero.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.12.4 PINGREQ Response", "quote": "The Server MUST send a PINGRESP Packet in response to a PINGREQ Packet."}, "covered_by": {"elements": ["messages/pingreq", "messages/pingresp", "state_machines/broker_session"], "tests": ["golds/mqtt-3.1.1-min/tests/l1_codec/test_packets.py::test_zero_length_packets", "golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_ping_response"]}},
+    {"id": "REQ-DISCONNECT-001", "text": "DISCONNECT MUST be the client's final packet and closes the network connection cleanly.", "level": "MUST", "category": "semantics", "source_ref": {"section": "3.14 DISCONNECT", "quote": "The DISCONNECT Packet is the final Control Packet sent from the Client to the Server."}, "covered_by": {"elements": ["messages/disconnect", "state_machines/client_session"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_disconnect_closes_session"]}},
+    {"id": "REQ-STATE-001", "text": "The first packet from a client MUST be CONNECT and a second CONNECT on the same connection causes disconnection.", "level": "MUST", "category": "error_handling", "source_ref": {"section": "3.1.0 CONNECT", "quote": "The Client can only send the CONNECT Packet once over a Network Connection."}, "covered_by": {"elements": ["state_machines/broker_session"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_duplicate_connect_disconnects"]}},
+    {"id": "REQ-ROUTE-001", "text": "A broker MUST forward each QoS 0 publication exactly once to every connected subscription with an exactly equal literal topic.", "level": "MUST", "category": "semantics", "source_ref": {"section": "4.5 Message delivery retry", "quote": "QoS 0 messages are delivered according to the capabilities of the underlying network."}, "covered_by": {"elements": ["behaviors/BEH-BROKER-001", "messages/publish"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_publish_is_forwarded"]}},
+    {"id": "REQ-ERROR-001", "text": "Unless a packet-specific rule applies, a protocol violation MUST close only the affected Network Connection.", "level": "MUST", "category": "error_handling", "source_ref": {"section": "4.8 Handling errors", "quote": "If either the Server or Client encounters a protocol violation, it MUST close the Network Connection."}, "covered_by": {"elements": ["errors/malformed_packet", "behaviors/BEH-BOTH-001"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_invalid_fixed_header_disconnects"]}},
+    {"id": "REQ-KEEPALIVE-001", "text": "For non-zero Keep Alive the broker MUST disconnect after 1.5 times the interval without a packet; zero disables inactivity disconnect.", "level": "MUST", "category": "timing", "source_ref": {"section": "3.1.2.10 Keep Alive", "quote": "If the Keep Alive value is non-zero and the Server does not receive a Control Packet within one and a half times the Keep Alive time period, it MUST disconnect."}, "covered_by": {"elements": ["timers/keep_alive", "messages/connect/fields/keep_alive"], "tests": ["golds/mqtt-3.1.1-min/tests/l2_behavior/test_broker.py::test_keep_alive_timeout"]}}
+  ]
+}

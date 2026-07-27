@@ -10,16 +10,16 @@
 | --- | --- | --- |
 | Python | ✅ 3.12.9（uv 0.10.9） | 满足 ≥ 3.11 |
 | gcc / make | ✅ gcc 12.3 / make 4.3 | 宿主机可用（正式构建走沙箱） |
-| Docker | ⏳ 待用户开通权限 | `ljf` 不在 docker 组；用户已确认将执行 `sudo usermod -aG docker ljf` 并重新登录 |
-| mosquitto broker | ⏳ 待用户安装 | 仅有客户端；用户已确认将 `sudo apt install mosquitto`；装好后补跑 D0.2 |
-| DeepSeek API | ✅ 环境变量 `DS_API` 已设置 | 测试期基座模型（见决策 DEC-1） |
+| Docker | ✅ 29.3.0 | `ljf` 已加入 docker 组；`nepa-sandbox@sha256:3795cf4e272e1353b0437779511b3433a950e93a4bee3e7a1a2c094992d1de37` 已构建、自验并登记 |
+| mosquitto broker | ✅ 2.0.11 | 可执行文件及客户端工具可用；D0.2 在隔离沙箱中逐轮启动临时 broker，不依赖 systemd 常驻服务 |
+| DeepSeek API | ⏳ 当前会话未设置 `DS_API` | M0 不依赖；进入需真实 LLM 调用的后续里程碑前恢复 |
 
 ## 里程碑总览
 
 | 里程碑 | 状态 | 说明 |
 | --- | --- | --- |
-| 文档 v0.3.0 | ✅ 完成 | 第 0～12 章齐备；一致性校验与长期目标评审的确认项待合并 |
-| M0 gold 资产与校验工具 | 🔨 进行中 | 见下方工作项明细 |
+| 文档 v0.3.1 | ✅ 完成 | 第 0～12 章齐备；一致性校验与长期目标评审结论已合并 |
+| M0 gold 资产与校验工具 | ✅ 完成 | D0.1～D0.6 全部通过；2026-07-27 停止于 M1 入口前 |
 | M1 spec-run 到可构建 | ⬜ 未开始 | |
 | M2 一致性验证与修复 | ⬜ 未开始 | |
 | M3 文档到规格 | ⬜ 未开始 | |
@@ -31,15 +31,26 @@
 
 | 工作项 | 内容（详见设计文档 10.1） | 状态 | 备注 |
 | --- | --- | --- | --- |
-| M0-1 | 第 5 章表格 → JSON Schema + 示例 | 🔨 | |
-| M0-2 | 旧三文件草案迁移映射与归档 | 🔨 | 与 M0-4 合并推进 |
-| M0-3 | 7.1 功能子集冻结确认 | ⬜ | 需负责人确认（见待办） |
-| M0-4 | gold 规格 spec.json（v2.0） | 🔨 | 从 gold_specs/ 草案迁移内容 |
-| M0-5 | spec_lint / plan_lint + 单测 | 🔨 | |
-| M0-6 | gold 测试集（harness + L0/L1/L2） | 🔨 | harness 常量从 spec 读取（A7 探针前提） |
-| M0-7 | 参考实现验证（100% + 20 轮） | ⏳ | 阻塞于 mosquitto 安装 |
-| M0-8 | 沙箱镜像 Dockerfile | 🔨 | 镜像构建阻塞于 docker 权限 |
+| M0-1 | 第 5 章表格 → JSON Schema + 示例 | ✅ | 10 份 schema 与 10 份示例通过 draft 2020-12 校验；补充 run_store→run.schema 跨模块契约测试 |
+| M0-2 | 旧三文件草案迁移映射与归档 | ✅ | 已移入 legacy/，独立字段迁移映射完成并经负责人授权更新设计文档 12.3 |
+| M0-3 | 7.1 功能子集冻结确认 | ✅ | 负责人于 2026-07-27 确认当前基线并授权写入 7.1 |
+| M0-4 | gold 规格 spec.json（v2.0） | ✅ | 冻结范围已写入 spec；18 条 MUST、10 种报文；gold lint 0 error |
+| M0-5 | spec_lint / plan_lint + 单测 | ✅ | `nepa lint spec/plan` 可用；新增 MQTT type code、wire_layout 引用检查；ruff/mypy/pytest 全绿 |
+| M0-6 | gold 测试集（harness + L0/L1/L2） | ✅ | 22 个 manifest 用例；常量从 spec 读取、输入按 seed 随机化；参考模式每轮 19 passed、1 个 workspace 专用用例按设计跳过 |
+| M0-7 | 参考实现验证（100% + 20 轮） | ✅ | 固定沙箱中 Mosquitto 2.0.11 + Paho 1.6.1 连续 20 轮全绿；种子 311000～311019，逐轮日志与摘要已归档 |
+| M0-8 | 沙箱镜像 Dockerfile | ✅ | 镜像构建及无网络/非 root 自验通过；digest 与 Dockerfile 哈希登记于 `docker/sandbox-image.json` |
 | 基础设施 | pyproject / 包骨架 / LLM 层 / config / run_store | 🔨 | 提前自 M1（不依赖沙箱，先行实现） |
+
+## M0 DoD 验收记录
+
+| DoD | 状态 | 证据 |
+| --- | --- | --- |
+| D0.1 | ✅ | gold 模式 `nepa lint spec`：0 error、0 warning |
+| D0.2 | ✅ | 固定 digest 沙箱内 20/20 轮全绿；`golds/mqtt-3.1.1-min/validation/reference/summary.json` 为 `passed: true`，20 份日志齐全 |
+| D0.3 | ✅ | 18 条 MUST 的 `covered_by.tests` 均非空、nodeid 存在，由 gold lint + manifest 漂移测试验证 |
+| D0.4 | ✅ | 10 份活动 schema 与最小示例互校通过；全量测试 175 passed |
+| D0.5 | ✅ | 项目负责人于 2026-07-27 签字确认 7.1 冻结范围 |
+| D0.6 | ✅ | 项目负责人授权旧草案归档及 12.3 迁移记录，归档与映射均已完成 |
 
 ## 决策记录
 
@@ -52,11 +63,28 @@
 
 ## 待办（需用户/负责人动作）
 
-- [ ] 执行 `sudo usermod -aG docker ljf` 并重新登录，然后告知，我将构建沙箱镜像（M0-8）
-- [ ] 执行 `sudo apt install mosquitto`，然后告知，我将补跑 D0.2 参考实现验证（M0-7）
-- [ ] M0-3：确认设计文档 7.1 的 M0 功能子集基线（确认后 7.1 标注"已冻结"）
+- [ ] 按 DEC-4 审阅并确认本次 M0 变更后再提交；在此之前不进入 M1
 
 ## 会话日志
+
+### 2026-07-27（会话 3）
+- 负责人进一步授权更新设计文档 12.4；已追加 M0 冻结与迁移修订记录，不提升设计版本、不改动 M1+ 设计。
+- Docker 权限与 Mosquitto broker 就绪后完成 M0-7/M0-8：
+  - 构建并自验 `nepa-sandbox`，固定 digest `sha256:3795cf4e272e1353b0437779511b3433a950e93a4bee3e7a1a2c094992d1de37`，登记 Dockerfile 哈希。
+  - 校准 gold 参考适配：以非法 SUBSCRIBE 固定头覆盖协议违规断连，并区分 Mosquitto 粗粒度 keep-alive 调度容差与生成目标容差；补齐 Paho 1.x/2.x 兼容。
+  - 在固定 digest、`--network=none`、非 root UID 的沙箱中以种子 311000～311019 连续验证 20 轮，全部为 19 passed / 1 skipped，日志及环境摘要归档。
+- M0 最终门禁：全量测试 `175 passed`；ruff、mypy、gold lint、`git diff --check` 全绿；D0.1～D0.6 全部满足，按要求停止于 M1 入口前。
+- 负责人确认 7.1 当前 M0 子集原样冻结，并授权更新设计文档 7.1 冻结记录与 12.3 迁移归档记录；M0-2/M0-3/M0-4 据此完成。12.4 当时暂缓，后于本会话获得单独授权并完成登记。
+- 按目标提交 `e78f523` 复核实际进度后继续 M0，明确不进入 M1、不修改未获授权的设计文档。
+- 收口 M0-1/M0-5：
+  - 修复 `run_store` 阶段键与 `run.schema` 不一致、可选字段错误序列化为 null、同分钟 run_id 冲突格式等跨模块问题，并增加真实工件校验测试。
+  - 补齐 `nepa lint spec/plan` CLI；`spec_lint` 新增 MQTT `packet_type_code` 必填/唯一和字段 `loc`→`wire_layout` 引用检查。
+- 完成 M0-2：旧三文件 schema/gold 草案完整移入 `legacy/`，新增独立字段迁移映射，并在负责人授权后同步设计文档 12.3。
+- 推进 M0-4/M0-6：
+  - 新建 MQTT 3.1.1 最小子集 Spec IR v2.0，覆盖 10 种报文、client/broker 状态机、行为、定时器、错误和 18 条 MUST 需求；gold 模式 `spec_lint` 0 error。
+  - 新建 spec 驱动 harness、L0/L1/L2、Mosquitto 参考 client/broker 适配、随机化 fixture、manifest 收集器和 20 轮参考审计脚本；manifest 当前 22 个用例，L1 参考自验 7 passed。
+- 质量门禁：NePA 自身 `171 passed, 4 skipped`；ruff、mypy 全绿。4 个 skip 为 DeepSeek/Docker 外部集成测试。
+- 外部阻塞复核：`ljf` 仍无 Docker daemon 权限；仅有 `mosquitto_pub/sub`，broker 未安装；D0.2 脚本已实际运行并明确因 broker 缺失停止。
 
 ### 2026-07-27（会话 2）
 - 两个评审工作流返回并全部落实：

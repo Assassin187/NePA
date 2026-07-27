@@ -901,7 +901,7 @@ git 纪律：每个通过快验的簇修复一次提交（`fix(round-N): 簇签�
 
 ### 7\.1 M0 功能子集
 
-以下为 M0 功能子集的**建议基线**，冻结前需项目负责人确认（列入 10.1 的 DoD）；确认后写入 gold 规格的 `scope` 字段，此后变更走文档修订流程。
+以下 M0 功能子集已于 **2026\-07\-27** 由项目负责人确认并冻结（D0.5）。冻结范围已写入 `golds/mqtt-3.1.1-min/spec/spec.json` 的 `scope` 字段；此后任何变更必须走文档修订流程。
 
 目标角色：同时生成 **client 库 \+ 命令行客户端** 与 **broker**。
 
@@ -1584,20 +1584,21 @@ flowchart LR
 
 ### 12\.3 仓库现状与本文档的对应关系
 
-截至 v0.3.0，NePA 仓库已有文件与本文档的关系如下（M0\-2 完成后本表更新）：
+截至 2026\-07\-27，M0\-2 迁移与归档完成后，NePA 仓库文件与本文档的关系如下：
 
-| 现有文件                                        | 性质                                     | 处置（依据 10.1）                                            |
-| ----------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------ |
-| `protocol_docs/mqtt-v3.1.1-os.pdf`              | 规范源文档                               | 保留；doc\-run 输入与 gold `source_ref` 指向对象             |
-| `schemas/specs-requirements.schema.json`        | **早期草案** schema（与 5.1 的 v2.0 不同构） | M0\-2：编写迁移映射表后归档 `legacy/`；通用 PDU 模型思想按 O\-5 择机反哺 v3.0 |
-| `schemas/wire-format.schema.json`               | 早期草案：线缆格式模型 1.1               | 同上                                                         |
-| `schemas/generation-profile.schema.json`        | 早期草案：生成范围契约                   | 同上；其"范围契约"职责已并入 v2.0 的 `scope` 字段与 `configs/scope-*.yaml` |
-| `gold_specs/mqtt-3.1.1-wire-format.json`        | 草案格式的线缆格式实例                   | M0\-2/M0\-4：内容作为编写 v2.0 gold 规格的重要输入，文件归档 |
-| `gold_specs/mqtt-3.1.1-min-requirements.json`   | 草案格式的需求条目实例                   | 同上（REQ 文本与 source 追溯信息可大量复用）                 |
-| `gold_specs/mqtt-3.1.1-min-profile.json`        | 草案格式的范围声明实例                   | 同上（并入 v2.0 `scope`）                                    |
-| `gold_specs/README.md`                          | 草案模型的字段说明                       | 随草案归档；其通用抽象是 O\-5 的设计输入                     |
-| `project_docs/system_design.md`                 | 本文档                                   | 唯一主设计文档，持续维护                                     |
-| `AGENTS.md`                                     | 工作区上下文边界与安全范围声明           | 保留；对所有在本仓库工作的智能体生效                         |
+| 现有文件/目录                                      | 性质                                       | 当前处置                                                     |
+| -------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
+| `protocol_docs/mqtt-v3.1.1-os.pdf`                 | 规范源文档                                 | 保留；doc\-run 输入与 gold `source_ref` 指向对象             |
+| `nepa/schemas/*.json`                              | 第 5 章工件的活动 JSON Schema              | M0\-1 交付；由 schema 示例与自身单测持续校验                 |
+| `golds/mqtt-3.1.1-min/spec/spec.json`              | Spec IR v2.0 活动 gold 规格                 | M0\-4 交付；范围与 7.1 冻结基线一致                          |
+| `golds/mqtt-3.1.1-min/tests/`                      | 活动 gold harness 与 L0/L1/L2 测试         | M0\-6 交付；只通过 7.4 外部契约接触生成物                    |
+| `golds/mqtt-3.1.1-min/tests_manifest.json`         | 活动 gold 测试清单                         | 由 `collect_manifest.py` 生成并做漂移校验                    |
+| `legacy/schemas/`                                  | 早期三文件 schema 草案                     | M0\-2 完整归档；禁止作为活动 schema 使用                     |
+| `legacy/gold_specs/`                               | 早期 MQTT wire/requirements/profile 实例   | M0\-2 完整归档；仅作为迁移追溯与 O\-5/v3.0 的设计输入        |
+| `legacy/migration-to-spec-ir-v2.md`                | 旧三文件 → Spec IR v2.0 字段迁移映射       | M0\-2 迁移记录                                               |
+| `project_docs/system_design.md`                    | 本文档                                     | 唯一主设计文档，持续维护                                     |
+| `project_docs/dev_status.md`                       | 唯一显式进度记录                           | 与本文档分离维护                                             |
+| `AGENTS.md`                                        | 工作区上下文边界与安全范围声明             | 保留；对所有在本仓库工作的智能体生效                         |
 
 注意：草案与 v2.0 的核心差异——草案将"线缆格式 / 行为需求 / 生成范围"分为三个文件并采用更通用的 PDU 抽象；v2.0 合并为单文件五视图，牺牲部分通用性换取 LLM 生成/消费的稳定性与 Schema 简洁性（5.1 设计决策 1/2）。两者不是竞争关系而是演进关系（O\-5）。
 
@@ -1610,3 +1611,4 @@ flowchart LR
 | 0.2.0  | 2026-07-26 | 扩展为完整设计文档：新增第 0、3～8 章（设计基石、总体架构、数据工件与 Schema、阶段详细设计、目标形态、工程实现），细化第 1～2 章 |
 | 0.3.0  | 2026-07-26 | 补全第 9～12 章（评估体系、里程碑执行计划、风险与开放问题、附录）；全文一致性校验与勘误 |
 | 0.3.1  | 2026-07-27 | 落实多智能体一致性校验的 54 项确认修正：新增 5.6（segments/run/spec\_review/merge\_decisions 结构）与 tests\_manifest 工件；统一升级时机（3\+1）、受控出口语义、任务状态枚举；修复 D0.2/D1.1/D1.3/M3 入口等 DoD 可执行性问题；新增 SegmentClassifier 角色与 scope 配置结构；7.3 补 varint 映射与 session/net 固定接口。合并长期目标对照评审：Spec IR 角色词表协议无关化、source\_ref 预留 segment\_id/doc\_id、新增开放问题 O\-9～O\-17 |
+| 0.3.1（M0 记录） | 2026-07-27 | 经项目所有者确认冻结 7.1 MQTT 3.1.1 最小子集；完成活动 Schema、gold 规格/测试与旧三文件草案的迁移归档，并在 12.3 登记活动及归档工件。此记录不变更设计版本或 M1+ 设计。 |

@@ -149,9 +149,7 @@ class TestApiKeys:
 
 
 class TestSnapshot:
-    def test_snapshot_contains_env_name_not_secret(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_snapshot_contains_env_name_not_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
         secret = "sk-top-secret-do-not-leak"
         monkeypatch.setenv("DS_API", secret)
         cfg = load_config(DEFAULT_YAML)
@@ -172,5 +170,11 @@ class TestSnapshot:
         snap = cfg.config_snapshot()
         json.dumps(snap)  # 可入 run.json
         assert set(snap) == {
-            "providers", "tiers", "roles", "budgets", "stages", "sandbox", "pricing",
+            "providers",
+            "tiers",
+            "roles",
+            "budgets",
+            "stages",
+            "sandbox",
+            "pricing",
         }

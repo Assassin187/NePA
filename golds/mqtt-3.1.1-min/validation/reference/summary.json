@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-07-27T10:02:40.085809+00:00",
+  "passed": true,
+  "requested_rounds": 20,
+  "completed_rounds": 20,
+  "spec_sha256": "9072250d045119b257e772f8753fb2519a0cfce7c367a6fdeb04787763d2dcd6",
+  "tests_manifest_sha256": "a0e5320991f224ea57a640c6d68a3d0d71e1b4a4ce7a732702464726ebb24911",
+  "environment": {
+    "python": "3.11.2",
+    "pytest": "7.2.1",
+    "paho_mqtt": "1.6.1",
+    "mosquitto": "mosquitto version 2.0.11"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "seed": 311000,
+      "exit_code": 0,
+      "log": "round_01.log"
+    },
+    {
+      "round": 2,
+      "seed": 311001,
+      "exit_code": 0,
+      "log": "round_02.log"
+    },
+    {
+      "round": 3,
+      "seed": 311002,
+      "exit_code": 0,
+      "log": "round_03.log"
+    },
+    {
+      "round": 4,
+      "seed": 311003,
+      "exit_code": 0,
+      "log": "round_04.log"
+    },
+    {
+      "round": 5,
+      "seed": 311004,
+      "exit_code": 0,
+      "log": "round_05.log"
+    },
+    {
+      "round": 6,
+      "seed": 311005,
+      "exit_code": 0,
+      "log": "round_06.log"
+    },
+    {
+      "round": 7,
+      "seed": 311006,
+      "exit_code": 0,
+      "log": "round_07.log"
+    },
+    {
+      "round": 8,
+      "seed": 311007,
+      "exit_code": 0,
+      "log": "round_08.log"
+    },
+    {
+      "round": 9,
+      "seed": 311008,
+      "exit_code": 0,
+      "log": "round_09.log"
+    },
+    {
+      "round": 10,
+      "seed": 311009,
+      "exit_code": 0,
+      "log": "round_10.log"
+    },
+    {
+      "round": 11,
+      "seed": 311010,
+      "exit_code": 0,
+      "log": "round_11.log"
+    },
+    {
+      "round": 12,
+      "seed": 311011,
+      "exit_code": 0,
+      "log": "round_12.log"
+    },
+    {
+      "round": 13,
+      "seed": 311012,
+      "exit_code": 0,
+      "log": "round_13.log"
+    },
+    {
+      "round": 14,
+      "seed": 311013,
+      "exit_code": 0,
+      "log": "round_14.log"
+    },
+    {
+      "round": 15,
+      "seed": 311014,
+      "exit_code": 0,
+      "log": "round_15.log"
+    },
+    {
+      "round": 16,
+      "seed": 311015,
+      "exit_code": 0,
+      "log": "round_16.log"
+    },
+    {
+      "round": 17,
+      "seed": 311016,
+      "exit_code": 0,
+      "log": "round_17.log"
+    },
+    {
+      "round": 18,
+      "seed": 311017,
+      "exit_code": 0,
+      "log": "round_18.log"
+    },
+    {
+      "round": 19,
+      "seed": 311018,
+      "exit_code": 0,
+      "log": "round_19.log"
+    },
+    {
+      "round": 20,
+      "seed": 311019,
+      "exit_code": 0,
+      "log": "round_20.log"
+    }
+  ]
+}

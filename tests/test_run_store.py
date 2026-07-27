@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
+from pydantic_core import PydanticSerializationError
 
 import nepa.run_store as run_store_mod
 from nepa.run_store import (
@@ -27,8 +29,15 @@ class TestCreateRun:
         d = store.run_dir
         # 4.4 目录树
         for sub in (
-            "spec", "plan", "workspace", "test_results", "repair",
-            "report", "trace/prompts", "trace/outputs", "cache",
+            "spec",
+            "plan",
+            "workspace",
+            "test_results",
+            "repair",
+            "report",
+            "trace/prompts",
+            "trace/outputs",
+            "cache",
         ):
             assert (d / sub).is_dir(), sub
         assert not (d / "doc").exists()  # doc/ 仅 doc-run（4.4）
@@ -51,6 +60,7 @@ class TestCreateRun:
         assert a.run_dir != b.run_dir
         assert b.run_dir.is_dir()
         assert b.run_id == b.run_dir.name
+        assert re.fullmatch(r"\d{8}T\d{4}Z-2_mqtt-min_spec-run", b.run_id)
 
     def test_initial_run_json_fields(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
@@ -64,7 +74,10 @@ class TestCreateRun:
         assert set(data["stages"]) == set(STAGE_NAMES)
         assert all(s["status"] == "pending" for s in data["stages"].values())
         assert data["budget_used"] == {
-            "wall_clock_s": 0.0, "cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0,
+            "wall_clock_s": 0.0,
+            "cost_usd": 0.0,
+            "tokens_in": 0,
+            "tokens_out": 0,
         }
         # 终态字段未终结前不出现（5.6.2）
         assert "outcome" not in data
@@ -82,9 +95,7 @@ class TestCreateRun:
 
 
 class TestAtomicWrite:
-    def test_save_uses_os_replace(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_save_uses_os_replace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # 4.8：写临时文件 + 原子改名
         calls: list[tuple[str, str]] = []
         real_replace = run_store_mod.os.replace
@@ -104,7 +115,7 @@ class TestAtomicWrite:
     def test_no_temp_files_left_behind(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         store.add_budget_used(cost_usd=0.5)
-        store.set_stage_status("s4_plan", "running")
+        store.set_stage_status("s4", "running")
         leftovers = list(store.run_dir.glob("*.tmp"))
         assert leftovers == []
 
@@ -113,7 +124,7 @@ class TestAtomicWrite:
         store.set_flag("ok", 1)
         before = store.run_json_path.read_text(encoding="utf-8")
         store.meta.flags["bad"] = object()  # 不可 JSON 序列化 → save 失败
-        with pytest.raises(Exception):
+        with pytest.raises(PydanticSerializationError):
             store.save()
         assert store.run_json_path.read_text(encoding="utf-8") == before
         assert list(store.run_dir.glob("*.tmp")) == []
@@ -122,31 +133,31 @@ class TestAtomicWrite:
 class TestStageStateMachine:
     def test_happy_path(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.set_stage_status("s4_plan", "running")
-        store.set_stage_status("s4_plan", "done")
+        store.set_stage_status("s4", "running")
+        store.set_stage_status("s4", "done")
         data = _read_run_json(store)
-        st = data["stages"]["s4_plan"]
+        st = data["stages"]["s4"]
         assert st["status"] == "done"
         assert st["started_at"] is not None and st["ended_at"] is not None
 
     def test_pending_to_skipped(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.set_stage_status("s1_ingest", "skipped")  # spec-run 跳过 S1（4.1）
-        assert store.meta.stages["s1_ingest"].status == "skipped"
+        store.set_stage_status("s1", "skipped")  # spec-run 跳过 S1（4.1）
+        assert store.meta.stages["s1"].status == "skipped"
 
     def test_failed_then_retry(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.set_stage_status("s6_code", "running")
-        store.set_stage_status("s6_code", "failed", error="boom")
-        assert store.meta.stages["s6_code"].error == "boom"
-        store.set_stage_status("s6_code", "running")  # 4.8 resume 重试
-        assert store.meta.stages["s6_code"].error is None
+        store.set_stage_status("s6", "running")
+        store.set_stage_status("s6", "failed", error="boom")
+        assert store.meta.stages["s6"].error == "boom"
+        store.set_stage_status("s6", "running")  # 4.8 resume 重试
+        assert store.meta.stages["s6"].error is None
 
     @pytest.mark.parametrize(
         ("first", "second"),
         [
-            (None, "done"),        # pending → done
-            (None, "failed"),      # pending → failed
+            (None, "done"),  # pending → done
+            (None, "failed"),  # pending → failed
             ("running", "running"),  # running → running
             ("running", "skipped"),  # running → skipped
         ],
@@ -156,29 +167,29 @@ class TestStageStateMachine:
     ) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         if first is not None:
-            store.set_stage_status("s5_scaffold", first)  # type: ignore[arg-type]
+            store.set_stage_status("s5", first)  # type: ignore[arg-type]
         with pytest.raises(InvalidTransitionError):
-            store.set_stage_status("s5_scaffold", second)  # type: ignore[arg-type]
+            store.set_stage_status("s5", second)  # type: ignore[arg-type]
 
     def test_done_is_terminal(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.set_stage_status("s4_plan", "running")
-        store.set_stage_status("s4_plan", "done")
+        store.set_stage_status("s4", "running")
+        store.set_stage_status("s4", "done")
         for target in ("running", "failed", "pending"):
             with pytest.raises((InvalidTransitionError, ValueError)):
-                store.set_stage_status("s4_plan", target)  # type: ignore[arg-type]
+                store.set_stage_status("s4", target)  # type: ignore[arg-type]
 
     def test_unknown_stage_and_status(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         with pytest.raises(KeyError):
             store.set_stage_status("s0_bogus", "running")
         with pytest.raises(ValueError):
-            store.set_stage_status("s4_plan", "paused")  # type: ignore[arg-type]
+            store.set_stage_status("s4", "paused")  # type: ignore[arg-type]
 
     def test_error_only_with_failed(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         with pytest.raises(ValueError, match="error"):
-            store.set_stage_status("s4_plan", "running", error="x")
+            store.set_stage_status("s4", "running", error="x")
 
 
 class TestBudgetAndFinalize:
@@ -205,9 +216,7 @@ class TestBudgetAndFinalize:
     @pytest.mark.parametrize(
         ("outcome", "code"), [("success", 0), ("degraded", 10), ("failed", 20)]
     )
-    def test_finalize_writes_terminal_fields(
-        self, tmp_path: Path, outcome: str, code: int
-    ) -> None:
+    def test_finalize_writes_terminal_fields(self, tmp_path: Path, outcome: str, code: int) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         store.finalize(outcome, code)  # type: ignore[arg-type]
         data = _read_run_json(store)
@@ -225,20 +234,37 @@ class TestBudgetAndFinalize:
 class TestLoadRoundTrip:
     def test_load_restores_full_state(self, tmp_path: Path) -> None:
         store = create_run(
-            tmp_path, "mqtt-min", "doc-run",
+            tmp_path,
+            "mqtt-min",
+            "doc-run",
             inputs={"doc_path": "a.pdf", "sha256": "ab" * 32},
             config_snapshot={"budgets": {"max_cost_usd": 5}},
         )
-        store.set_stage_status("s1_ingest", "running")
-        store.set_stage_status("s1_ingest", "done")
+        store.set_stage_status("s1", "running")
+        store.set_stage_status("s1", "done")
         store.add_budget_used(tokens_in=7)
 
         reloaded = RunStore.load(store.run_dir)
         assert reloaded.run_id == store.run_id
         assert reloaded.meta.entry == "doc-run"
         assert reloaded.meta.inputs["doc_path"] == "a.pdf"
-        assert reloaded.meta.stages["s1_ingest"].status == "done"
+        assert reloaded.meta.stages["s1"].status == "done"
         assert reloaded.meta.budget_used.tokens_in == 7
         # 恢复后状态机继续生效（4.8）
         with pytest.raises(InvalidTransitionError):
-            reloaded.set_stage_status("s1_ingest", "running")
+            reloaded.set_stage_status("s1", "running")
+
+
+def test_persisted_run_store_output_validates_against_schema(tmp_path: Path) -> None:
+    """真实 run_store 输出必须满足 M0-1 的 run.schema。"""
+    store = create_run(
+        tmp_path,
+        "mqtt-min",
+        "spec-run",
+        inputs={"spec_path": "spec.json", "spec_sha256": "ab" * 32},
+        config_snapshot={"budgets": {"max_cost_usd": 20}},
+    )
+    schema_path = Path(__file__).resolve().parent.parent / "nepa" / "schemas" / "run.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_read_run_json(store)))
+    assert errors == []

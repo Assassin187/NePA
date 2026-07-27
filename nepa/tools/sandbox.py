@@ -230,9 +230,7 @@ class Sandbox:
             ) from exc
         if proc.returncode != 0:
             reason = proc.stderr.strip() or "docker daemon 无响应或无权限"
-            raise SandboxUnavailableError(
-                _UNAVAILABLE_HINT.format(reason=reason, image=self.image)
-            )
+            raise SandboxUnavailableError(_UNAVAILABLE_HINT.format(reason=reason, image=self.image))
         self._docker_ok = True
 
     def _ensure_internal_network(self) -> None:

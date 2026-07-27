@@ -9,7 +9,7 @@
     "run_id": {
       "description": "4.4：<UTC时间戳>_<协议>_<入口>，与运行目录名一致",
       "type": "string",
-      "pattern": "^[0-9]{8}T[0-9]{4}Z_[a-z0-9][a-z0-9.-]*_(spec-run|doc-run)$"
+      "pattern": "^[0-9]{8}T[0-9]{4}Z(?:-[2-9][0-9]*)?_[a-z0-9][a-z0-9.-]*_(spec-run|doc-run)$"
     },
     "entry": { "enum": ["spec-run", "doc-run"] },
     "created_at": { "$ref": "#/$defs/utc_timestamp" },

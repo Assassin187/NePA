@@ -205,16 +205,18 @@ class TestExec:
 
     def test_rejects_missing_cwd_before_any_docker_call(self, tmp_path: Path) -> None:
         fake = FakeDocker()
-        with patch("nepa.tools.sandbox.subprocess.run", fake), pytest.raises(
-            ValueError, match="workspace"
+        with (
+            patch("nepa.tools.sandbox.subprocess.run", fake),
+            pytest.raises(ValueError, match="workspace"),
         ):
             Sandbox().exec(["true"], str(tmp_path / "no-such-dir"), timeout_s=5)
         assert fake.calls == []
 
     def test_rejects_invalid_net_before_any_docker_call(self, tmp_path: Path) -> None:
         fake = FakeDocker()
-        with patch("nepa.tools.sandbox.subprocess.run", fake), pytest.raises(
-            ValueError, match="网络模式"
+        with (
+            patch("nepa.tools.sandbox.subprocess.run", fake),
+            pytest.raises(ValueError, match="网络模式"),
         ):
             Sandbox().exec(["true"], str(tmp_path), timeout_s=5, net="bridge")  # type: ignore[arg-type]
         assert fake.calls == []
@@ -242,9 +244,10 @@ class TestExec:
 class TestUnavailable:
     def test_docker_binary_missing_raises_with_guidance(self, tmp_path: Path) -> None:
         fake = FakeDocker(docker_missing=True)
-        with patch("nepa.tools.sandbox.subprocess.run", fake), pytest.raises(
-            SandboxUnavailableError
-        ) as excinfo:
+        with (
+            patch("nepa.tools.sandbox.subprocess.run", fake),
+            pytest.raises(SandboxUnavailableError) as excinfo,
+        ):
             Sandbox().exec(["make"], str(tmp_path), timeout_s=5)
         msg = str(excinfo.value)
         assert "8.5" in msg  # 指明设计依据
@@ -253,16 +256,18 @@ class TestUnavailable:
 
     def test_daemon_down_raises(self, tmp_path: Path) -> None:
         fake = FakeDocker(docker_ok=False)
-        with patch("nepa.tools.sandbox.subprocess.run", fake), pytest.raises(
-            SandboxUnavailableError, match="Cannot connect"
+        with (
+            patch("nepa.tools.sandbox.subprocess.run", fake),
+            pytest.raises(SandboxUnavailableError, match="Cannot connect"),
         ):
             Sandbox().exec(["make"], str(tmp_path), timeout_s=5)
 
     def test_no_host_fallback_on_unavailable(self, tmp_path: Path) -> None:
         """docker 不可用时绝不执行业务命令（既不 docker run 也不宿主机直跑）。"""
         fake = FakeDocker(docker_ok=False)
-        with patch("nepa.tools.sandbox.subprocess.run", fake), pytest.raises(
-            SandboxUnavailableError
+        with (
+            patch("nepa.tools.sandbox.subprocess.run", fake),
+            pytest.raises(SandboxUnavailableError),
         ):
             Sandbox().exec(["rm", "-rf", "x"], str(tmp_path), timeout_s=5)
         assert fake.subcommands() == ["info"]  # 只发生了可用性探测
@@ -306,7 +311,9 @@ _SKIP_REASON = _integration_skip_reason()
 class TestSandboxIntegration:
     def test_echo_and_workspace_mount(self, tmp_path: Path) -> None:
         tmp_path.chmod(0o755)
-        (tmp_path / "hello.txt").write_text("from-host\n")
+        fixture = tmp_path / "hello.txt"
+        fixture.write_text("from-host\n")
+        fixture.chmod(0o644)
         result = Sandbox().exec(["cat", "/w/hello.txt"], str(tmp_path), timeout_s=60)
         assert result.code == 0, result.stderr
         assert "from-host" in result.stdout

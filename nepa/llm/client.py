@@ -69,7 +69,9 @@ class StructuredOutputError(LLMError):
     """
 
     def __init__(self, errors: list[str], response: LLMResponse | None = None) -> None:
-        super().__init__("structured output failed schema validation after repair: " + "; ".join(errors[:5]))
+        super().__init__(
+            "structured output failed schema validation after repair: " + "; ".join(errors[:5])
+        )
         self.errors = errors
         self.response = response
 
@@ -165,7 +167,9 @@ _REPAIR_PROMPT = (
 
 def embed_schema_prompt(user: str, schema: dict[str, Any]) -> str:
     """schema 内嵌提示词（8.4 要点 2 的退化路径；原生 JSON 模式下也内嵌以传达目标结构）。"""
-    return user + _SCHEMA_INSTRUCTION.format(schema=json.dumps(schema, ensure_ascii=False, indent=2))
+    return user + _SCHEMA_INSTRUCTION.format(
+        schema=json.dumps(schema, ensure_ascii=False, indent=2)
+    )
 
 
 def build_repair_prompt(previous_text: str, errors: list[str], schema: dict[str, Any]) -> str:
@@ -317,9 +321,7 @@ class StructuredProvider(ABC):
         raise StructuredOutputError(errors2, fail_resp)
 
     @staticmethod
-    def _try_parse(
-        text: str, schema: dict[str, Any]
-    ) -> tuple[dict[str, Any] | None, list[str]]:
+    def _try_parse(text: str, schema: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         """剥壳 + 校验；返回 (通过的对象或 None, 错误清单)。"""
         try:
             obj = extract_first_json(text)

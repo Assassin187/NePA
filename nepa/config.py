@@ -127,25 +127,20 @@ class NepaConfig(_StrictModel):
     pricing: dict[str, PricingEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _check_references(self) -> "NepaConfig":
+    def _check_references(self) -> NepaConfig:
         """交叉引用校验：tier→provider、role→tier/escalate_to/provider 必须存在。"""
         for tier_name, tier in self.tiers.items():
             if tier.provider not in self.providers:
-                raise ValueError(
-                    f"tier {tier_name!r} 引用未定义 provider {tier.provider!r}"
-                )
+                raise ValueError(f"tier {tier_name!r} 引用未定义 provider {tier.provider!r}")
         for role_name, role in self.roles.items():
             if role.tier not in self.tiers:
                 raise ValueError(f"role {role_name!r} 引用未定义 tier {role.tier!r}")
             if role.escalate_to is not None and role.escalate_to not in self.tiers:
                 raise ValueError(
-                    f"role {role_name!r} 的 escalate_to 引用未定义 tier "
-                    f"{role.escalate_to!r}"
+                    f"role {role_name!r} 的 escalate_to 引用未定义 tier {role.escalate_to!r}"
                 )
             if role.provider is not None and role.provider not in self.providers:
-                raise ValueError(
-                    f"role {role_name!r} 引用未定义 provider {role.provider!r}"
-                )
+                raise ValueError(f"role {role_name!r} 引用未定义 provider {role.provider!r}")
         return self
 
     def resolve_api_key(self, provider: str) -> str:
@@ -158,9 +153,7 @@ class NepaConfig(_StrictModel):
         env_name = self.providers[provider].api_key_env or _default_api_key_env(provider)
         value = os.environ.get(env_name)
         if not value:
-            raise MissingAPIKeyError(
-                f"provider {provider!r} 的密钥环境变量 {env_name} 未设置"
-            )
+            raise MissingAPIKeyError(f"provider {provider!r} 的密钥环境变量 {env_name} 未设置")
         return value
 
     def config_snapshot(self) -> dict[str, Any]:

@@ -21,7 +21,7 @@ from jsonschema import Draft202012Validator
 
 from nepa.speclib.slice import element_req_ids
 
-__all__ = ["LintIssue", "LintReport", "spec_lint", "plan_lint"]
+__all__ = ["LintIssue", "LintReport", "plan_lint", "spec_lint"]
 
 _SCHEMA_DIR: Path = Path(__file__).resolve().parent.parent / "schemas"
 
@@ -44,9 +44,7 @@ _IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
 _FIELD_PATH = rf"{_IDENT}(?:\.{_IDENT})*"
 _CONST = r"(?:0[xX][0-9A-Fa-f]+|-?[0-9]+(?:\.[0-9]+)?|\"[^\"]*\"|'[^']*'|true|false)"
 _COMPARISON = rf"{_FIELD_PATH}\s*(?:==|!=|<=|>=|<|>)\s*{_CONST}"
-_GUARD_RE: re.Pattern[str] = re.compile(
-    rf"^\s*{_COMPARISON}(?:\s*(?:&&|and)\s+{_COMPARISON})*\s*$"
-)
+_GUARD_RE: re.Pattern[str] = re.compile(rf"^\s*{_COMPARISON}(?:\s*(?:&&|and)\s+{_COMPARISON})*\s*$")
 
 _MUST_LEVELS: frozenset[str] = frozenset({"MUST", "MUST NOT"})
 
@@ -101,9 +99,7 @@ def _validator(schema_name: str) -> Draft202012Validator:
         return Draft202012Validator(json.load(fh))
 
 
-def _check_schema(
-    instance: Any, schema_name: str, code: str, errors: list[LintIssue]
-) -> None:
+def _check_schema(instance: Any, schema_name: str, code: str, errors: list[LintIssue]) -> None:
     """检查 1：JSON Schema draft 2020-12 结构校验（5 章通用约定）。"""
     schema_errors = sorted(
         _validator(schema_name).iter_errors(instance),
@@ -236,9 +232,7 @@ def _iter_req_id_sites(spec: dict[str, Any]) -> list[tuple[str, Any]]:
 def _check_spec_references(spec: dict[str, Any], errors: list[LintIssue]) -> None:
     """检查 2（引用完整）与检查 4（词表合规），单遍完成。"""
     type_ids = {
-        t["id"]
-        for t in _as_list(spec.get("types"))
-        if isinstance(_as_dict(t).get("id"), str)
+        t["id"] for t in _as_list(spec.get("types")) if isinstance(_as_dict(t).get("id"), str)
     }
     req_ids = _defined_req_ids(spec)
     msg_tokens = _message_tokens(spec)
@@ -246,8 +240,11 @@ def _check_spec_references(spec: dict[str, Any], errors: list[LintIssue]) -> Non
 
     # 2a：字段 type 是原语或 types 中的命名类型（5.1.3）
     for i, msg in enumerate(_as_list(spec.get("messages"))):
-        for k, fld in enumerate(_as_list(_as_dict(msg).get("fields"))):
-            ftype = _as_dict(fld).get("type")
+        msg_obj = _as_dict(msg)
+        wire_layout = {loc for loc in _as_list(msg_obj.get("wire_layout")) if isinstance(loc, str)}
+        for k, fld in enumerate(_as_list(msg_obj.get("fields"))):
+            field = _as_dict(fld)
+            ftype = field.get("type")
             if isinstance(ftype, str) and ftype not in _PRIMITIVE_TYPES and ftype not in type_ids:
                 errors.append(
                     LintIssue(
@@ -256,6 +253,41 @@ def _check_spec_references(spec: dict[str, Any], errors: list[LintIssue]) -> Non
                         f"类型 '{ftype}' 既非内建原语（5.1.2）也未在 types 中定义",
                     )
                 )
+            loc = field.get("loc")
+            if isinstance(loc, str) and loc not in wire_layout:
+                errors.append(
+                    LintIssue(
+                        "SPEC-REF-LOC",
+                        f"messages/{i}/fields/{k}/loc",
+                        f"字段位置 '{loc}' 未在本报文 wire_layout 中声明",
+                    )
+                )
+
+    # 5.1.3：MQTT 按固定头类型码分发，packet_type_code 对 MQTT 必填且唯一。
+    protocol_name = str(_as_dict(spec.get("meta")).get("protocol_name", "")).casefold()
+    if "mqtt" in protocol_name:
+        seen_codes: dict[int, str] = {}
+        for i, msg in enumerate(_as_list(spec.get("messages"))):
+            msg_obj = _as_dict(msg)
+            code = msg_obj.get("packet_type_code")
+            if not isinstance(code, int):
+                errors.append(
+                    LintIssue(
+                        "SPEC-REF-PACKET-TYPE",
+                        f"messages/{i}/packet_type_code",
+                        "MQTT 报文必须提供 packet_type_code（5.1.3）",
+                    )
+                )
+            elif code in seen_codes:
+                errors.append(
+                    LintIssue(
+                        "SPEC-DUP-PACKET-TYPE",
+                        f"messages/{i}/packet_type_code",
+                        f"packet_type_code {code} 与 {seen_codes[code]} 重复",
+                    )
+                )
+            else:
+                seen_codes[code] = str(msg_obj.get("id", f"messages/{i}"))
 
     # 2b：所有 req_ids 已定义
     for path, rid in _iter_req_id_sites(spec):
@@ -519,14 +551,10 @@ def _check_plan_dag(tasks: list[dict[str, Any]], errors: list[LintIssue]) -> Non
                     ready.append(tid)
     if remaining:
         cycle_ids = ", ".join(sorted(remaining))
-        errors.append(
-            LintIssue("PLAN-CYCLE", "tasks", f"任务依赖图存在环，涉及任务: {cycle_ids}")
-        )
+        errors.append(LintIssue("PLAN-CYCLE", "tasks", f"任务依赖图存在环，涉及任务: {cycle_ids}"))
 
 
-def _check_plan_file_exclusivity(
-    tasks: list[dict[str, Any]], errors: list[LintIssue]
-) -> None:
+def _check_plan_file_exclusivity(tasks: list[dict[str, Any]], errors: list[LintIssue]) -> None:
     """5.2/6.4：同一文件只归一个任务；接口头文件（*.h）且有脚手架任务持有时豁免。"""
     holders: dict[str, list[tuple[str, str]]] = {}
     for task in tasks:
@@ -575,9 +603,7 @@ def _check_plan_acceptance(
                 )
 
 
-def _check_plan_granularity(
-    tasks: list[dict[str, Any]], warnings: list[LintIssue]
-) -> None:
+def _check_plan_granularity(tasks: list[dict[str, Any]], warnings: list[LintIssue]) -> None:
     """5.2：单任务 deliverable_files 应当 ≤ 4（SHOULD 级 → warning）。"""
     for i, task in enumerate(tasks):
         files = _as_list(task.get("deliverable_files"))
@@ -597,9 +623,7 @@ def _check_plan_modules(
 ) -> None:
     """task.module 应指向已声明模块（5.2；未在 6.4 检查清单内，降为 warning）。"""
     module_ids = {
-        m["id"]
-        for m in _as_list(plan.get("modules"))
-        if isinstance(_as_dict(m).get("id"), str)
+        m["id"] for m in _as_list(plan.get("modules")) if isinstance(_as_dict(m).get("id"), str)
     }
     for i, task in enumerate(tasks):
         module = task.get("module")
@@ -638,21 +662,21 @@ def _check_plan_req_coverage(
     for i, task in enumerate(tasks):
         for j, ref_raw in enumerate(_as_list(task.get("context_refs"))):
             ref = _as_dict(ref_raw)
-            kind = ref.get("kind")
+            ref_kind = ref.get("kind")
             ref_id = ref.get("id")
-            if kind == "interface_file" or kind not in _CONTEXT_KIND_COLLECTIONS:
+            if ref_kind == "interface_file" or ref_kind not in _CONTEXT_KIND_COLLECTIONS:
                 continue  # interface_file 指向 workspace；非法 kind 由 schema 报告
-            element = indexes[kind].get(ref_id) if isinstance(ref_id, str) else None
+            element = indexes[ref_kind].get(ref_id) if isinstance(ref_id, str) else None
             if element is None:
                 errors.append(
                     LintIssue(
                         "PLAN-REF-CONTEXT",
                         f"tasks/{i}/context_refs/{j}",
-                        f"context_ref 引用了 spec 中不存在的 {kind} '{ref_id}'",
+                        f"context_ref 引用了 spec 中不存在的 {ref_kind} '{ref_id}'",
                     )
                 )
             else:
-                covered.update(element_req_ids(str(kind), element))
+                covered.update(element_req_ids(str(ref_kind), element))
 
     for i, req_raw in enumerate(_as_list(spec.get("requirements"))):
         req = _as_dict(req_raw)

@@ -253,6 +253,24 @@ def test_undefined_field_type_reports_ref_type() -> None:
     assert "SPEC-REF-TYPE" in _error_codes(report)
 
 
+def test_field_loc_must_exist_in_message_wire_layout() -> None:
+    spec = make_mini_spec()
+    spec["messages"][0]["fields"][0]["loc"] = "not_a_segment"
+    assert "SPEC-REF-LOC" in _error_codes(spec_lint(spec))
+
+
+def test_mqtt_message_requires_packet_type_code() -> None:
+    spec = make_mini_spec()
+    del spec["messages"][0]["packet_type_code"]
+    assert "SPEC-REF-PACKET-TYPE" in _error_codes(spec_lint(spec))
+
+
+def test_mqtt_packet_type_codes_are_unique() -> None:
+    spec = make_mini_spec()
+    spec["messages"][1]["packet_type_code"] = spec["messages"][0]["packet_type_code"]
+    assert "SPEC-DUP-PACKET-TYPE" in _error_codes(spec_lint(spec))
+
+
 def test_undefined_req_id_reports_ref_req() -> None:
     """req_ids 引用未定义需求 → SPEC-REF-REQ。"""
     spec = make_mini_spec()

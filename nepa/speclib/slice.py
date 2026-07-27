@@ -57,9 +57,7 @@ def _index_by_id(spec: dict[str, Any], collection: str) -> dict[str, dict[str, A
     return index
 
 
-def resolve_refs(
-    spec: dict[str, Any], context_refs: list[dict[str, Any]]
-) -> dict[str, Any]:
+def resolve_refs(spec: dict[str, Any], context_refs: list[dict[str, Any]]) -> dict[str, Any]:
     """按 6.6.2 解析 context_refs，返回 Spec 切片 JSON 片段。
 
     返回结构::
@@ -74,8 +72,7 @@ def resolve_refs(
     - 返回片段均为深拷贝，调用方可安全裁剪而不污染 spec。
     """
     indexes: dict[str, dict[str, dict[str, Any]]] = {
-        kind: _index_by_id(spec, collection)
-        for kind, collection in _SPEC_COLLECTIONS.items()
+        kind: _index_by_id(spec, collection) for kind, collection in _SPEC_COLLECTIONS.items()
     }
     req_index: dict[str, dict[str, Any]] = _index_by_id(spec, "requirements")
 
@@ -85,7 +82,7 @@ def resolve_refs(
 
     for ref in context_refs:
         if not isinstance(ref, dict):
-            raise ValueError(f"context_ref 必须是对象，得到: {ref!r}")
+            raise TypeError(f"context_ref 必须是对象，得到: {ref!r}")
         kind = ref.get("kind")
         ref_id = ref.get("id")
         if kind == "interface_file":
@@ -93,7 +90,7 @@ def resolve_refs(
         if not isinstance(kind, str) or kind not in _SPEC_COLLECTIONS:
             raise ValueError(f"未知 context_ref kind: {kind!r}")
         if not isinstance(ref_id, str):
-            raise ValueError(f"context_ref id 必须是字符串，得到: {ref_id!r}")
+            raise TypeError(f"context_ref id 必须是字符串，得到: {ref_id!r}")
         element = indexes[kind].get(ref_id)
         if element is None:
             raise ValueError(f"spec 中不存在 {kind} 元素: {ref_id!r}")
@@ -105,7 +102,5 @@ def resolve_refs(
 
     # 关联 REQ 全文（6.6.2 第 2 行"含关联 REQ 全文"）：去重后按 id 排序
     unique_ids = sorted(set(linked_req_ids))
-    requirements = [
-        copy.deepcopy(req_index[rid]) for rid in unique_ids if rid in req_index
-    ]
+    requirements = [copy.deepcopy(req_index[rid]) for rid in unique_ids if rid in req_index]
     return {"slices": slices, "requirements": requirements}

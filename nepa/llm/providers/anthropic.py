@@ -84,7 +84,9 @@ class AnthropicProvider(StructuredProvider):
 
         data = resp.json()
         text = "".join(
-            block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
+            block.get("text", "")
+            for block in data.get("content", [])
+            if block.get("type") == "text"
         )
         usage = data.get("usage") or {}
         return RawResult(

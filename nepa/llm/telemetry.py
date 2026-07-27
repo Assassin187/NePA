@@ -103,8 +103,10 @@ class TraceWriter:
             output_file = self._outputs_dir / f"{seq}.txt"
             output_file.write_text(resp.text, encoding="utf-8")
 
-        cost = 0.0 if resp.cached else self.cost_for(
-            provider_name, resp.model, resp.tokens_in, resp.tokens_out
+        cost = (
+            0.0
+            if resp.cached
+            else self.cost_for(provider_name, resp.model, resp.tokens_in, resp.tokens_out)
         )
         resp.cost_usd = cost
 
