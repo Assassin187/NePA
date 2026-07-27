@@ -1,9 +1,9 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：0.3.0\
-> 最后更新：2026\-07\-26\
-> 修订说明：v0.3.0 补全第 9～12 章（评估体系、里程碑执行计划、风险与开放问题、附录）并完成全文一致性校验，全文首次达到完整可实施状态。修订历史见 12.4。
+> 设计版本：0.3.1\
+> 最后更新：2026\-07\-27\
+> 修订说明：v0.3.1 落实多智能体全文一致性校验（54 项修正）与长期目标对照评审结论（新增 5.6 工件结构、O\-9～O\-17）。修订历史见 12.4。
 
 ## 0\. 阅读指南
 
@@ -46,7 +46,7 @@
 | 数据工件格式            | JSON（UTF\-8），以 JSON Schema draft 2020\-12 校验  | 5         |
 | 首个目标协议 / 实现语言 | MQTT 3.1.1 最小子集 / C99                           | 2\.3、7   |
 | 生成项目构建方式        | GNU Make，gcc，`-Wall -Wextra -Werror`              | 7\.4      |
-| 测试框架                | pytest（gold 功能测试与 NePA 自身单测均用）         | 5\.3、7.2 |
+| 测试框架                | pytest（gold 功能测试与 NePA 自身单测均用）         | 5\.3、8\.1 |
 | 构建/测试沙箱           | Docker（Linux 容器，默认禁网）                      | 8\.5      |
 | 生成工作区版本管理      | git（每任务一次提交）                               | 6\.6      |
 | 提示词模板语言          | 英文模板正文 \+ 中文维护注释                        | 8\.8      |
@@ -92,7 +92,7 @@ NePA 的长期目标是：支持 PDF、TXT、HTML 等载体中网络协议的 RF
 
 **M6. 不同类型协议泛化。** 能够在其他应用层协议上完成相同的端到端实验。
 
-里程碑之间的依赖关系：M0 → M1 → M2 → M4；M3 可与 M1/M2 并行推进，M4 依赖 M2 与 M3；M5、M6 在 M4 之后展开。
+里程碑之间的依赖关系：M0 → M1 → M2 → M4；M3 依赖 M0 与 M1 的公共框架部分（运行框架、LLM 层、Agent 框架、S4），此后可与 M1 收尾/M2 并行推进；M4 依赖 M2 与 M3；M5、M6 在 M4 之后展开。
 
 ### 2\.4 非目标
 
@@ -141,7 +141,7 @@ NePA 的长期目标是：支持 PDF、TXT、HTML 等载体中网络协议的 RF
 | P5   | 角色分离、新鲜上下文     | 子智能体隔离专项任务               | 每次 Agent 调用无会话历史，输入是工件切片，输出是结构化结果（4.5） |
 | P6   | 循环必须有界             | 卡住换策略或上报，不无限重试       | 三重预算 \+ 升级路径 \+ 受控失败（4.7、6.8）                 |
 | P7   | 一切落盘、可恢复、可审计 | git 检查点、可回滚                 | `runs/` 工件目录 \+ git 工作区 \+ trace 证据链（4.4、5.5）   |
-| P8   | 结构化输出契约           | 工具参数经严格校验                 | 所有 LLM 输出经 JSON Schema 校验，失败一次修复重试（8.8）    |
+| P8   | 结构化输出契约           | 工具参数经严格校验                 | 所有 LLM 输出经 JSON Schema 校验，失败一次修复重试（8.4、8.8） |
 
 ### 3\.3 蜂群与模型经济学的启示
 
@@ -161,7 +161,7 @@ NePA 是无人值守的流水线，不能照搬交互式工作流，差异与应
 
 | 维度     | 交互式（Claude Code / Codex） | NePA（无人值守）         | 设计应对                                                     |
 | -------- | ----------------------------- | ------------------------ | ------------------------------------------------------------ |
-| 歧义处理 | 随时向用户追问                | 运行中无人可问           | 歧义在入口前置消解：Spec IR 必填字段 \+ 保守默认值 \+ 假设记录进报告（6.4、6.9） |
+| 歧义处理 | 随时向用户追问                | 运行中无人可问           | 歧义在入口前置消解：Spec IR 必填字段 \+ 保守默认值 \+ 假设记录进报告（5\.1、6\.6.3、6\.9） |
 | 完成判定 | 用户主观认可                  | 必须机器可判             | 一切验收标准可执行：测试、校验器、指标阈值（第 6、9 章）     |
 | 过程控制 | 用户随时打断纠偏              | 只能靠预算与停止条件兜底 | 三重预算与受控失败（4.7）                                    |
 | 复现要求 | 无                            | 科研场景要求可复现       | 全工件落盘、trace 记录、低温度采样、N 次重复统计（5.5、9.2） |
@@ -225,16 +225,18 @@ flowchart TD
 
 | 工件       | 路径（相对运行目录）                     | 产生者                | 主要消费者         | Schema 定义 |
 | ---------- | ---------------------------------------- | --------------------- | ------------------ | ----------- |
-| 运行元数据 | `run.json`                               | 编排器                | 编排器（恢复）、S9 | 8\.3        |
-| 文档包     | `doc/`                                   | S1                    | S2                 | 5\.1 附属   |
+| 运行元数据 | `run.json`                               | 编排器                | 编排器（恢复）、S9 | **5\.6**    |
+| 文档包     | `doc/`（segments.json）                  | S1                    | S2                 | **5\.6**    |
 | 规格       | `spec/spec.json`                         | S2/S3（或 gold 拷贝） | S4、S6、S7、S9     | **5\.1**    |
-| 规格评审   | `spec/spec_review.json`                  | S3                    | S9、人类           | 5\.1 附属   |
+| 规格评审   | `spec/spec_review.json`                  | S3                    | S9、人类           | **5\.6**    |
+| 合并决议   | `spec/merge_decisions.json`（doc\-run）  | S2                    | S9、人类           | **5\.6**    |
+| 对齐评分   | `spec/spec_align.json`（实验模式）       | S3                    | S9、评估           | 9\.1.3      |
 | 计划       | `plan/plan.json`                         | S4                    | S5、S6、S9         | **5\.2**    |
 | 生成工作区 | `workspace/`（git 仓库）                 | S5～S8                | S7、人类           | 7\.2        |
 | 测试结果   | `test_results/`                          | S6、S7                | S8、S9             | 5\.4        |
-| 修复日志   | `repair/repair_log.json`                 | S6、S8                | S9                 | 5\.4        |
+| 修复日志   | `repair/repair_log.json`                 | S8                    | S9                 | 5\.4        |
 | 证据报告   | `report/report.json`、`report/report.md` | S9                    | 人类、论文实验     | 5\.4        |
-| 调用踪迹   | `trace/*.ndjson`                         | 全程                  | 评估、审计         | 5\.5        |
+| 调用踪迹   | `trace/`（ndjson \+ 全文子目录）         | 全程                  | 评估、审计         | 5\.5        |
 
 关键约束（P4 的落地）：**原始文档止步于 S2**。S4 之后的任何 Agent 上下文中**禁止**出现原始文档内容，只允许出现 Spec IR 的切片。这一约束保证：(a) 下游行为可完全归因于规格质量；(b) 上下文规模可控；(c) "文档 → 规格"与"规格 → 代码"两个半程可独立评估。
 
@@ -250,7 +252,9 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 │   └── segments.json         # 结构化分片索引
 ├── spec/
 │   ├── spec.json             # Spec IR（S2/S3 产物，或 gold 拷贝）
-│   └── spec_review.json      # S3 评审结论
+│   ├── spec_review.json      # S3 评审结论
+│   ├── merge_decisions.json  # S2 合并冲突决议（doc-run 才有，5.6.4）
+│   └── spec_align.json       # 与 gold 的对齐评分（实验模式才有，9.1.3）
 ├── plan/
 │   └── plan.json             # 模块划分与任务图
 ├── workspace/                # git 仓库：生成的 C 项目（布局见 7.2）
@@ -264,7 +268,9 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 │   └── report.md
 ├── trace/
 │   ├── llm_calls.ndjson      # 每次 LLM 调用一行（5.5）
-│   └── stage_events.ndjson   # 阶段级事件流
+│   ├── stage_events.ndjson   # 阶段级事件流
+│   ├── prompts/              # 提示词全文（5.5）
+│   └── outputs/              # 模型输出全文（5.5）
 └── cache/                    # prompt→response 缓存（可选，8.4）
 ```
 
@@ -277,6 +283,7 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 | 角色                     | 所属阶段 | 默认档位               | 输入（上下文包）                             | 输出（经 Schema 校验）             |
 | ------------------------ | -------- | ---------------------- | -------------------------------------------- | ---------------------------------- |
 | DocSegmenter 文档分段员  | S1       | T3                     | 原始文本页块                                 | 章节树与分片标注                   |
+| SegmentClassifier 分片分类员 | S2   | T3                     | 分片批量（文本）                             | 每分片的视图标签数组               |
 | SpecExtractor 规格提取员 | S2       | T1                     | 单个文档分片 \+ Spec IR 片段 Schema          | Spec IR 片段（消息/状态机/行为等） |
 | SpecMerger 规格合并员    | S2       | T1                     | 多个片段 \+ 冲突清单                         | 合并决议                           |
 | SpecCritic 规格评审员    | S3       | T1（与提取员不同型号） | 完整 spec.json \+ 校验器报告                 | 问题清单与修改建议                 |
@@ -301,7 +308,7 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 路由规则：
 
 1. 角色 → 档位的绑定是静态配置；**禁止**在运行中由 LLM 自选模型。
-2. **升级路径**（P6）：Coder/Fixer 在同一任务上连续失败 2 次后，第 3 次尝试自动升级到 T1；仍失败则任务标记 `blocked`，进入受控失败流程（4.7）。
+2. **升级路径**（P6）：Coder/Fixer 在同一任务上连续失败 3 次（T2 预算耗尽）后，第 4 次尝试自动升级到 T1；仍失败则任务标记 `blocked`，进入受控失败流程（4.7）。
 3. 评审类角色**应当**绑定与被评审内容生产者不同的型号（3.3 结论 3：低相关视角叠加）。
 4. 每次调用的 token 数、成本**必须**记入 trace（5.5），按角色/阶段聚合进报告（P7），为后续成本\-质量消融实验提供数据（9.3）。
 
@@ -311,15 +318,15 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 
 | 层级  | 预算项                        | 默认值                         | 耗尽动作                                        |
 | ----- | ----------------------------- | ------------------------------ | ----------------------------------------------- |
-| 全局  | 墙钟时间                      | 4 h                            | 中止当前阶段，跳转 S9 出"部分报告"              |
-| 全局  | 累计成本（USD 或 token 折算） | 配置必填，无默认               | 同上                                            |
+| 全局  | 墙钟时间                      | 4 h                            | 中止当前阶段，跳转 S9 产出报告（未完成项标注）  |
+| 全局  | 累计成本（USD 或 token 折算） | 20 USD（default.yaml 提供，实验前须按需显式覆盖） | 同上                                            |
 | S2    | 单分片提取重试                | ≤ 2 次                         | 该分片标记 `extraction_failed`，进 spec\_review |
 | S6    | 单任务修复迭代                | ≤ 3 次（T2）\+ 1 次（T1 升级） | 任务 `blocked`，跳过其下游依赖任务              |
-| S6    | 任务总数上限                  | plan 任务数 × 1.5              | 停止接受新增任务                                |
+| S6    | 任务总数上限（预留）          | plan 任务数 × 1.5              | v1 无运行中新增任务的来源，恒不触发；启用动态任务前**必须**先在 6.6 定义新增流程 |
 | S7/S8 | 全局修复轮数                  | ≤ 3 轮                         | 停止修复，跳转 S9                               |
 | S7/S8 | 收敛判据                      | 每轮失败测试数必须严格递减     | 不递减立即停止修复（防振荡）                    |
 
-**受控失败**是一等公民：预算耗尽不是异常，而是一种正常出口。此时系统**必须**：(a) 保存全部现场工件；(b) 在 report.json 中标记 `outcome: degraded` 并列出未完成项与 blocked 原因；(c) 退出码区分"成功/降级/错误"。**禁止**静默失败或死循环。
+**受控出口**是一等公民：预算耗尽或关键工件缺失不是异常，而是正常出口。此时系统**必须**：(a) 保存全部现场工件；(b) 按 9.1.2 规则判定并在 report.json 中标记 outcome（degraded 或 failed），列出未完成项与 blocked 原因——降级路径下 S9 仍须产出完整报告，未完成项在报告中标注；(c) 退出码区分成功(0)/降级(10)/受控失败(20)/NePA 自身错误(1)，见 8.7。**禁止**静默失败或死循环。
 
 ### 4\.8 断点恢复与幂等
 
@@ -401,7 +408,7 @@ MQTT 3.1.1 需要的两个命名类型：`mqtt_varint`（剩余长度：7 bit �
 | 键                 | 类型   | 必填 | 说明                                                         |
 | ------------------ | ------ | ---- | ------------------------------------------------------------ |
 | `id` / `name`      | string | 是   | 如 `connect` / `CONNECT`                                     |
-| `packet_type_code` | int    | 是   | 线上类型码（MQTT 固定头高 4 位）                             |
+| `packet_type_code` | int    | 条件 | 线上类型码（MQTT 固定头高 4 位）；按类型码分发报文的二进制协议**必须**提供（MQTT 必填），无类型码机制的协议省略（与 9.1.3 匹配规则一致） |
 | `direction`        | enum   | 是   | `client_to_server` / `server_to_client` / `both`             |
 | `wire_layout`      | array  | 是   | 有序段列表，MQTT 为 `[fixed_header, variable_header, payload]` |
 | `fields`           | array  | 是   | 字段列表，顺序即线序                                         |
@@ -423,7 +430,7 @@ MQTT 3.1.1 需要的两个命名类型：`mqtt_varint`（剩余长度：7 bit �
 
 #### 5\.1.4 状态机 state\_machines
 
-每个角色（client/broker）一台状态机：`states[]`、`initial`、`transitions[]`。转移结构：
+每个角色一台状态机，角色名**必须**是 `scope.roles` 中声明的角色（协议无关；MQTT 为 client/broker）：`states[]`、`initial`、`transitions[]`。转移结构：
 
 | 键            | 类型   | 说明                                                         |
 | ------------- | ------ | ------------------------------------------------------------ |
@@ -440,7 +447,7 @@ MQTT 3.1.1 需要的两个命名类型：`mqtt_varint`（剩余长度：7 bit �
 | 键                 | 类型   | 说明                                                         |
 | ------------------ | ------ | ------------------------------------------------------------ |
 | `id`               | string | `BEH-<角色>-<序号>`                                          |
-| `role`             | enum   | `client` / `broker` / `both`                                 |
+| `role`             | string | `scope.roles` 中声明的角色名，或 `both`（协议无关；MQTT 取值 client/broker/both）；引用完整性由 spec\_lint 检查 |
 | `trigger`          | string | 触发情形（自然语言，允许）                                   |
 | `requirement`      | string | 要求的行为（自然语言，规范化措辞）                           |
 | `level`            | enum   | `MUST` / `SHOULD` / `MAY`                                    |
@@ -455,7 +462,7 @@ MQTT 3.1.1 需要的两个命名类型：`mqtt_varint`（剩余长度：7 bit �
 | `text`                | string | 规范化的需求陈述（中文，保留关键英文术语）                   |
 | `level`               | enum   | `MUST` / `MUST NOT` / `SHOULD` / `MAY`                       |
 | `category`            | enum   | `syntax` / `semantics` / `timing` / `error_handling`         |
-| `source_ref`          | object | 文档定位：`section`（章节号）\+ `quote`（原文关键句）；gold 规格同样必填（指向公开标准文档） |
+| `source_ref`          | object | 文档定位：`section`（章节号）\+ `quote`（原文关键句）\+ 可选 `segment_id`（提取产物定位分片用）\+ 可选 `doc_id`（多文档输入时标识来源文档，见 O\-9）；gold 规格同样必填（指向公开标准文档） |
 | `covered_by.elements` | array  | 覆盖此需求的规格元素路径                                     |
 | `covered_by.tests`    | array  | 覆盖此需求的测试用例标识（pytest nodeid 前缀）               |
 
@@ -537,8 +544,8 @@ MQTT 3.1.1 需要的两个命名类型：`mqtt_varint`（剩余长度：7 bit �
 `spec_lint`（确定性工具，非 LLM）**必须**检查：
 
 1. 结构合法（JSON Schema）；
-2. 引用完整：所有 `type`、`req_ids`、状态名、`event`/`actions` 中的报文名均已定义；
-3. 覆盖完整：每条 `MUST`/`MUST NOT` 需求至少被一个规格元素覆盖（`covered_by.elements` 非空）；每条需求的 `covered_by.tests` 在 gold 测试集中存在（spec\-run 模式）；
+2. 引用完整：所有 `type`、`req_ids`、状态名、`event`/`actions` 中的报文名均已定义；`state_machines`/`behaviors` 的 `role` 是 `scope.roles` 声明的角色（`both` 除外）；
+3. 覆盖完整：每条 `MUST`/`MUST NOT` 需求至少被一个规格元素覆盖（`covered_by.elements` 非空）；spec\-run/gold 规格模式下，每条 `MUST`/`MUST NOT` 需求的 `covered_by.tests` 非空，且所有需求的 `covered_by.tests` 引用的测试在 gold 测试清单（tests\_manifest，见 5.3）中存在；
 4. 词表合规：`event`、`actions`、`guard` 只使用 5.1.4 的受限词表与语法；
 5. 无孤儿元素：每个 message/behavior/transition 至少关联一条需求。
 
@@ -567,8 +574,8 @@ plan.json 是 S4 的输出，是 P3（计划工件化）的直接体现。结构
 | `deliverable_files`  | array        | 本任务允许创建/修改的文件白名单（并行扩展 E1 的互斥依据）    |
 | `context_refs`       | array        | 上下文切片引用：`{"kind": "message\|type\|state_machine\|behavior\|interface_file", "id": ...}` |
 | `depends_on`         | array        | 前置任务 id                                                  |
-| `acceptance`         | object       | `{"build": true, "tests": [pytest nodeid 或 ctest 目标]}`——机器可判 |
-| `status`             | enum         | `pending` / `in_progress` / `done` / `blocked`               |
+| `acceptance`         | object       | `{"build": true, "tests": [gold 测试清单（tests_manifest）中的 pytest nodeid]}`——机器可判 |
+| `status`             | enum         | `pending` / `in_progress` / `done` / `blocked` / `blocked_by_dependency` |
 | `attempts` / `notes` | int / string | 尝试次数与备注（S6 维护）                                    |
 
 约束：任务粒度**应当**满足"单任务的 deliverable\_files ≤ 4 个文件、预估单文件 ≤ 400 行"（P2；粒度过大是弱模型失败的首要原因）；`depends_on` 构成 DAG，`spec_lint` 的姊妹工具 `plan_lint` 检查无环、文件白名单互斥性、acceptance 测试存在性。
@@ -584,18 +591,21 @@ golds/mqtt-3.1.1-min/
 │   ├── conftest.py           # 启动/连接生成的二进制的夹具
 │   ├── harness/              # 原始套接字报文构造器、最小 MQTT 参考编解码
 │   ├── l0_static/            # 构建产物存在性、`-Werror` 编译通过
-│   ├── l1_codec/             # 经 codec CLI 契约（7.3）做编解码往返与畸形输入测试
+│   ├── l1_codec/             # 经 codec CLI 契约（7.4）做编解码往返与畸形输入测试
 │   ├── l2_behavior/          # 黑盒行为：起真实进程，走回环 TCP
 │   └── l3_interop/           # 与 mosquitto/paho 互操作（M2 后启用）
-└── docs/                     # 原始标准文档副本（M3 的 doc-run 输入）
+└── docs/                     # 原始标准文档副本（source_ref 核对用；doc-run 输入用 protocol_docs/ 原件，12.3）
 ```
 
 强制规则：
 
 1. 测试**禁止**链接或 import 生成代码的内部实现，只允许通过第 7 章定义的外部契约（CLI、TCP）交互——保证测试独立于生成过程，防止"应试作弊"；
 2. 每个测试**必须**用 `@pytest.mark.req("REQ-...")` 标注其验证的需求，供覆盖矩阵统计（9.1）；
-3. 测试自身的正确性在 M0 用参考实现（mosquitto broker \+ paho 客户端）验证：gold 测试对参考实现的通过率**必须**达到 100% 方可冻结（10.1）；
-4. L1/L2 默认在 ASan\+UBSan 构建上运行（7.4）；内存错误即测试失败。
+3. 测试自身的正确性在 M0 用参考实现验证：L2 用例经 conftest 的 `--target=reference` 开关运行——适配层负责启动 mosquitto、做就绪探测，并把 7.4 客户端契约映射到 mosquitto\_pub/mosquitto\_sub；L1 用例以 harness 内置参考编解码与 paho 构造的报文字节交叉验证；L0（构建产物检查）不适用参考实现。适用用例的通过率**必须**达到 100% 方可冻结（10.1）；
+4. L1/L2 默认在 ASan\+UBSan 构建上运行（7.4）；内存错误即测试失败；
+5. harness **必须**对 client\_id、topic、payload 等测试输入做参数随机化（随机种子记录进测试日志，保证可复现）——V\-2/R\-8 引用的防作弊机制。
+
+**测试清单工件** `golds/<protocol>/tests_manifest.json`：由收集脚本（`pytest --collect-only` \+ `@pytest.mark.req` 解析）生成并随 gold 资产维护（M0\-6 交付），结构：`[{nodeid, layer(l0..l3), req_ids, description}]`（description 取测试函数 docstring 首行）。它是 S4 的"gold 测试清单"输入与 plan\_lint"acceptance 测试存在性"检查的数据源（6.4）。
 
 ### 5\.4 测试报告、修复日志与证据报告
 
@@ -625,6 +635,53 @@ golds/mqtt-3.1.1-min/
 ```
 
 规则：提示词与输出全文落盘（引用路径），trace 行只存哈希与元数据；`validation ∈ {pass, repaired, fail}` 记录 Schema 校验结果（P8）；`stage_events.ndjson` 记录阶段启停、预算消耗快照、受控失败事件。trace \+ 工件 \+ git 历史共同构成 M4 要求的"证据"。
+
+### 5\.6 其他工件结构
+
+本节补齐流水线其余工件的结构定义，与 5.1～5.5 一起构成 M0\-1 schema 转写的完整依据（4.3 表"Schema 定义"列指向本节的工件以此为准）。
+
+#### 5\.6.1 文档分片 doc/segments.json
+
+| 键               | 类型   | 必填 | 说明                                                         |
+| ---------------- | ------ | ---- | ------------------------------------------------------------ |
+| `schema_version` | string | 是   | `"1.0"`                                                      |
+| `doc`            | object | 是   | 源文档元数据：`doc_id`、`filename`、`sha256`、`format`（pdf/txt/html）、`char_count`（清理后全文字符数） |
+| `segments`       | array  | 是   | 分片列表（见下）                                             |
+| `coverage_ratio` | number | 是   | 分片总字符 / 清理后全文字符，验收 ≥ 0.95（6.1）              |
+
+分片（`segments[]`）：`segment_id`（如 `seg-0042`）、`section_path`（章节路径，如 `3.1.2/part2`）、`title`、`text`、`token_count`、`has_table`（bool）、`page_range`（\[起, 止\]，PDF 才有）、`warnings[]`（抽取警告）。
+
+#### 5\.6.2 运行元数据 run.json
+
+| 键                | 类型   | 必填 | 说明                                                         |
+| ----------------- | ------ | ---- | ------------------------------------------------------------ |
+| `schema_version`  | string | 是   | `"1.0"`                                                      |
+| `run_id`          | string | 是   | 与运行目录名一致（4.4）                                      |
+| `entry`           | enum   | 是   | `spec-run` / `doc-run`                                       |
+| `created_at`      | string | 是   | UTC ISO8601                                                  |
+| `inputs`          | object | 是   | `spec_path` 或 `doc_path`、`scope_path`（doc\-run）及各自 `sha256` |
+| `config_snapshot` | object | 是   | 解析后的完整配置，密钥只留环境变量名（8.3）                  |
+| `stages`          | object | 是   | 每阶段一项：`{status: pending/running/done/failed/skipped, started_at, ended_at, error}`（4.8） |
+| `budget_used`     | object | 是   | `wall_clock_s`、`cost_usd`、`tokens_in`、`tokens_out`（随运行原子更新） |
+| `flags`           | object | 否   | `degraded_segmentation` 等运行标志                           |
+| `outcome`         | enum   | 终态 | 9\.1.2 三值，运行结束时写入                                  |
+| `exit_code`       | int    | 终态 | 8\.7 约定                                                    |
+
+#### 5\.6.3 规格评审 spec/spec\_review.json
+
+| 键                           | 类型   | 说明                                                         |
+| ---------------------------- | ------ | ------------------------------------------------------------ |
+| `schema_version`             | string | `"1.0"`                                                      |
+| `issues`                     | array  | `{severity: blocker/major/minor, element（规格元素路径）, description, suggestion}` |
+| `extraction_failed_segments` | array  | 提取失败的分片 id 清单（6.2 失败处理）                       |
+| `passed`                     | bool   | 无 blocker 即 true                                           |
+
+#### 5\.6.4 合并决议 spec/merge\_decisions.json（doc\-run 才有）
+
+| 键               | 类型   | 说明                                                         |
+| ---------------- | ------ | ------------------------------------------------------------ |
+| `schema_version` | string | `"1.0"`                                                      |
+| `decisions`      | array  | `{element_path, conflicting_values: [{segment_id, value}], resolution, rationale}`（6.2 步骤 3） |
 
 ## 6\. 流水线阶段详细设计
 
@@ -659,13 +716,13 @@ golds/mqtt-3.1.1-min/
 | 目的      | 从文档分片提取 Spec IR（"文档 → 规格"半程的核心）            |
 | 输入      | `doc/segments.json`、Spec IR schema、scope 配置（用户指定的目标范围/角色） |
 | 输出      | `spec/spec.json`（`meta.source.kind = extracted`）           |
-| 角色/模型 | 分类（T3）、SpecExtractor（T1）、SpecMerger（T1）            |
+| 角色/模型 | SegmentClassifier（T3）、SpecExtractor（T1）、SpecMerger（T1） |
 | 预算      | 单分片提取重试 ≤ 2；自检修复 ≤ 2 轮                          |
 
 主流程（map–reduce）：
 
-1. **相关性分类**（T3，批量）：给每个分片标注视图标签：`message_syntax` / `state` / `behavior` / `timing` / `error` / `irrelevant`。带 `irrelevant` 的分片不进入提取，但清单保留供审计。
-2. **Map 提取**（T1）：按分片 × 视图调用 SpecExtractor，输出该视图的 Spec IR 片段。硬性规则：每个提取出的元素**必须**携带 `req_ids`，每条 requirement **必须**带 `source_ref`（分片 id \+ 原文关键句引用）；提示词明确"宁缺勿造：文中没有的信息输出 null，禁止用先验知识补全"（对抗模型先验幻觉——模型可能"背过"MQTT，M6 泛化时这是主要风险源）。
+1. **相关性分类**（SegmentClassifier，T3，批量）：给每个分片标注视图标签：`message_syntax` / `state` / `behavior` / `timing` / `error` / `irrelevant`。带 `irrelevant` 的分片不进入提取，但清单保留供审计。
+2. **Map 提取**（T1）：按分片 × 视图调用 SpecExtractor，输出该视图的 Spec IR 片段。硬性规则：每个提取出的元素**必须**携带 `req_ids`，每条 requirement **必须**带 `source_ref`（`section` \+ `quote`，并填 `segment_id` 定位分片）；提示词明确"宁缺勿造：文中没有的信息输出 null，禁止用先验知识补全"（对抗模型先验幻觉——模型可能"背过"MQTT，M6 泛化时这是主要风险源）。
 3. **Reduce 合并**（T1）：SpecMerger 按元素 id 归并片段；同名冲突（如两个分片对同一字段给出不同约束）**禁止**静默择一，必须输出冲突清单与决议理由，落盘 `spec/merge_decisions.json`。
 4. **自检循环**：跑 `spec_lint`（5.1.8），错误清单反馈给 SpecExtractor 定点修复，最多 2 轮。
 5. **终校验**：`spec_lint` 0 error 才算阶段完成。
@@ -680,8 +737,8 @@ golds/mqtt-3.1.1-min/
 | --------- | ------------------------------------------------------------ |
 | 目的      | 在规格进入代码生成前拦截缺陷（3.3 结论 3：评审是高回报投入） |
 | 输入      | `spec/spec.json`、`spec_lint` 报告、（实验模式）gold 规格    |
-| 输出      | `spec/spec_review.json`；（实验模式）对齐评分入 report       |
-| 角色/模型 | SpecCritic（T1，**必须**与 SpecExtractor 不同型号）；对齐评估为确定性工具 |
+| 输出      | `spec/spec_review.json`；（实验模式）`spec/spec_align.json`，摘要入 report |
+| 角色/模型 | SpecCritic（T1，**应当**与 SpecExtractor 不同型号——4.6 规则 3；单 provider 场景以不同型号替代并记录偏离）；对齐评估为确定性工具 |
 | 预算      | 回 S2 定点修复 ≤ 1 轮                                        |
 
 两种工作模式：
@@ -696,7 +753,7 @@ golds/mqtt-3.1.1-min/
 | 项        | 内容                                                         |
 | --------- | ------------------------------------------------------------ |
 | 目的      | 把 Spec IR 编译为模块划分与任务图（3.3 结论 1：规划是最值得花强模型的地方） |
-| 输入      | `spec/spec.json`、第 7 章目标形态约束（作为固定上下文注入）、gold 测试清单元数据 |
+| 输入      | `spec/spec.json`、第 7 章目标形态约束（作为固定上下文注入）、gold 测试清单 `tests_manifest.json`（5\.3） |
 | 输出      | `plan/plan.json`                                             |
 | 角色/模型 | Planner（T1）                                                |
 | 预算      | plan\_lint 修复 ≤ 2 轮                                       |
@@ -724,7 +781,7 @@ golds/mqtt-3.1.1-min/
 主流程：
 
 1. 按第 7.2 布局生成目录、Makefile、`.gitignore`、README 存根。
-2. **机械派生头文件**：从 spec 确定性生成 `include/mqtt/mqtt_types.h`（报文类型枚举、返回码常量、按 7.3 命名规则生成的报文结构体声明）与 `include/mqtt/mqtt_codec.h` 等接口声明。这些由代码模板机械映射（spec 字段类型 → C 类型表见 7.3），**不经过 LLM**——接口由系统固定，Coder 只填实现，是弱模型友好性的关键设计。
+2. **头文件生成**：`include/mqtt/mqtt_types.h`（报文类型枚举、返回码常量、报文结构体声明）与 `mqtt_codec.h` 从 spec 按 7.3 类型映射机械派生；`mqtt_session.h` 与 `mqtt_net.h` 来自静态固定模板（接口契约见 7.3 规则 9）。两类头文件都**不经过 LLM**——接口由系统固定，Coder 只填实现，是弱模型友好性的关键设计。
 3. 所有 `.c` 实现文件生成为返回 `MQTT_ERR_NOT_IMPLEMENTED` 的空实现。
 4. `git init`、首提交；在沙箱执行 `make` 与 L0 测试。
 
@@ -740,7 +797,7 @@ golds/mqtt-3.1.1-min/
 | 输入      | `plan.json`、`spec.json`、`workspace/`                       |
 | 输出      | 实现完成的 workspace（每任务一 git 提交）、更新后的 plan 任务状态 |
 | 角色/模型 | Coder（T2）、Diagnoser（T2→T1）、Fixer（T2→T1）              |
-| 预算      | 单任务修复迭代 ≤ 3（T2）\+ 1（T1 升级）；任务总数上限 \= 计划数 × 1.5 |
+| 预算      | 单任务修复迭代 ≤ 3（T2）\+ 1（T1 升级）；任务总数上限为预留项（4.7） |
 
 #### 6\.6.1 单任务循环
 
@@ -833,7 +890,7 @@ git 纪律：每个通过快验的簇修复一次提交（`fix(round-N): 簇签�
 
 1. 确定性汇总：从 spec.requirements × plan × 最终 test\_results 生成需求覆盖矩阵；从 trace 聚合各阶段/角色/模型的 token 与成本；从 repair\_log 生成修复收敛曲线；收集 S6 各任务 notes 中的假设。
 2. 交叉自检：覆盖矩阵中的测试结果**必须**与 junit 原始数据一致，不一致即报告生成错误（禁止美化）。
-3. Reporter 将 report.json 渲染为结构固定的 report.md（模板见 8.8），只做成文不做判断。
+3. Reporter 将 report.json 渲染为结构固定的 report.md（要素结构见 5.4；Reporter 的提示词模板按 8.8 规范维护），只做成文不做判断。
 4. 按 5.4 检查报告完整性（六要素齐备）后结束运行。
 
 验收：report.json 通过 schema 校验且交叉自检通过。
@@ -851,7 +908,7 @@ git 纪律：每个通过快验的簇修复一次提交（`fix(round-N): 簇签�
 | 类别      | 纳入 M0                                                      | 排除（留待 M5）                                         |
 | --------- | ------------------------------------------------------------ | ------------------------------------------------------- |
 | 报文      | CONNECT / CONNACK / PUBLISH(QoS0) / SUBSCRIBE / SUBACK / UNSUBSCRIBE / UNSUBACK / PINGREQ / PINGRESP / DISCONNECT | PUBACK / PUBREC / PUBREL / PUBCOMP（QoS1/2 全家族）     |
-| 连接语义  | clean\_session\=1（无会话持久化）；keep\_alive 超时（broker 在 1.5×keep\_alive 无报文后断开） | clean\_session\=0、会话恢复、Will 消息、用户名/密码认证 |
+| 连接语义  | clean\_session\=1（无会话持久化）；keep\_alive 超时（keep\_alive 非零时，broker 在 1.5×keep\_alive 内未收到任何报文后断开；keep\_alive\=0 表示关闭保活，broker 不因不活动断开） | clean\_session\=0、会话恢复、Will 消息、用户名/密码认证 |
 | 发布/订阅 | 字面量主题精确匹配；单连接多订阅；QoS0 转发                  | 通配符 `+`/`#`、retain、$SYS 主题                       |
 | 错误处理  | 畸形报文/非法首字节 → 断开连接；非法 protocol\_level → CONNACK rc\=1 后断开；重复 CONNECT → 断开 | —                                                       |
 | 传输      | 明文 TCP，IPv4，单线程                                       | TLS、WebSocket、IPv6                                    |
@@ -896,7 +953,10 @@ workspace/
    | `mqtt_utf8_string`                  | `struct { uint16_t len; uint8_t data[MQTT_MAX_STRING]; }`    |
    | `bytes`                             | 同上（上限取 spec 约束）                                     |
    | `bitfield8` 的位                    | 结构体内 `uint8_t` 独立字段（不用位域语法，移位在 codec）    |
+   | `mqtt_varint`（及 encoding.kind\=varint 的命名类型） | `uint32_t`（结构体内为解码后数值，varint 编解码只在 codec 层） |
    | 报文 `<msg>`                        | `mqtt_<msg>_t`                                               |
+
+   带 `derived` 的字段（如 remaining\_length）在结构体中是输出字段：encode 由 codec 按 derived 规则重算并忽略调用者赋值，decode 填入实际解码值。
 
 4. **接口命名（机械规则）**：`int mqtt_encode_<msg>(const mqtt_<msg>_t *in, uint8_t *buf, size_t cap, size_t *out_len);` 与 `int mqtt_decode_<msg>(const uint8_t *buf, size_t len, mqtt_<msg>_t *out);`。返回码统一用 `mqtt_types.h` 的错误枚举（`MQTT_OK` / `MQTT_ERR_MALFORMED` / `MQTT_ERR_BUFFER_TOO_SMALL` / `MQTT_ERR_NOT_IMPLEMENTED` …）。
 
@@ -907,6 +967,8 @@ workspace/
 7. **可追溯性**：每个函数头注释**必须**列出它实现的需求：`/* Implements: REQ-CONNECT-002, REQ-CONNECT-004 */`——供覆盖矩阵从代码侧 grep 验证（服务 M3 可追溯目标）。
 
 8. **风格**：4 空格缩进；函数 ≤ 80 行；文件 ≤ 400 行（与 5.2 任务粒度呼应）。
+
+9. **session/net 固定接口（静态模板，默认可推翻）**：会话层为纯事件驱动、无 IO——核心签名 `int mqtt_session_init(mqtt_session_t *s, mqtt_role_t role);`、`int mqtt_session_on_bytes(mqtt_session_t *s, const uint8_t *in, size_t len, mqtt_out_t *out);`、`int mqtt_session_on_tick(mqtt_session_t *s, uint32_t now_ms, mqtt_out_t *out);`，其中 `mqtt_out_t` 携带待发送字节（定长缓冲）与 `close` 标志；broker 的订阅表与转发逻辑在 session 层内部维护。net 层封装 select 事件循环与监听/连接管理，只负责把收到的字节喂给 session、把 `mqtt_out_t` 写回 socket，其完整签名由 S5 静态模板给出并随 M1\-5 交付冻结。
 
 ### 7\.4 构建、运行与外部契约
 
@@ -967,11 +1029,13 @@ nepa/
 │   │   ├── sandbox.py         # docker 执行封装（8.5）
 │   │   ├── build.py / test_runner.py / git_ops.py / fs_ops.py
 │   │   └── scaffold/templates/  # S5 模板（Makefile、头文件 jinja 模板等）
-│   ├── schemas/               # spec/plan/report/segments/review 的 JSON Schema
+│   ├── schemas/               # spec/plan/segments/run/review/merge/summary/repair_log/report/tests_manifest 的 JSON Schema（第 5 章）
 │   ├── speclib/               # lint.py、align.py、slice.py（切片器：context_refs→JSON片段）
 │   └── evalx/                 # metrics.py、aggregate.py（第 9 章）
 ├── golds/
 │   └── mqtt-3.1.1-min/        # gold 规格 + 测试（5.3）
+├── protocol_docs/
+│   └── mqtt-v3.1.1-os.pdf     # 规范源文档（doc-run 输入，12.3）
 ├── configs/
 │   ├── default.yaml
 │   └── scope-mqtt-min.yaml    # doc-run 的范围声明
@@ -996,7 +1060,10 @@ tiers:            # 档位→具体型号（型号字符串仅为占位示例）
   T3: {provider: qwen,      model: <light-model>,   temperature: 0.0, max_tokens: 4000}
 
 roles:            # 角色→档位，可按角色覆盖型号；评审角色应当换 provider（4.6）
+  doc_segmenter:      {tier: T3}
+  segment_classifier: {tier: T3}
   spec_extractor: {tier: T1}
+  spec_merger:    {tier: T1}
   spec_critic:    {tier: T1, provider: deepseek, model: <another-flagship>}
   planner:        {tier: T1}
   coder:          {tier: T2}
@@ -1019,6 +1086,8 @@ sandbox:
 ```
 
 运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。
+
+**scope 配置**（`configs/scope-<protocol>.yaml`，doc\-run 必需）：字段为 `protocol`、`version`、`roles[]`、`features_included[]`、`features_excluded[]: {feature, reason}`、`assumptions[]`。S2 以它过滤提取范围（6.2），提取产物的 `spec.scope` **必须**与之一致（S3 校验项）。
 
 ### 8\.4 LLM Provider 抽象层
 
@@ -1073,7 +1142,8 @@ sandbox.exec(cmd: list[str], cwd: str, timeout_s: int,
 
 ```text
 nepa run --spec golds/mqtt-3.1.1-min/spec/spec.json [--config configs/default.yaml]   # spec-run
-nepa run --doc docs/mqtt-v3.1.1.pdf --scope configs/scope-mqtt-min.yaml               # doc-run
+nepa run --doc protocol_docs/mqtt-v3.1.1-os.pdf --scope configs/scope-mqtt-min.yaml   # doc-run
+nepa run --doc ... --until s3            # 半程运行：跑到指定阶段后停（M3 验收用）
 nepa resume <run_id>                     # 断点续跑（4.8）
 nepa status <run_id>                     # 进度、预算消耗、当前阶段
 nepa lint spec <path> | plan <path>      # 手动跑校验器
@@ -1175,16 +1245,17 @@ NePA 自身抛出的未捕获异常不属于以上任何结局，是需要修 Ne
 - **属性一致率** `attr_accuracy`：对已匹配的 field，逐属性比较 `type`、`loc`、`presence`、`constraint`、`derived`、`on_violation`，相等属性数 / 总属性数；
 - 完整的 matched / missing（gold 独有）/ spurious（提取独有）清单随分数落盘，供人工抽查。
 
-**溯源有效率** `source_ref_validity`：对提取规格的每条 requirement，将 `source_ref.quote` 做空白归一化后在 `doc/segments.json` 对应分片文本中做子串查找；可定位条数 / 总条数。该指标不依赖 gold，是对"宁缺勿造"规则（6.2）的直接量化，也是幻觉检测的第一道闸门。
+**溯源有效率** `source_ref_validity`：对提取规格的每条 requirement，将 `source_ref.quote` 做空白归一化后在 `doc/segments.json` 的对应分片（有 `segment_id` 时直取，否则按 `section` 匹配分片）文本中做子串查找；可定位条数 / 总条数。该指标不依赖 gold，是对"宁缺勿造"规则（6.2）的直接量化，也是幻觉检测的第一道闸门。
 
 #### 9\.1.4 代码生成指标
 
 以 plan.json 终态、终态测试轮 summary 与 repair\_log 为唯一数据源：
 
+- `build_ok`：终态轮 `make` 与 `make SAN=1` 均零警告零错误（7.4 构建契约；数据源为 S7 round summary 的构建记录）。
 - `task_completion_rate = |status=done| / |tasks|`；`blocked_rate` 为补集口径（含 `blocked_by_dependency`）。
 - `first_pass_rate = |attempts=1 且 done| / |done|`——衡量"计划质量 × 提示词质量 × T2 能力"的综合一次成功率，是 A5/A8 消融的主要因变量。
 - `test_pass_rate`：终态轮按 L0～L3 分层的 `passed / total`；整体口径不含被配置关闭的层（如 M2 前的 L3）。
-- `req_pass_rate`：一条 REQ 记为通过，当且仅当其 `covered_by.tests` 非空且引用的测试在终态轮全部 pass。分别报告全部 REQ 与 MUST/MUST NOT 子集（`req_pass_rate_must`，**里程碑验收的首要指标**）。`covered_by.tests` 为空的 REQ 计为不通过并单列 `uncovered_req_count`（gold 规格该值必为 0，由 spec\_lint 保证）。
+- `req_pass_rate`：一条 REQ 记为通过，当且仅当其 `covered_by.tests` 非空且引用的测试在终态轮全部 pass。分别报告全部 REQ 与 MUST/MUST NOT 子集（`req_pass_rate_must`，**里程碑验收的首要指标**）。`covered_by.tests` 为空的 REQ 计为不通过并单列 `uncovered_req_count`（gold 规格的 MUST/MUST NOT 子集该值必为 0，由 spec\_lint 检查 3 保证）。
 - 修复收敛：`repair.failures_by_round` \=（进入 S8 前的初始失败数, 第 1 轮后失败数, …）；`repair.converged = 末项 == 0`；`repair.rounds_used`；`repair.efficiency` \= 消除的失败数 / 修复消耗（USD）。收敛曲线入报告（5.4）。
 
 #### 9\.1.5 过程与成本指标
@@ -1225,10 +1296,10 @@ NePA 自身抛出的未捕获异常不属于以上任何结局，是需要修 Ne
 | A2  | 规格评审关卡价值       | S3 拦截缺陷可降低下游修复成本（3.3 结论 3）      | S3 开 / 关（doc\-run）                        | M4    |
 | A3  | 修复预算边际收益       | 修复轮次收益递减，存在成本拐点                   | `repair_rounds ∈ {0, 1, 3, 5}`                | M2    |
 | A4  | ★ 规格来源归因         | 端到端质量损失主要来自提取半程                   | spec 来源：gold / extracted（同协议同配置）   | M4    |
-| A5  | Coder 上下文预算       | 上下文过小损害一次通过率，过大浪费成本           | `coder_context_max_tokens ∈ {12k, 24k, 48k}`  | M1    |
+| A5  | Coder 上下文预算（因变量：first\_pass\_rate 与 cost，不含 req\_pass\_rate\_must） | 上下文过小损害一次通过率，过大浪费成本           | `coder_context_max_tokens ∈ {12k, 24k, 48k}`  | M1    |
 | A6  | 升级路径价值           | T1 升级以小成本换 blocked 率显著下降             | 升级开 / 关                                   | M2    |
 | A7  | ★ 先验依赖探针         | 生成代码遵循 spec 而非模型记忆中的 MQTT          | 变异 spec（见下）                             | M2    |
-| A8  | 编码温度敏感性         | 低温度下运行间方差可接受                         | Coder temperature ∈ {0, 0.1, 0.3}             | M1    |
+| A8  | 编码温度敏感性（因变量：first\_pass\_rate 及其方差、cost） | 低温度下运行间方差可接受                         | Coder temperature ∈ {0, 0.1, 0.3}             | M1    |
 
 **A7 先验依赖探针**（效度威胁 V\-1 的量化检验）：对 gold 规格施加一组人工变异——如 `protocol_name` 常量 "MQTT" → "MQTX"、`protocol_level` 4 → 9、部分 `packet_type_code` 重排、`keep_alive` 超时系数 1.5 → 2.0——并让测试 harness 从变异后 spec 读取这些常量（harness 参数化是 M0 测试集的设计要求，见 10.1）。若生成代码遵循变异 spec 则测试通过；若照搬模型先验的真实 MQTT 则测试失败。指标：**变异遵循率** \= 被正确实现的变异点数 / 变异点总数。该实验对 M3/M6 的效度论证是必要的（模型几乎必然"背过"MQTT）。
 
@@ -1261,7 +1332,7 @@ NePA 自身抛出的未捕获异常不属于以上任何结局，是需要修 Ne
 ```mermaid
 flowchart LR
   M0 --> M1 --> M2 --> M4
-  M0 --> M3 --> M4
+  M1 -- 仅需 M1-1~M1-4 --> M3 --> M4
   M4 --> M5
   M4 --> M6
 ```
@@ -1274,12 +1345,12 @@ flowchart LR
 
 | id    | 工作项                                                       | 产出                                        | 依赖         | 详见          |
 | ----- | ------------------------------------------------------------ | ------------------------------------------- | ------------ | ------------- |
-| M0\-1 | Schema 转写：把第 5 章表格转为 JSON Schema（spec v2.0、plan、segments、spec\_review、summary、repair\_log、report、run） | `nepa/schemas/*.json` \+ 每个 schema 一份最小合法示例 | —            | 5             |
+| M0\-1 | Schema 转写：把第 5 章的工件结构定义（5.1、5.2、5.4、5.6）转为 JSON Schema（spec v2.0、plan、segments、run、spec\_review、merge\_decisions、summary、repair\_log、report、tests\_manifest） | `nepa/schemas/*.json` \+ 每个 schema 一份最小合法示例 | —            | 5             |
 | M0\-2 | 旧草案处置：为现存三文件草案（`schemas/`、`gold_specs/` 的 wire\-format / requirements / profile）编写字段迁移映射表，人工重写为 v2.0 单文件规格；草案移入 `legacy/` 归档，**禁止**直接删除 | 迁移映射表（入 12.3）、归档目录             | M0\-1        | 12\.3、O\-5   |
 | M0\-3 | 范围冻结：7.1 建议基线经负责人确认后写入 gold 规格 `scope`，7.1 标注"已冻结" | 冻结记录（日期 \+ 确认人）                  | —            | 7\.1          |
 | M0\-4 | gold 规格编写：覆盖 7.1 全部纳入项的 `golds/mqtt-3.1.1-min/spec/spec.json`；每条 REQ 的 `source_ref` 指向 OASIS 标准章节与原文关键句 | gold spec                                   | M0\-1/2/3    | 5\.1          |
-| M0\-5 | 校验工具：`spec_lint`（5.1.8 五类检查）、`plan_lint`（5.2）及其单测（每类检查至少一正一反用例） | `nepa/speclib/lint.py` \+ 测试              | M0\-1        | 5\.1.8、5\.2  |
-| M0\-6 | gold 测试集：harness \+ L0/L1/L2 用例，全部 `@pytest.mark.req` 标注；**harness 的协议常量（端口、protocol\_name、type code 等）必须从 gold spec 读取而非硬编码**——这是 A7 探针的前提 | `golds/mqtt-3.1.1-min/tests/`               | M0\-3/4      | 5\.3、9\.3    |
+| M0\-5 | 校验工具：`spec_lint`（5.1.8 五类检查）、`plan_lint`（5.2）、`nepa lint` CLI 入口及单测（每类检查至少一正一反用例） | `nepa/speclib/lint.py` \+ `nepa lint` 命令 \+ 测试 | M0\-1        | 5\.1.8、5\.2  |
+| M0\-6 | gold 测试集：harness \+ L0/L1/L2 用例，全部 `@pytest.mark.req` 标注；**harness 的协议常量（端口、protocol\_name、type code 等）必须从 gold spec 读取而非硬编码**（A7 探针前提），并实现 5.3 规则 5 的参数随机化 | `golds/mqtt-3.1.1-min/tests/` \+ `tests_manifest.json` | M0\-3/4      | 5\.3、9\.3    |
 | M0\-7 | 参考实现验证：gold 测试集对 mosquitto \+ paho 跑通，并做 flaky 审计 | 验证记录（20 轮日志）                       | M0\-6        | 5\.3、9\.4    |
 | M0\-8 | 沙箱镜像：`docker/sandbox.Dockerfile` 构建并记录 digest      | 镜像 \+ digest                              | —            | 8\.5          |
 
@@ -1288,9 +1359,9 @@ flowchart LR
 | id    | 标准                                                         | 判定方式                                        |
 | ----- | ------------------------------------------------------------ | ----------------------------------------------- |
 | D0.1  | gold 规格通过校验：0 error                                   | `nepa lint spec golds/mqtt-3.1.1-min/spec/spec.json` |
-| D0.2  | gold 测试对参考实现 100% 通过，且连续 20 轮无一次波动        | 沙箱内脚本化执行，日志存档                      |
+| D0.2  | gold 测试对参考实现 100% 通过（L2 经 reference 适配层、L1 经 paho 交叉验证——5.3 规则 3），连续 20 轮无一次波动 | 沙箱内脚本化执行，日志存档                      |
 | D0.3  | 每条 MUST/MUST NOT 需求的 `covered_by.tests` 非空且测试存在  | spec\_lint 检查 3                               |
-| D0.4  | 全部 schema 文件与其示例互相校验通过                         | CI 任务（jsonschema）                           |
+| D0.4  | 全部 schema 文件与其示例互相校验通过                         | 本地校验脚本（M1\-8 起入 CI）                   |
 | D0.5  | M0 功能子集冻结                                              | 负责人签字（7.1 更新记录）                      |
 | D0.6  | 旧草案归档完毕、迁移映射表入 12.3                            | 负责人签字                                      |
 
@@ -1315,9 +1386,9 @@ flowchart LR
 
 | id    | 标准                                                         | 判定方式                                     |
 | ----- | ------------------------------------------------------------ | -------------------------------------------- |
-| D1.1  | 运行退出码 ∈ {0, 10}，workspace 在沙箱内 `make` 与 `make SAN=1` 零警告零错误 | 运行 \+ 构建脚本                             |
+| D1.1  | run.json 中 S4～S6 阶段状态均为 done 且无未捕获异常；workspace 在沙箱内 `make` 与 `make SAN=1` 零警告零错误（M1 尚无 S7/S9，不以 outcome/退出码判定） | 运行 \+ 构建脚本                             |
 | D1.2  | `task_completion_rate = 100%`（无 blocked 任务；默认，可推翻） | plan.json 终态                               |
-| D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立           | `nepa eval runs`                             |
+| D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立           | 脚本化执行并核对 run.json/plan.json 终态（M2\-6 后改用 `nepa eval runs`） |
 | D1.4  | 断点恢复：任一阶段中途 kill 后 `nepa resume` 能完成运行，终态满足 D1.1 | 人工注入中断的脚本化测试                     |
 | D1.5  | 零人工修改：workspace 的 git 历史全部为 NePA 生成的提交      | `git log` 审计脚本                           |
 | D1.6  | trace 完整：每次 LLM 调用有 trace 行且 prompt/output 全文文件存在 | trace 审计脚本                               |
@@ -1349,29 +1420,29 @@ flowchart LR
 
 ### 10\.4 M3：文档 → 可追溯规格
 
-**入口条件**：M0 DoD 通过（可与 M1/M2 并行推进）。
+**入口条件**：M0 DoD 通过，且 M1\-1～M1\-4（运行框架、LLM 层、Agent 框架、S4\+plan\_lint）已交付——S1～S3 复用同一套框架，D3.5 依赖 S4；其余部分可与 M1 收尾及 M2 并行。
 
 **工作分解**：
 
 | id    | 工作项                                                       | 详见       |
 | ----- | ------------------------------------------------------------ | ---------- |
 | M3\-1 | S1 实现：抽取、清噪、章节树、分片、覆盖率闸门与退化路径      | 6\.1       |
-| M3\-2 | 相关性分类（T3 批量）                                        | 6\.2       |
+| M3\-2 | 相关性分类（SegmentClassifier，T3 批量）                     | 6\.2       |
 | M3\-3 | SpecExtractor：分片 × 视图 map 提取，"宁缺勿造"规则          | 6\.2、8\.8 |
 | M3\-4 | SpecMerger：归并、冲突清单与决议落盘                         | 6\.2       |
 | M3\-5 | 自检循环（spec\_lint 反馈定点修复）                          | 6\.2       |
 | M3\-6 | S3 实现：SpecCritic 检查单评审 \+ `spec_align` 对齐工具（9.1.3） | 6\.3       |
 | M3\-7 | `nepa eval spec` CLI                                         | 8\.7       |
 
-**DoD**（判定对象：`protocol_docs/mqtt-v3.1.1-os.pdf` \+ `scope-mqtt-min` 的 doc\-run 前半程，N \= 3 取 median；阈值均为默认可推翻）：
+**DoD**（判定对象：`protocol_docs/mqtt-v3.1.1-os.pdf` \+ `scope-mqtt-min` 的 doc\-run 前半程（`--until s3`，8.7），N \= 3 取 median；阈值均为默认可推翻）：
 
 | id    | 标准                                                        | 判定方式          |
 | ----- | ----------------------------------------------------------- | ----------------- |
 | D3.1  | 每次运行 spec\_lint 0 error                                 | S2 出口           |
-| D3.2  | `req_recall_must ≥ 0.90` 且 `req_precision ≥ 0.85`          | `nepa eval spec`  |
+| D3.2  | `req_recall_must ≥ 0.90` 且 `req_precision_must ≥ 0.85`     | `nepa eval spec`  |
 | D3.3  | messages recall \= 1.0（M0 范围 10 种报文一个不缺），fields recall ≥ 0.95 | `nepa eval spec`  |
 | D3.4  | `source_ref_validity ≥ 0.95`                                | `nepa eval spec`  |
-| D3.5  | 可用性冒烟：提取规格直接送 S4，得到 plan\_lint 0 error 的计划 | 运行 S4           |
+| D3.5  | 可用性冒烟：提取规格直接送 S4，得到 plan\_lint 0 error 的计划 | 运行 S4（依赖 M1\-4 已交付） |
 | D3.6  | 评审有效性负面测试：人为损坏规格（如删除 CONNACK）后 S3 报出 blocker | 脚本化测试        |
 
 ### 10\.5 M4：端到端闭环
@@ -1448,9 +1519,18 @@ flowchart LR
 | O\-3 | spec\_align 纯确定性匹配的上限                               | behaviors/state 语义等价但措辞不同会被判为不匹配，低估 recall；引入 LLM 判分则伤复现性 | 保持确定性；报告同时给出"不匹配清单"供人工复核，人工复核结论单独成列不并入自动分 | M3 中期        |
 | O\-4 | 蜂群并行扩展点（4.9）何时启用                                | E1～E4 均有前提条件；过早并行重演 3.3 的"无效忙碌"教训       | v1 全程不启用；M4 后若 S6 墙钟成为瓶颈，先评估 E1            | M4 后          |
 | O\-5 | 旧三文件草案（wire\-format 1.1 / requirements / profile）的通用 PDU 模型是否反哺 Spec IR | 草案模型比 v2.0 更通用（多 PDU、文本/混合编码、transport\_bindings、语法定界），对文本协议表达力更强；v2.0 更简洁、对 LLM 更友好 | M0～M5 用 v2.0 不动；M6 若选文本协议，则设计 v3.0 时吸收草案的 framing/多 PDU 抽象，迁移映射表（M0\-2）是那时的输入 | O\-1 裁决时    |
-| O\-6 | `guard` 表达式是否需要可执行化                               | 当前 guard 仅作文档与测试依据（5.1.4）；M5 QoS 流程的转移条件更复杂，纯文档化 guard 可能让 Coder 误读 | 维持文档化；若 M5 中 guard 相关缺陷占比高，再定义受限可执行语法（minor 版本演进） | M5a 复盘时     |
+| O\-6 | `guard` 表达式是否需要可执行化                               | 当前 guard 仅作文档与测试依据（5.1.4）；M5 QoS 流程的转移条件更复杂，纯文档化 guard 可能让 Coder 误读；受限可执行 guard 也是从状态机自动派生行为测试（O\-15）的前置条件 | 维持文档化；若 M5 中 guard 相关缺陷占比高，再定义受限可执行语法（minor 版本演进） | M5a 复盘时     |
 | O\-7 | 扫描版 PDF / OCR 支持                                        | v1 明确排除（6.1）；部分厂商文档只有扫描件                   | 保持排除；需求真实出现时评估外部 OCR 服务接入 S1             | M6 后按需      |
 | O\-8 | T2 模型 `max_tokens` 上限与多文件任务的冲突                  | 单任务 ≤ 4 文件 × ≤ 400 行 C 代码，极端情况下接近 16k token 输出上限，可能截断 | 保守方案：Planner 粒度约束已缓解；若 trace 出现截断（finish\_reason 异常），S6 改为按文件分次调用 Coder | M1 联调时      |
+| O\-9 | 多文档协议族输入（RFC 主文档 \+ 勘误 \+ 扩展）               | 长期目标（2.2）以 RFC 为第一类输入，RFC 族几乎总由多文档构成；S1/CLI/溯源当前是单文档假设。5.1.6 已预留可选 `doc_id` | doc\-run 支持文档清单入参、segments 携带 doc\_id、SpecMerger 承接跨文档冲突决议（6.2 机制可直接复用） | M6 选型（O\-1）裁决时 |
+| O\-10 | 内嵌图形（状态图/时序图）信息摄取                            | 厂商文档的状态机与时序常以图给出；S1 只取文本层，该类视图提取会系统性缺失（与 O\-7 扫描件是不同问题） | 保持排除；向厂商文档泛化前评估多模态模型接入 S1                | M6 后按需      |
+| O\-11 | RFC 纯文本预格式块（ASCII 报文图、ABNF 文法）的识别与保护    | O\-1 默认候选 CoAP 即纯文本 RFC；按段落再切会切碎 ASCII 图与文法块，直接压低提取 recall；O\-5 只覆盖 IR 表达侧，摄取侧无对策 | S1 增加预格式块检测（缩进/等宽特征），整块保留并标注 `has_preformatted`（类比 has\_table） | M6 启动前（D6.2 的前提） |
+| O\-12 | 代理形态与多连接会话模型                                     | 2.2 五种输出形态中的"代理"全文无建模途径：需要"同一实体双侧角色 \+ 跨连接转发规则"；FTP 类多通道协议同此根因 | Spec IR v3.0 设计时引入"复合角色/连接对"抽象；v2.x 不动        | M6 后（与 O\-5 同批） |
+| O\-13 | 目标形态与"协议库"交付物的参数化                             | 目标形态组合当前硬编码于第 7 章文本，无运行级选择参数；纯库形态无可执行入口，现有 CLI/TCP 外部契约无法验收 | 形态组合进 scope/配置；纯库形态以"测试适配器可执行"为验收面（mqtt\_codec\_cli 已是该模式雏形） | M5 后          |
+| O\-14 | TLS/安全层的演进路径                                         | 2.4 排除 TLS，但 transport 模型无安全层槽位、7.3 禁第三方库使 TLS 事实上不可实现；强依赖 TLS 的现代协议将无法承接 | transport 增加可选 `security` 槽位（minor 演进）；生成侧例外允许链接系统 TLS 库（需推翻 7.3 的裁决） | M6 后按需      |
+| O\-15 | **无 gold 测试集协议的验证闭环（长期目标关键路线）**         | 每个新协议需一次性人工 gold 投入，厂商私有协议常无参考实现（V\-3 该场景无对策）。工件链已具备测试合成的全部原料：`observable_check`（5.1.5）、受限词表状态机（5.1.4）、机械对应的外部契约（7.4）、harness 常量参数化（M0\-6） | 立项研究"从 Spec IR 自动合成一致性测试"：合成测试不推翻 P1，但 P1 的"独立"语义需重新界定为"独立于代码生成路径"；L3 互操作对端参数化为可配置裁决信号 | M4 后立项评估  |
+| O\-16 | 大规格下的分层规划与分批合并                                 | S4 一次性产出全量任务图、S2 单次 Reduce、S3 整本评审，在完整 MQTT5/HTTP 量级会撞上下文与输出上限（Planner 的输出截断风险 O\-8 未覆盖）；4.9 E1～E4 均为质量/速度取向，无规模分解机制 | 预留"两级规划"（先模块级、再逐模块任务展开）与 SpecMerger 按元素类分批合并；均为 L2 阶段控制器内部改造，不动工件契约 | M5 启动前      |
+| O\-17 | 目标实现语言参数化                                           | 实现语言（C99）从未被记录为可变维度；make/ASan 等工具链细节直书进 6.6/6.7/9.1.4/D1.1 等语言无关层文本 | 长期把第 7 章拆为"形态无关约束 \+ 语言档案"两部分；近期实现时以 7.4"构建契约"抽象名引用构建命令 | M6 后按需      |
 
 ### 11\.3 决策与变更流程
 
@@ -1473,7 +1553,7 @@ flowchart LR
 | 角色（Agent role）    | 一类 LLM 调用的定义：提示词模板 \+ 输入切片规则 \+ 输出 Schema \+ 档位 | 4\.5       |
 | 档位（T1/T2/T3）      | 模型能力/价格分层：最强推理 / 经济执行 / 轻量辅助            | 4\.6       |
 | 升级路径              | 失败重试时把角色从 T2 提升到 T1 的固定规则                   | 4\.6       |
-| 受控失败              | 预算耗尽或不可修复时的正常出口：保存现场、标记 degraded、区分退出码 | 4\.7       |
+| 受控出口（降级/失败） | 预算耗尽或工件链断裂时的正常结束：保存现场、按 9.1.2 判定 degraded（退出码 10）或 failed（退出码 20） | 4\.7、9\.1.2 |
 | 三重预算              | 墙钟、成本、循环次数三维资源上限                             | 4\.7       |
 | REQ / 需求条目        | 需求索引中的原子条款，追溯链"文档→规格→任务→代码→测试"的贯穿单位 | 5\.1.6     |
 | 覆盖矩阵              | REQ × {规格覆盖, 任务, 测试结果} 的状态矩阵，报告核心        | 5\.4、9\.1.4 |
@@ -1529,3 +1609,4 @@ flowchart LR
 | 0.1.1  | 2026-07-24 | 骨架修订：里程碑划分调整，规格文件职责边界说明               |
 | 0.2.0  | 2026-07-26 | 扩展为完整设计文档：新增第 0、3～8 章（设计基石、总体架构、数据工件与 Schema、阶段详细设计、目标形态、工程实现），细化第 1～2 章 |
 | 0.3.0  | 2026-07-26 | 补全第 9～12 章（评估体系、里程碑执行计划、风险与开放问题、附录）；全文一致性校验与勘误 |
+| 0.3.1  | 2026-07-27 | 落实多智能体一致性校验的 54 项确认修正：新增 5.6（segments/run/spec\_review/merge\_decisions 结构）与 tests\_manifest 工件；统一升级时机（3\+1）、受控出口语义、任务状态枚举；修复 D0.2/D1.1/D1.3/M3 入口等 DoD 可执行性问题；新增 SegmentClassifier 角色与 scope 配置结构；7.3 补 varint 映射与 session/net 固定接口。合并长期目标对照评审：Spec IR 角色词表协议无关化、source\_ref 预留 segment\_id/doc\_id、新增开放问题 O\-9～O\-17 |

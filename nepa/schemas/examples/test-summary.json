@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "round": 1,
+  "trigger": "s7_full",
+  "build": {
+    "release": { "ok": true, "warnings": 0, "errors": 0 },
+    "san": { "ok": true, "warnings": 0, "errors": 0 }
+  },
+  "cases": [
+    {
+      "nodeid": "l1_codec/test_varint.py::test_remaining_length_roundtrip",
+      "layer": "l1",
+      "result": "pass",
+      "duration_ms": 42.1,
+      "req_ids": ["REQ-FRAME-001"]
+    },
+    {
+      "nodeid": "l2_behavior/test_connect.py::test_bad_protocol_level",
+      "layer": "l2",
+      "result": "fail",
+      "duration_ms": 1830.0,
+      "failure_excerpt": "AssertionError: expected CONNACK rc=1, got connection reset without CONNACK",
+      "req_ids": ["REQ-CONNECT-002"]
+    }
+  ],
+  "req_matrix": [
+    {
+      "req_id": "REQ-FRAME-001",
+      "tests": ["l1_codec/test_varint.py::test_remaining_length_roundtrip"],
+      "passed": true
+    },
+    {
+      "req_id": "REQ-CONNECT-002",
+      "tests": ["l2_behavior/test_connect.py::test_bad_protocol_level"],
+      "passed": false
+    }
+  ]
+}

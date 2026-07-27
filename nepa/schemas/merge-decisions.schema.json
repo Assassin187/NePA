@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/merge-decisions.schema.json",
+  "title": "NePA spec/merge_decisions.json v1.0",
+  "description": "设计文档 5.6.4：S2 合并冲突决议（doc-run 才有；6.2 步骤 3 禁止静默择一）。",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "element_path": {
+            "description": "冲突所在的规格元素路径",
+            "type": "string",
+            "minLength": 1
+          },
+          "conflicting_values": {
+            "description": "冲突至少涉及两个来源分片",
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "properties": {
+                "segment_id": { "type": "string", "pattern": "^seg-[0-9]+$" },
+                "value": {
+                  "description": "该分片给出的取值（任意 JSON）"
+                }
+              },
+              "required": ["segment_id", "value"],
+              "additionalProperties": false
+            }
+          },
+          "resolution": {
+            "description": "采纳的最终取值（任意 JSON）"
+          },
+          "rationale": { "type": "string", "minLength": 1 }
+        },
+        "required": ["element_path", "conflicting_values", "resolution", "rationale"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "decisions"],
+  "additionalProperties": false
+}

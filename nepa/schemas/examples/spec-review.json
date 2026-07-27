@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "issues": [
+    {
+      "severity": "minor",
+      "element": "messages/connect/fields/keep_alive",
+      "description": "keep_alive 缺少值域说明（0 表示禁用未在约束中体现）",
+      "suggestion": "为 keep_alive 增加 constraint 或在 timers 条目中补充 0 的语义"
+    }
+  ],
+  "extraction_failed_segments": ["seg-0051"],
+  "passed": true
+}

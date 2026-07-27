@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "conclusion": {
+    "outcome": "success",
+    "summary": "M0 子集全部 MUST 需求测试通过，1 轮修复后收敛"
+  },
+  "req_coverage": [
+    {
+      "req_id": "REQ-FRAME-001",
+      "level": "MUST",
+      "spec_status": "covered",
+      "task_ids": ["T-001"],
+      "code_status": "done",
+      "test_status": "pass"
+    },
+    {
+      "req_id": "REQ-CONNECT-002",
+      "level": "MUST",
+      "spec_status": "covered",
+      "task_ids": ["T-001", "T-002"],
+      "code_status": "done",
+      "test_status": "pass"
+    }
+  ],
+  "test_final": {
+    "passed": 42,
+    "failed": 0,
+    "skipped": 2,
+    "errors": 0,
+    "failures": []
+  },
+  "process_stats": {
+    "stage_duration_s": {
+      "s3": 65.0,
+      "s4": 170.0,
+      "s5": 90.0,
+      "s6": 2550.0,
+      "s7": 480.0,
+      "s8": 300.0,
+      "s9": 60.0
+    },
+    "llm_usage": [
+      {
+        "role": "planner",
+        "model": "provider/model-large",
+        "tokens_in": 52000,
+        "tokens_out": 9800,
+        "cost_usd": 0.62
+      },
+      {
+        "role": "coder",
+        "model": "provider/model-mid",
+        "tokens_in": 610000,
+        "tokens_out": 152000,
+        "cost_usd": 2.9
+      }
+    ],
+    "repair": {
+      "rounds_used": 1,
+      "failures_by_round": [1, 0],
+      "converged": true
+    }
+  },
+  "assumptions_and_defects": {
+    "assumptions": ["client_id 仅含字母数字（spec 约束 charset 0-9a-zA-Z）"],
+    "known_defects": []
+  },
+  "reproducibility": {
+    "config_snapshot_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "git_commit": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "model_versions": ["provider/model-large-2026-05-01", "provider/model-mid-2026-04-15"]
+  }
+}

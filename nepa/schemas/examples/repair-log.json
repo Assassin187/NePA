@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "entries": [
+    {
+      "round": 1,
+      "cluster_signature": "9f2c4e6a8b0d1f3a",
+      "diagnosis": {
+        "root_cause": "protocol_level 校验发生在 CONNACK 发送之前的错误分支，直接关闭连接而未先回 rc=1",
+        "files": ["src/mqtt_session.c"]
+      },
+      "repair": {
+        "files": ["src/mqtt_session.c"],
+        "diff_summary": "在 protocol_level != 4 分支先调用 send_connack(rc=1) 再 close，+7/-2 行"
+      },
+      "verification": {
+        "quick_pass": true,
+        "regression_pass": true
+      },
+      "cost": {
+        "model": "provider/model-mid",
+        "tokens_in": 9200,
+        "tokens_out": 2100,
+        "duration_ms": 15400,
+        "cost_usd": 0.05
+      }
+    }
+  ]
+}

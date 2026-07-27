@@ -1,0 +1,45 @@
+# NePA 默认配置（设计文档 8.3）
+# 测试期配置：所有档位绑定 DeepSeek（DEC-1，见 project_docs/dev_status.md）；
+# 正式实验前需为评审角色补第二 provider（4.6 规则 3）。
+
+providers:
+  deepseek:
+    kind: openai_compat
+    base_url: https://api.deepseek.com
+    api_key_env: DS_API          # 密钥只走环境变量，禁止写入配置（8.3）
+
+tiers:                            # 档位 → 具体型号
+  T1: {provider: deepseek, model: deepseek-reasoner, temperature: 0.0, max_tokens: 16000}
+  T2: {provider: deepseek, model: deepseek-chat, temperature: 0.1, max_tokens: 16000}
+  T3: {provider: deepseek, model: deepseek-chat, temperature: 0.0, max_tokens: 4000}
+
+roles:                            # 角色 → 档位（4.5、4.6）
+  doc_segmenter:      {tier: T3}
+  segment_classifier: {tier: T3}
+  spec_extractor:     {tier: T1}
+  spec_merger:        {tier: T1}
+  spec_critic:        {tier: T1}  # DEC-1：暂同 provider；应当换 provider（4.6 规则 3）
+  planner:            {tier: T1}
+  coder:              {tier: T2}
+  diagnoser:          {tier: T2, escalate_to: T1}
+  fixer:              {tier: T2, escalate_to: T1}
+  reporter:           {tier: T3}
+
+budgets:                          # 4.7
+  wall_clock_hours: 4
+  max_cost_usd: 20                # default.yaml 提供，实验前须按需显式覆盖（4.7）
+  coder_context_max_tokens: 24000
+  task_fix_attempts: 3
+  repair_rounds: 3
+
+stages:
+  l3_interop: false               # M2 后启用（5.3）
+
+sandbox:                          # 8.5
+  image: nepa-sandbox:latest
+  cpu: 2
+  mem_gb: 4
+
+pricing:                          # USD / 1M tokens，随官方价目表维护（8.4 计费）
+  deepseek-chat:     {input: 0.27, output: 1.10}
+  deepseek-reasoner: {input: 0.55, output: 2.19}

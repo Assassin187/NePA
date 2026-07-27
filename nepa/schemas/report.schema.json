@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/report.schema.json",
+  "title": "NePA report/report.json v1.0",
+  "description": "设计文档 5.4：证据报告六要素——结论、需求覆盖矩阵、测试终态、过程统计、假设与已知缺陷、复现信息。5.4 为散文描述，字段命名为合理设计（数据口径见 9.1.4/9.1.5）。",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "conclusion": {
+      "description": "要素 1：outcome 三值（9.1.2）与一句话摘要",
+      "type": "object",
+      "properties": {
+        "outcome": { "enum": ["success", "degraded", "failed"] },
+        "summary": { "type": "string", "minLength": 1 }
+      },
+      "required": ["outcome", "summary"],
+      "additionalProperties": false
+    },
+    "req_coverage": {
+      "description": "要素 2：每条 REQ 的规格覆盖、代码任务、测试结果三列状态",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "req_id": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" },
+          "level": { "enum": ["MUST", "MUST NOT", "SHOULD", "MAY"] },
+          "spec_status": {
+            "description": "规格覆盖列：covered_by.elements 是否非空",
+            "enum": ["covered", "uncovered"]
+          },
+          "task_ids": {
+            "description": "代码任务列：经 context_refs/covered_by 追溯到的计划任务",
+            "type": "array",
+            "items": { "type": "string", "pattern": "^T-[0-9]{3}$" }
+          },
+          "code_status": {
+            "description": "代码任务列聚合状态",
+            "enum": ["done", "partial", "blocked", "none"]
+          },
+          "test_status": {
+            "description": "测试结果列：关联测试终态轮全部 pass 才为 pass（9.1.4）",
+            "enum": ["pass", "fail", "not_run", "uncovered"]
+          }
+        },
+        "required": ["req_id", "level", "spec_status", "task_ids", "code_status", "test_status"],
+        "additionalProperties": false
+      }
+    },
+    "test_final": {
+      "description": "要素 3：通过/失败/跳过计数及失败清单",
+      "type": "object",
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "failures": {
+          "description": "失败用例 pytest nodeid 清单",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["passed", "failed", "skipped", "failures"],
+      "additionalProperties": false
+    },
+    "process_stats": {
+      "description": "要素 4：各阶段耗时、各角色/模型 token 与成本、修复轮次与收敛曲线",
+      "type": "object",
+      "properties": {
+        "stage_duration_s": {
+          "type": "object",
+          "patternProperties": {
+            "^s[1-9]$": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "llm_usage": {
+          "description": "按角色 × 模型聚合（数据源 trace，9.1.5）",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 },
+              "tokens_in": { "type": "integer", "minimum": 0 },
+              "tokens_out": { "type": "integer", "minimum": 0 },
+              "cost_usd": { "type": "number", "minimum": 0 }
+            },
+            "required": ["role", "model", "tokens_in", "tokens_out", "cost_usd"],
+            "additionalProperties": false
+          }
+        },
+        "repair": {
+          "description": "修复收敛（9.1.4：failures_by_round、converged、rounds_used）",
+          "type": "object",
+          "properties": {
+            "rounds_used": { "type": "integer", "minimum": 0 },
+            "failures_by_round": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "integer", "minimum": 0 }
+            },
+            "converged": { "type": "boolean" }
+          },
+          "required": ["rounds_used", "failures_by_round", "converged"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["stage_duration_s", "llm_usage", "repair"],
+      "additionalProperties": false
+    },
+    "assumptions_and_defects": {
+      "description": "要素 5：假设与已知缺陷清单（3.4 歧义前置消解的出口；假设含 S6 任务 notes 汇总）",
+      "type": "object",
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "known_defects": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["assumptions", "known_defects"],
+      "additionalProperties": false
+    },
+    "reproducibility": {
+      "description": "要素 6：配置快照哈希、git 提交号、模型版本字符串",
+      "type": "object",
+      "properties": {
+        "config_snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "git_commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "model_versions": {
+          "description": "provider 返回的完整模型版本字符串（9.2 复现控制 1）",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["config_snapshot_sha256", "git_commit", "model_versions"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "conclusion",
+    "req_coverage",
+    "test_final",
+    "process_stats",
+    "assumptions_and_defects",
+    "reproducibility"
+  ],
+  "additionalProperties": false
+}

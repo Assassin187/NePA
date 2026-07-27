@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/spec-review.schema.json",
+  "title": "NePA spec/spec_review.json v1.0",
+  "description": "设计文档 5.6.3：规格评审结论（S3 输出，issue 结构与 6.3 一致）。",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": { "enum": ["blocker", "major", "minor"] },
+          "element": {
+            "description": "规格元素路径",
+            "type": "string",
+            "minLength": 1
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "suggestion": { "type": "string" }
+        },
+        "required": ["severity", "element", "description", "suggestion"],
+        "additionalProperties": false
+      }
+    },
+    "extraction_failed_segments": {
+      "description": "提取失败的分片 id 清单（6.2 失败处理）",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^seg-[0-9]+$" }
+    },
+    "passed": {
+      "description": "无 blocker 即 true",
+      "type": "boolean"
+    }
+  },
+  "required": ["schema_version", "issues", "extraction_failed_segments", "passed"],
+  "additionalProperties": false
+}

@@ -1,0 +1,25 @@
+# doc-run 的范围声明（设计文档 8.3 scope 配置；内容与 7.1 M0 功能子集一致）
+# S2 以此过滤提取范围；提取产物的 spec.scope 必须与之一致（S3 校验）。
+
+protocol: mqtt
+version: "3.1.1"
+roles: [client, broker]
+
+features_included:
+  - packets: CONNECT / CONNACK / PUBLISH(QoS0) / SUBSCRIBE / SUBACK / UNSUBSCRIBE / UNSUBACK / PINGREQ / PINGRESP / DISCONNECT
+  - clean_session=1（无会话持久化）
+  - keep_alive 超时（非零时 1.5 倍规则；0 表示关闭保活）
+  - 字面量主题精确匹配；单连接多订阅；QoS0 转发
+  - 错误处理：畸形报文断开；非法 protocol_level → CONNACK rc=1 后断开；重复 CONNECT 断开
+  - 明文 TCP，IPv4，单线程
+
+features_excluded:
+  - {feature: QoS1/QoS2（PUBACK/PUBREC/PUBREL/PUBCOMP）, reason: 留待 M5}
+  - {feature: clean_session=0 与会话恢复, reason: 留待 M5}
+  - {feature: Will 消息、用户名/密码认证, reason: 留待 M5}
+  - {feature: 通配符 +/#、retain、$SYS 主题, reason: 留待 M5}
+  - {feature: TLS、WebSocket、IPv6, reason: 非目标（2.4）/留待后续}
+
+assumptions:
+  - 单 broker、无桥接
+  - 默认端口 1883

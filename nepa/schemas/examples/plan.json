@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "spec_ref": {
+    "path": "spec/spec.json",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "modules": [
+    {
+      "id": "codec",
+      "name": "报文编解码",
+      "purpose": "实现 MQTT 报文的编码与解码",
+      "owns_files": ["src/mqtt_codec.c"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "实现 CONNECT 报文编解码",
+      "goal": "CONNECT 报文编解码通过 L1 往返与畸形输入测试",
+      "kind": "codec",
+      "module": "codec",
+      "instructions": "按 spec 中 connect 消息定义实现 encode/decode；remaining_length 是派生字段，必须由编码器计算；protocol_name 非 MQTT 时按 on_violation 处理。",
+      "deliverable_files": ["src/mqtt_codec.c"],
+      "context_refs": [
+        { "kind": "message", "id": "connect" },
+        { "kind": "type", "id": "mqtt_varint" },
+        { "kind": "interface_file", "id": "include/mqtt/mqtt_codec.h" }
+      ],
+      "depends_on": [],
+      "acceptance": {
+        "build": true,
+        "tests": ["l1_codec/test_connect_codec.py::test_roundtrip"]
+      },
+      "status": "pending",
+      "attempts": 0,
+      "notes": ""
+    }
+  ]
+}
