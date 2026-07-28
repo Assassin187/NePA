@@ -6,6 +6,7 @@ M0 只交付 ``nepa lint spec|plan``。设计文档 8.7 中其余运行命令属
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Annotated, Any
@@ -28,6 +29,10 @@ def _load_json(path: Path) -> Any:
         raise typer.BadParameter(
             f"{path} 不是合法 JSON：第 {exc.lineno} 行第 {exc.colno} 列"
         ) from exc
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _manifest_tests(path: Path | None) -> list[Any] | None:
@@ -110,7 +115,14 @@ def lint_plan(
     raw_spec = _load_json(spec)
     if not isinstance(raw_plan, dict) or not isinstance(raw_spec, dict):
         raise typer.BadParameter("plan 与 spec 顶层都必须是 JSON 对象")
-    _emit_report(plan_lint(raw_plan, raw_spec, tests_manifest=_manifest_tests(manifest)))
+    _emit_report(
+        plan_lint(
+            raw_plan,
+            raw_spec,
+            tests_manifest=_manifest_tests(manifest),
+            expected_input_refs={"spec": {"sha256": _sha256_file(spec)}},
+        )
+    )
 
 
 if __name__ == "__main__":

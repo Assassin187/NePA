@@ -8,11 +8,21 @@ from nepa.speclib.lint import LintReport, plan_lint
 from tests.test_spec_lint import make_mini_manifest, make_mini_spec
 
 
+def make_mini_input_refs() -> dict[str, dict[str, str]]:
+    """构造当前 run 已冻结的四项输入引用。"""
+    return {
+        "spec": {"path": "spec/spec.json", "sha256": "ab" * 32},
+        "target_profile": {"path": "inputs/target.json", "sha256": "cd" * 32},
+        "language_profile": {"path": "inputs/language.json", "sha256": "ef" * 32},
+        "test_bundle": {"path": "inputs/test_bundle.json", "sha256": "01" * 32},
+    }
+
+
 def make_mini_plan() -> dict[str, Any]:
     """构造与 make_mini_spec 一致、通过全部 plan_lint 检查的最小合法计划。"""
     return {
-        "schema_version": "1.0",
-        "spec_ref": {"path": "spec/spec.json", "sha256": "ab" * 32},
+        "schema_version": "2.0",
+        "input_refs": make_mini_input_refs(),
         "modules": [
             {
                 "id": "core",
@@ -77,8 +87,8 @@ def make_mini_plan() -> dict[str, Any]:
                 "instructions": "实现 broker_session 状态机与 QoS0 转发行为。",
                 "deliverable_files": ["src/mqtt_session.c"],
                 "context_refs": [
-                    {"kind": "state_machine", "id": "broker_session"},
-                    {"kind": "behavior", "id": "BEH-BROKER-001"},
+                    {"kind": "requirement", "id": "REQ-STATE-001"},
+                    {"kind": "requirement", "id": "REQ-PUB-001"},
                 ],
                 "depends_on": ["T-002"],
                 "acceptance": {
@@ -97,7 +107,12 @@ def make_mini_plan() -> dict[str, Any]:
 
 
 def _lint(plan: dict[str, Any]) -> LintReport:
-    return plan_lint(plan, make_mini_spec(), make_mini_manifest())
+    return plan_lint(
+        plan,
+        make_mini_spec(),
+        make_mini_manifest(),
+        expected_input_refs=make_mini_input_refs(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +145,21 @@ def test_manifest_omitted_skips_acceptance_check() -> None:
 
 
 def test_schema_violation_reports_plan_schema() -> None:
-    """缺必填 spec_ref（5.2）→ PLAN-SCHEMA。"""
+    """缺必填 input_refs（5.2）→ PLAN-SCHEMA。"""
     plan = make_mini_plan()
-    del plan["spec_ref"]
+    del plan["input_refs"]
     report = _lint(plan)
     assert "PLAN-SCHEMA" in report.error_codes()
+
+
+def test_frozen_input_mismatch_reports_input_mismatch() -> None:
+    """Plan 引用与本次 run 冻结输入不一致 → PLAN-INPUT-MISMATCH。"""
+    plan = make_mini_plan()
+    plan["input_refs"]["language_profile"]["sha256"] = "ff" * 32
+    report = _lint(plan)
+    mismatch = [i for i in report.errors if i.code == "PLAN-INPUT-MISMATCH"]
+    assert len(mismatch) == 1
+    assert mismatch[0].path == "input_refs/language_profile/sha256"
 
 
 # ---------------------------------------------------------------------------

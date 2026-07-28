@@ -23,13 +23,13 @@
         "type": "object",
         "properties": {
           "req_id": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" },
-          "level": { "enum": ["MUST", "MUST NOT", "SHOULD", "MAY"] },
+          "level": { "enum": ["DEFINITION", "MUST", "MUST NOT", "SHOULD", "MAY"] },
           "spec_status": {
-            "description": "规格覆盖列：covered_by.elements 是否非空",
+            "description": "规格覆盖列：是否有结构元素正向引用该 REQ；纯语义 REQ 可为 uncovered",
             "enum": ["covered", "uncovered"]
           },
           "task_ids": {
-            "description": "代码任务列：经 context_refs/covered_by 追溯到的计划任务",
+            "description": "代码任务列：经 context_refs 的直接或元素 req_ids 引用追溯到的计划任务",
             "type": "array",
             "items": { "type": "string", "pattern": "^T-[0-9]{3}$" }
           },

@@ -18,9 +18,9 @@
 
 | 里程碑 | 状态 | 说明 |
 | --- | --- | --- |
-| 文档 v0.3.1 | ✅ 完成 | 第 0～12 章齐备；一致性校验与长期目标评审结论已合并 |
-| M0 gold 资产与校验工具 | ✅ 完成 | D0.1～D0.6 全部通过；2026-07-27 停止于 M1 入口前 |
-| M1 spec-run 到可构建 | ⬜ 未开始 | |
+| 文档 v0.4.0 | ✅ 完成 | R1～R9 边界修订完成；R4 采用 Spec IR v3.0 最小事实层，R6 采用 Plan v2.0 最小输入引用闭包 |
+| M0 gold 资产与校验工具 | ✅ 完成 | D0.1～D0.6 全部通过；2026-07-28 修补 Gold 证据后重新完成 D0.2 |
+| M1 spec-run 到可构建 | 🔨 进行中 | 基础 Agent/LLM/工具契约已开始实现；S4～S6 端到端闭环尚未完成 |
 | M2 一致性验证与修复 | ⬜ 未开始 | |
 | M3 文档到规格 | ⬜ 未开始 | |
 | M4 端到端闭环 | ⬜ 未开始 | |
@@ -34,21 +34,34 @@
 | M0-1 | 第 5 章表格 → JSON Schema + 示例 | ✅ | 10 份 schema 与 10 份示例通过 draft 2020-12 校验；补充 run_store→run.schema 跨模块契约测试 |
 | M0-2 | 旧三文件草案迁移映射与归档 | ✅ | 已移入 legacy/，独立字段迁移映射完成并经负责人授权更新设计文档 12.3 |
 | M0-3 | 7.1 功能子集冻结确认 | ✅ | 负责人于 2026-07-27 确认当前基线并授权写入 7.1 |
-| M0-4 | gold 规格 spec.json（v2.0） | ✅ | 冻结范围已写入 spec；18 条 MUST、10 种报文；gold lint 0 error |
-| M0-5 | spec_lint / plan_lint + 单测 | ✅ | `nepa lint spec/plan` 可用；新增 MQTT type code、wire_layout 引用检查；ruff/mypy/pytest 全绿 |
+| M0-4 | gold 规格 spec.json（v3.0） | ✅ | 10 种报文；20 条需求的 `source_ref` 引文片段已逐段与本地 OASIS PDF 原文核对 |
+| M0-5 | spec_lint / plan_lint + 单测 | ✅ | `nepa lint spec/plan` 可用；增加 `repeat.min_items <= max_items` 关系校验 |
 | M0-6 | gold 测试集（harness + L0/L1/L2） | ✅ | 22 个 manifest 用例；常量从 spec 读取、输入按 seed 随机化；参考模式每轮 19 passed、1 个 workspace 专用用例按设计跳过 |
-| M0-7 | 参考实现验证（100% + 20 轮） | ✅ | 固定沙箱中 Mosquitto 2.0.11 + Paho 1.6.1 连续 20 轮全绿；种子 311000～311019，逐轮日志与摘要已归档 |
+| M0-7 | 参考实现验证（100% + 20 轮） | ✅ | 2026-07-28 以当前 Spec/Test Bundle 在固定沙箱重跑：20/20 轮均为 19 passed / 1 skipped |
 | M0-8 | 沙箱镜像 Dockerfile | ✅ | 镜像构建及无网络/非 root 自验通过；digest 与 Dockerfile 哈希登记于 `docker/sandbox-image.json` |
 | 基础设施 | pyproject / 包骨架 / LLM 层 / config / run_store | 🔨 | 提前自 M1（不依赖沙箱，先行实现） |
+
+### M1 工作项进度
+
+| 工作项 | 状态 | 当前进展 |
+| --- | --- | --- |
+| M1-1 运行框架 | 🔨 | config/run_store 已有；orchestrator、阶段状态机、预算上限控制与 resume 尚待闭环 |
+| M1-2 LLM 层 | 🔨 | provider、结构化输出修复、缓存、trace 与 client factory 已有；失败结构化调用现纳入预算回调 |
+| M1-3 Agent 框架 | 🔨 | 角色注册、无状态调用器、输出契约和四类提示词骨架已实现并有回归测试 |
+| M1-4 四类资产与 S4 | 🔨 | Plan v2.0 输入引用闭包和 plan_lint 已实现；Profile/Test Bundle 解析冻结与 Planner 尚待完成 |
+| M1-5 S5 | 🔨 | build/git/fs/event 基础工具已起步；完整脚手架、工件清单/契约映射和首提交尚待完成 |
+| M1-6 S6 | 🔨 | 文件写入与提交均校验任务白名单；单任务循环、上下文包和升级路径尚待完成 |
+| M1-7 CLI | ⬜ | `run --spec`、`resume`、`status` 尚未实现 |
+| M1-8 单测与 CI | 🔨 | 当前全量 173 passed，ruff/mypy/gold lint 全绿；CI 集成仍待完成 |
 
 ## M0 DoD 验收记录
 
 | DoD | 状态 | 证据 |
 | --- | --- | --- |
 | D0.1 | ✅ | gold 模式 `nepa lint spec`：0 error、0 warning |
-| D0.2 | ✅ | 固定 digest 沙箱内 20/20 轮全绿；`golds/mqtt-3.1.1-min/validation/reference/summary.json` 为 `passed: true`，20 份日志齐全 |
-| D0.3 | ✅ | 18 条 MUST 的 `covered_by.tests` 均非空、nodeid 存在，由 gold lint + manifest 漂移测试验证 |
-| D0.4 | ✅ | 10 份活动 schema 与最小示例互校通过；全量测试 175 passed |
+| D0.2 | ✅ | 2026-07-28 固定 digest、无网络、非 root 沙箱内 20/20 轮全绿；摘要 `passed: true`，当前 Spec SHA-256 为 `92cf26af04f125050e28c0f265c1ba6af950801401dd8579298df7368acd839a` |
+| D0.3 | ✅ | 每条 MUST/MUST NOT 均由 Test Bundle manifest 的 `req_ids` 覆盖，gold lint 与 manifest 漂移测试验证 |
+| D0.4 | ✅ | 10 份活动 schema 与最小示例互校通过；当前全量测试 173 passed |
 | D0.5 | ✅ | 项目负责人于 2026-07-27 签字确认 7.1 冻结范围 |
 | D0.6 | ✅ | 项目负责人授权旧草案归档及 12.3 迁移记录，归档与映射均已完成 |
 
@@ -60,12 +73,39 @@
 | DEC-2 | 2026-07-26 | Docker 权限开通前，只实现不依赖沙箱执行的模块；沙箱严格按 8.5 实现 docker 后端，不做宿主机执行后备 | 用户选择"开通 docker 权限"方案，无偏离 |
 | DEC-3 | 2026-07-26 | D0.2 参考实现验证推迟到 mosquitto 安装后补跑，测试先行编写 | 用户确认；风险 V-3 在此期间未闭合，记录在案 |
 | DEC-4 | 2026-07-26 | NePA 仓库提交纪律：阶段性成果由用户确认后提交（未经用户要求不自动 commit/push） | 遵循协作约定 |
+| DEC-5 | 2026-07-27 | 负责人确认四项既有约定调整：M1 引入 Target/Language Profile 与 Test Bundle 边界；M6a 前置于 M5；A7 改用独立合成 oracle；Spec IR 收窄为协议事实唯一来源 | 对应设计 v0.4.0；保持 R4/R6、Spec/Plan Schema、gold 数据与 7.4 契约不变 |
+| DEC-6 | 2026-07-27 | R4 采用“可直接提取的最小事实层”：Spec IR v3.0 不保存状态机、行为拆解、测试步骤或反向覆盖；复合线格式只增加 `sequence/repeat` | 已同步设计、Schema、gold、lint、切片与 plan requirement 引用；R6 仍待负责人确认 |
+| DEC-7 | 2026-07-28 | R6 采用最小输入引用闭包：Plan v2.0 仅以 `{path, sha256}` 绑定 Spec、Target Profile、Language Profile、Test Bundle | 由 S4 控制器确定性注入并由 `plan_lint` 比对；不增加 capability、推理摘要或输入内容副本 |
 
 ## 待办（需用户/负责人动作）
 
-- [ ] 按 DEC-4 审阅并确认本次 M0 变更后再提交；在此之前不进入 M1
+- [ ] 按 DEC-4 审阅并确认当前 M1 基础实现与本批修补后再提交
 
 ## 会话日志
+
+### 2026-07-28（会话 7）
+- 复核 Gold 需求证据，仅修补 `source_ref.section/quote`：从仓库内 OASIS MQTT 3.1.1 PDF 实际检索并摘录；跨条款引文用 `[…]` 明示省略，归一化逐段比对结果为 0 个缺失片段。
+- 修复三项实现问题并增加回归测试：结构化调用最终失败仍执行预算回调；任务提交前拒绝任何 `deliverable_files` 白名单外变更且仅暂存白名单；`spec_lint` 拒绝 `repeat.min_items > max_items`。
+- 完整门禁：`173 passed`；ruff、mypy、gold lint（0 error / 0 warning）与 `git diff --check` 全绿。
+- 使用固定镜像 digest、`--network=none` 和宿主 UID 999 的非 root 容器，按种子 311000～311019 重跑 D0.2；20/20 轮退出码均为 0，每轮 19 passed / 1 skipped，摘要与 20 份日志已更新。
+- 本会话未修改设计文档。
+
+### 2026-07-28（会话 6）
+- 负责人确认执行 R6，并要求改动最小化。
+- Plan Schema 升至 v2.0：用四项 `input_refs` 替换单一 `spec_ref`；每项仅含冻结资产路径与 SHA-256。
+- `plan_lint` 增加可选的冻结引用逐项比对，S4 可传完整闭包，CLI 对已提供的 Spec 文件执行实际哈希校验；S5/S6 在副作用前拒绝错位 Plan。
+- 未新增 capability、推理摘要、Profile/Test Bundle 内容副本，也未扩展 Spec IR。
+- 验证：全量测试 `167 passed`；ruff、mypy、JSON 与 `git diff --check` 全绿。
+
+### 2026-07-27（会话 5）
+- 负责人要求按“未来由智能体从文档提取、推理留给后续智能体”的原则重做 R4，并在继续 R6 前先详细说明。
+- Spec IR 升至 v3.0：只保留协议/角色、可选传输、类型、报文和带 `source_ref` 的原子需求；scope/运行元数据留在各自工件，状态机/行为/定时器/错误对象、`observable_check`、`category` 和 `covered_by` 均移出。
+- 用 `sequence` 与 `repeat` 直接表达 MQTT 的两个复合列表，删除自然语言 `encoding.item`；报文方向改为角色引用，类型码只保留在线上字段 `constraint.const`。
+- 同步迁移 gold、Schema 示例、`spec_lint`、切片器、plan 的 requirement 上下文引用和相关单测；R6 未修改。
+
+### 2026-07-27（会话 4）
+- 负责人确认 R1/R2/R3/R5/R7/R8/R9 的四项冲突裁决；设计文档以最小改动升至 v0.4.0。
+- 明确四类运行输入、S5 解析后交付契约、A7 独立变异判定及 M4 → M6a → M5 → M6b 顺序；未修改 R4/R6、现有 Schema/gold 资产或 7.4 冻结契约。
 
 ### 2026-07-27（会话 3）
 - 负责人进一步授权更新设计文档 12.4；已追加 M0 冻结与迁移修订记录，不提升设计版本、不改动 M1+ 设计。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -20,9 +21,9 @@ DEFAULT_YAML = REPO_ROOT / "configs" / "default.yaml"
 SCOPE_YAML = REPO_ROOT / "configs" / "scope-mqtt-min.yaml"
 
 
-def _minimal_cfg(**over: object) -> dict[str, object]:
+def _minimal_cfg(**over: object) -> dict[str, Any]:
     """最小合法配置片段：一个 provider + 一个 tier。"""
-    data: dict[str, object] = {
+    data: dict[str, Any] = {
         "providers": {
             "deepseek": {
                 "kind": "openai_compat",

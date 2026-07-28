@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -19,7 +20,7 @@ from nepa.run_store import (
 )
 
 
-def _read_run_json(store: RunStore) -> dict[str, object]:
+def _read_run_json(store: RunStore) -> dict[str, Any]:
     return json.loads(store.run_json_path.read_text(encoding="utf-8"))
 
 

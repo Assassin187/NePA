@@ -34,17 +34,13 @@ def test_resolve_message_and_type_returns_fragments_with_reqs() -> None:
     assert req["source_ref"]["section"]
 
 
-def test_resolve_state_machine_collects_transition_reqs() -> None:
-    """state_machine 切片汇集各 transition 的 req_ids（5.1.4）。"""
-    result = resolve_refs(make_mini_spec(), [{"kind": "state_machine", "id": "broker_session"}])
-    assert _req_ids(result) == {"REQ-CONNECT-002", "REQ-STATE-001"}
-
-
-def test_resolve_behavior() -> None:
-    """behavior 切片返回条款全文与其 REQ。"""
-    result = resolve_refs(make_mini_spec(), [{"kind": "behavior", "id": "BEH-BROKER-001"}])
-    assert result["slices"][0]["element"]["observable_check"]
-    assert _req_ids(result) == {"REQ-PUB-001"}
+def test_resolve_requirement_returns_direct_clause_without_duplication() -> None:
+    """语义需求直接作为切片，不复制到关联 requirements 数组。"""
+    result = resolve_refs(
+        make_mini_spec(), [{"kind": "requirement", "id": "REQ-STATE-001"}]
+    )
+    assert result["slices"][0]["element"]["source_ref"]["quote"]
+    assert result["requirements"] == []
 
 
 def test_interface_file_refs_are_skipped() -> None:
@@ -64,10 +60,10 @@ def test_requirements_deduped_and_sorted() -> None:
         [
             {"kind": "message", "id": "connect"},
             {"kind": "message", "id": "connect"},
-            {"kind": "state_machine", "id": "broker_session"},
+            {"kind": "type", "id": "mqtt_varint"},
         ],
     )
-    assert [s["id"] for s in result["slices"]] == ["connect", "broker_session"]
+    assert [s["id"] for s in result["slices"]] == ["connect", "mqtt_varint"]
     ids = [r["id"] for r in result["requirements"]]
     assert ids == sorted(ids)
     assert len(ids) == len(set(ids))

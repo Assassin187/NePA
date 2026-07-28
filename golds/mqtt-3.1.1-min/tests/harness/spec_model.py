@@ -25,7 +25,9 @@ def message(name: str) -> dict[str, Any]:
 
 
 def packet_type(name: str) -> int:
-    return int(message(name)["packet_type_code"])
+    packet_type_field = next(f for f in message(name)["fields"] if f["name"] == "packet_type")
+    type_bits = next(bit for bit in packet_type_field["bits"] if bit["name"] == "type")
+    return int(type_bits["constraint"]["const"])
 
 
 def fixed_flags(name: str) -> int:
@@ -55,7 +57,11 @@ def bit_const(message_name: str, field_name: str, bit_name: str) -> int:
 
 
 def named_constant(name: str) -> Any:
-    return next(item["value"] for item in load_spec()["constants"] if item["name"] == name)
+    for requirement in load_spec()["requirements"]:
+        values = requirement.get("values", {})
+        if name in values:
+            return values[name]
+    raise KeyError(name)
 
 
 def varint_max() -> int:

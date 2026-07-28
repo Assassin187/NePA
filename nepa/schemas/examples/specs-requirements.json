@@ -1,31 +1,50 @@
 {
-  "schema_version": "2.0",
-  "meta": {
-    "protocol_name": "mqtt",
-    "protocol_version": "3.1.1",
-    "source": { "kind": "manual" },
-    "created_at": "2026-07-26T12:00:00Z"
-  },
-  "scope": {
-    "roles": ["client", "broker"],
-    "features_included": ["connect", "publish_qos0"],
-    "features_excluded": [
-      { "name": "qos1_qos2", "reason": "M0 功能子集仅覆盖 QoS 0（设计文档 7.1）" }
-    ],
-    "assumptions": ["明文 TCP，无 TLS"]
+  "schema_version": "3.0",
+  "protocol": {
+    "name": "MQTT",
+    "version": "3.1.1",
+    "roles": ["client", "broker"]
   },
   "transport": {
-    "layer": "tcp",
+    "name": "TCP",
     "default_port": 1883,
-    "byte_order": "big_endian"
+    "byte_order": "big_endian",
+    "req_ids": ["REQ-TRANSPORT-001"]
   },
   "types": [
     {
       "id": "mqtt_varint",
-      "name": "MQTT Remaining Length varint",
-      "encoding": { "kind": "varint", "max_bytes": 4 },
-      "constraints": [{ "max": 268435455 }],
+      "name": "MQTT Variable Byte Integer",
+      "encoding": {
+        "kind": "varint",
+        "max_bytes": 4,
+        "data_bits": 7,
+        "continuation_bit": 7
+      },
+      "constraints": [{"max": 268435455}],
       "req_ids": ["REQ-FRAME-001"]
+    },
+    {
+      "id": "mqtt_subscription_entry",
+      "name": "MQTT subscription entry",
+      "encoding": {
+        "kind": "sequence",
+        "members": [
+          {"name": "topic_filter", "type": "mqtt_utf8_string"},
+          {"name": "requested_qos", "type": "uint8", "constraint": {"enum": [0, 1, 2]}}
+        ]
+      },
+      "req_ids": ["REQ-SUBSCRIBE-001"]
+    },
+    {
+      "id": "mqtt_subscription_list",
+      "name": "MQTT subscription entries",
+      "encoding": {
+        "kind": "repeat",
+        "item_type": "mqtt_subscription_entry",
+        "min_items": 1
+      },
+      "req_ids": ["REQ-SUBSCRIBE-001"]
     },
     {
       "id": "mqtt_utf8_string",
@@ -34,15 +53,17 @@
         "kind": "length_prefixed_string",
         "length_type": "uint16_be",
         "charset": "utf-8"
-      }
+      },
+      "constraints": [{"max_len": 65535}],
+      "req_ids": ["REQ-STRING-001"]
     }
   ],
   "messages": [
     {
       "id": "connect",
       "name": "CONNECT",
-      "packet_type_code": 1,
-      "direction": "client_to_server",
+      "senders": ["client"],
+      "receivers": ["broker"],
       "wire_layout": ["fixed_header", "variable_header", "payload"],
       "fields": [
         {
@@ -50,14 +71,8 @@
           "loc": "fixed_header",
           "type": "bitfield8",
           "bits": [
-            { "name": "type", "offset": 4, "width": 4, "constraint": { "const": 1 } },
-            {
-              "name": "flags",
-              "offset": 0,
-              "width": 4,
-              "constraint": { "const": 0 },
-              "on_violation": { "action": "close_connection" }
-            }
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 1}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
           ],
           "req_ids": ["REQ-FRAME-002"]
         },
@@ -65,123 +80,76 @@
           "name": "remaining_length",
           "loc": "fixed_header",
           "type": "mqtt_varint",
-          "derived": { "kind": "length_of", "of": ["variable_header", "payload"] },
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
           "req_ids": ["REQ-FRAME-001"]
-        },
-        {
-          "name": "protocol_name",
-          "loc": "variable_header",
-          "type": "mqtt_utf8_string",
-          "constraint": { "const": "MQTT" },
-          "on_violation": { "action": "close_connection" },
-          "req_ids": ["REQ-CONNECT-001"]
         },
         {
           "name": "protocol_level",
           "loc": "variable_header",
           "type": "uint8",
-          "constraint": { "const": 4 },
-          "on_violation": { "action": "connack_then_close", "connack_rc": 1 },
+          "constraint": {"const": 4},
           "req_ids": ["REQ-CONNECT-002"]
-        },
-        {
-          "name": "keep_alive",
-          "loc": "variable_header",
-          "type": "uint16_be",
-          "req_ids": ["REQ-CONNECT-004"]
-        },
-        {
-          "name": "client_id",
-          "loc": "payload",
-          "type": "mqtt_utf8_string",
-          "constraint": { "min_len": 1, "max_len": 23, "charset": "0-9a-zA-Z" },
-          "on_violation": { "action": "connack_then_close", "connack_rc": 2 },
-          "req_ids": ["REQ-CONNECT-005"]
         }
       ],
-      "req_ids": ["REQ-CONNECT-001", "REQ-CONNECT-002"]
-    }
-  ],
-  "state_machines": [
-    {
-      "id": "broker_session",
-      "role": "broker",
-      "states": ["wait_connect", "connected", "closed"],
-      "initial": "wait_connect",
-      "transitions": [
-        {
-          "from": "wait_connect",
-          "event": "recv:CONNECT",
-          "guard": "connect.protocol_level != 4",
-          "actions": ["send:CONNACK(rc=1)", "close"],
-          "to": "closed",
-          "req_ids": ["REQ-CONNECT-002"]
-        },
-        {
-          "from": "connected",
-          "event": "recv:CONNECT",
-          "actions": ["close"],
-          "to": "closed",
-          "req_ids": ["REQ-STATE-001"]
-        }
-      ]
-    }
-  ],
-  "behaviors": [
-    {
-      "id": "BEH-BROKER-001",
-      "role": "broker",
-      "trigger": "收到 PUBLISH（QoS 0），存在主题完全匹配的订阅者",
-      "requirement": "MUST 将消息转发给每个匹配订阅者各一次",
-      "level": "MUST",
-      "observable_check": "客户端 A 订阅 t/1，客户端 B 向 t/1 发布一条 QoS0 消息，A 在 2 秒内收到且仅收到一条",
-      "req_ids": ["REQ-PUB-001"]
-    }
-  ],
-  "timers": [
-    {
-      "id": "keep_alive_timer",
-      "source": "connect.keep_alive 字段（秒），0 表示禁用",
-      "on_timeout": "broker 在 1.5 倍 keep_alive 时间内未收到任何报文则关闭连接",
-      "req_ids": ["REQ-CONNECT-004"]
-    }
-  ],
-  "errors": [],
-  "constants": [
-    {
-      "name": "connack_rc_unacceptable_protocol",
-      "value": 1,
-      "description": "CONNACK 返回码：协议级别不可接受",
       "req_ids": ["REQ-CONNECT-002"]
     }
   ],
   "requirements": [
     {
-      "id": "REQ-FRAME-001",
-      "text": "剩余长度 MUST 采用 7 bit 分组继续位编码，最多 4 字节",
-      "level": "MUST",
-      "category": "syntax",
+      "id": "REQ-TRANSPORT-001",
+      "text": "MQTT uses an ordered, lossless, bidirectional transport; TCP port 1883 is registered for MQTT.",
+      "level": "DEFINITION",
       "source_ref": {
-        "section": "2.2.3",
-        "quote": "The Remaining Length is encoded using a variable length encoding scheme"
-      },
-      "covered_by": {
-        "elements": ["types/mqtt_varint", "messages/connect/fields/remaining_length"],
-        "tests": ["l1_codec/test_varint.py::test_remaining_length_roundtrip"]
+        "section": "4.2 Network Connections",
+        "quote": "TCP/IP port 1883 is registered with IANA for use with MQTT."
+      }
+    },
+    {
+      "id": "REQ-FRAME-001",
+      "text": "Remaining Length uses MQTT variable-byte encoding and equals the bytes after the fixed header.",
+      "level": "DEFINITION",
+      "source_ref": {
+        "section": "2.2.3 Remaining Length",
+        "quote": "The Remaining Length is encoded using a variable length encoding scheme."
+      }
+    },
+    {
+      "id": "REQ-FRAME-002",
+      "text": "CONNECT has Control Packet type 1 and reserved flags 0000.",
+      "level": "DEFINITION",
+      "source_ref": {
+        "section": "2.2.2 MQTT Control Packet type",
+        "quote": "CONNECT 1 Client to Server Client request to connect to Server"
+      }
+    },
+    {
+      "id": "REQ-STRING-001",
+      "text": "An MQTT UTF-8 string has a two-byte big-endian length prefix followed by UTF-8 data.",
+      "level": "DEFINITION",
+      "source_ref": {
+        "section": "1.5.4 UTF-8 encoded strings",
+        "quote": "The character data MUST be well-formed UTF-8 as defined by the Unicode specification."
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-001",
+      "text": "A SUBSCRIBE payload contains one or more Topic Filter and requested QoS pairs.",
+      "level": "MUST",
+      "source_ref": {
+        "section": "3.8.3 SUBSCRIBE Payload",
+        "quote": "The Payload MUST contain at least one Topic Filter and Subscription QoS pair."
       }
     },
     {
       "id": "REQ-CONNECT-002",
-      "text": "protocol_level 不为 4 时，服务端 MUST 回复 rc=0x01 的 CONNACK 然后断开连接",
+      "text": "If protocol_level is not 4, the server MUST send CONNACK return code 1 and then disconnect.",
       "level": "MUST",
-      "category": "semantics",
       "source_ref": {
-        "section": "3.1.2.2",
-        "quote": "The Server MUST respond ... unacceptable protocol level ..."
-      },
-      "covered_by": {
-        "elements": ["messages/connect/fields/protocol_level", "state_machines/broker_session"],
-        "tests": ["l2_behavior/test_connect.py::test_bad_protocol_level"]
+        "section": "3.1.2.2 Protocol Level",
+        "quote": "The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 and then disconnect the Client."
       }
     }
   ]

@@ -1,19 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.dev/schemas/plan.schema.json",
-  "title": "NePA plan.json v1.0",
-  "description": "设计文档 5.2：计划工件（S4 输出）。DAG 无环、文件白名单互斥、acceptance 测试存在性由 plan_lint 检查；任务粒度（≤4 文件）为 SHOULD 级，亦由 plan_lint 检查。",
+  "title": "NePA plan.json v2.0",
+  "description": "设计文档 5.2：计划工件（S4 输出）。input_refs 绑定四项冻结输入；DAG 无环、文件白名单互斥、acceptance 测试存在性由 plan_lint 检查；任务粒度（≤4 文件）为 SHOULD 级，亦由 plan_lint 检查。",
   "type": "object",
   "properties": {
-    "schema_version": { "const": "1.0" },
-    "spec_ref": {
-      "description": "5.2：所依据规格的路径 + 内容哈希（防错位）",
+    "schema_version": { "const": "2.0" },
+    "input_refs": {
+      "description": "5.2：S4 控制器注入的四项冻结输入引用；只保存路径与内容哈希，不复制输入内容",
       "type": "object",
       "properties": {
-        "path": { "type": "string", "minLength": 1 },
-        "sha256": { "$ref": "#/$defs/sha256" }
+        "spec": { "$ref": "#/$defs/artifact_ref" },
+        "target_profile": { "$ref": "#/$defs/artifact_ref" },
+        "language_profile": { "$ref": "#/$defs/artifact_ref" },
+        "test_bundle": { "$ref": "#/$defs/artifact_ref" }
       },
-      "required": ["path", "sha256"],
+      "required": ["spec", "target_profile", "language_profile", "test_bundle"],
       "additionalProperties": false
     },
     "modules": {
@@ -42,7 +44,7 @@
       "items": { "$ref": "#/$defs/task" }
     }
   },
-  "required": ["schema_version", "spec_ref", "modules", "tasks"],
+  "required": ["schema_version", "input_refs", "modules", "tasks"],
   "additionalProperties": false,
   "$defs": {
     "generic_id": {
@@ -52,6 +54,15 @@
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
     },
     "task_id": {
       "description": "5.2：T-###，三位序号即建议执行序",
@@ -89,7 +100,7 @@
             "type": "object",
             "properties": {
               "kind": {
-                "enum": ["message", "type", "state_machine", "behavior", "interface_file"]
+                "enum": ["message", "type", "requirement", "interface_file"]
               },
               "id": { "type": "string", "minLength": 1 }
             },
@@ -102,7 +113,7 @@
           "items": { "$ref": "#/$defs/task_id" }
         },
         "acceptance": {
-          "description": "5.2：机器可判验收：build + gold 测试清单中的 pytest nodeid",
+          "description": "5.2：机器可判验收：build + 所绑定 Test Bundle 清单中的 pytest nodeid",
           "type": "object",
           "properties": {
             "build": { "type": "boolean" },

@@ -97,10 +97,10 @@ def _plan_example() -> dict[str, Any]:
     return copy.deepcopy(_load_json(EXAMPLE_DIR / "plan.json"))
 
 
-def test_plan_missing_required_spec_ref_fails() -> None:
-    """缺必填 spec_ref（5.2：路径 + 内容哈希防错位）必须校验失败。"""
+def test_plan_missing_required_input_refs_fails() -> None:
+    """缺必填 input_refs（5.2：四项冻结输入路径 + 内容哈希）必须校验失败。"""
     bad = _plan_example()
-    del bad["spec_ref"]
+    del bad["input_refs"]
     with pytest.raises(ValidationError):
         _validator("plan.schema.json").validate(bad)
 

@@ -1,5 +1,5 @@
 # doc-run 的范围声明（设计文档 8.3 scope 配置；内容与 7.1 M0 功能子集一致）
-# S2 以此过滤提取范围；提取产物的 spec.scope 必须与之一致（S3 校验）。
+# S2 以此过滤提取范围；scope 是独立运行输入，不复制进 Spec IR v3.0。
 
 protocol: mqtt
 version: "3.1.1"

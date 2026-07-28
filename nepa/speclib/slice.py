@@ -2,7 +2,7 @@
 
 把任务的 ``context_refs`` 解析为 Coder 上下文包第 2 项："Spec 切片——
 context_refs 解析出的 JSON 片段（含关联 REQ 全文）"。只处理指向 spec 元素
-的引用（message/type/state_machine/behavior，见 5.2 context_refs 词表）；
+的引用（message/type/requirement，见 5.2 context_refs 词表）；
 ``interface_file`` 引用属于上下文包第 3 项（workspace 头文件），本模块跳过。
 """
 
@@ -17,8 +17,7 @@ __all__ = ["element_req_ids", "resolve_refs"]
 _SPEC_COLLECTIONS: dict[str, str] = {
     "message": "messages",
     "type": "types",
-    "state_machine": "state_machines",
-    "behavior": "behaviors",
+    "requirement": "requirements",
 }
 
 
@@ -34,18 +33,14 @@ def _str_items(value: Any) -> list[str]:
 def element_req_ids(kind: str, element: dict[str, Any]) -> list[str]:
     """收集一个 spec 元素直接关联的 req_ids（去重、保序）。
 
-    按 5.1.3/5.1.4/5.1.5：message 含报文级与字段级 req_ids；
-    state_machine 取各 transition 的 req_ids；type/behavior 取自身 req_ids。
+    按 5.1.2/5.1.3：message 含报文级与字段级 req_ids，type 取自身
+    req_ids。requirement 本身就是证据条目，不再复制为关联需求。
     """
     collected: list[str] = list(_str_items(element.get("req_ids")))
     if kind == "message":
         for field in _as_list(element.get("fields")):
             if isinstance(field, dict):
                 collected.extend(_str_items(field.get("req_ids")))
-    elif kind == "state_machine":
-        for transition in _as_list(element.get("transitions")):
-            if isinstance(transition, dict):
-                collected.extend(_str_items(transition.get("req_ids")))
     return list(dict.fromkeys(collected))
 
 

@@ -1,155 +1,80 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.dev/schemas/specs-requirements.schema.json",
-  "title": "NePA Spec IR v2.0",
-  "description": "设计文档 5.1：规格中间表示（五视图 + 需求索引）。引用完整性（req_ids/type/角色等）由 spec_lint 检查（5.1.8），本 schema 只做结构校验。",
+  "title": "NePA Spec IR v3.0",
+  "description": "设计文档 5.1：只承载可由协议文档直接支持的协议事实。实现建模、测试设计和反向覆盖关系不属于 Spec IR。",
   "type": "object",
   "properties": {
     "schema_version": {
-      "description": "5.1.1：本文档定义的版本为 2.0",
-      "const": "2.0"
+      "const": "3.0"
     },
-    "meta": {
-      "description": "5.1.1：协议名、版本、来源（人工/提取）、创建时间",
-      "type": "object",
-      "properties": {
-        "protocol_name": { "type": "string", "minLength": 1 },
-        "protocol_version": { "type": "string", "minLength": 1 },
-        "source": {
-          "type": "object",
-          "properties": {
-            "kind": { "enum": ["manual", "extracted"] }
-          },
-          "required": ["kind"],
-          "additionalProperties": false
-        },
-        "created_at": { "$ref": "#/$defs/utc_timestamp" }
-      },
-      "required": ["protocol_name", "protocol_version", "source", "created_at"],
-      "additionalProperties": false
-    },
-    "scope": {
-      "description": "5.1.1：实现范围：角色、纳入/排除的特性、全局假设",
-      "type": "object",
-      "properties": {
-        "roles": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/generic_id" }
-        },
-        "features_included": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "features_excluded": {
-          "description": "5.1.1：features_excluded[].reason 强制记录排除理由",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": { "type": "string", "minLength": 1 },
-              "reason": { "type": "string", "minLength": 1 }
-            },
-            "required": ["name", "reason"],
-            "additionalProperties": false
-          }
-        },
-        "assumptions": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        }
-      },
-      "required": ["roles", "features_included", "features_excluded"],
-      "additionalProperties": false
+    "protocol": {
+      "$ref": "#/$defs/protocol"
     },
     "transport": {
-      "description": "5.1.1：传输层假定：层（tcp/udp）、默认端口、字节序",
-      "type": "object",
-      "properties": {
-        "layer": { "enum": ["tcp", "udp"] },
-        "default_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "byte_order": { "enum": ["big_endian", "little_endian"] }
-      },
-      "required": ["layer", "default_port", "byte_order"],
-      "additionalProperties": false
+      "$ref": "#/$defs/transport"
     },
     "types": {
-      "description": "5.1.2：命名编码类型定义",
       "type": "array",
       "items": { "$ref": "#/$defs/type_def" }
     },
     "messages": {
-      "description": "5.1.3：报文（PDU）定义",
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/message" }
     },
-    "state_machines": {
-      "description": "5.1.4：按角色的状态机",
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/state_machine" }
-    },
-    "behaviors": {
-      "description": "5.1.5：无法归入字段/转移的规范性行为条款",
-      "type": "array",
-      "items": { "$ref": "#/$defs/behavior" }
-    },
-    "timers": {
-      "description": "5.1.1：定时器：来源、超时动作",
-      "type": "array",
-      "items": { "$ref": "#/$defs/timer" }
-    },
-    "errors": {
-      "description": "5.1.1：错误条件与要求的处理动作",
-      "type": "array",
-      "items": { "$ref": "#/$defs/error_def" }
-    },
-    "constants": {
-      "description": "5.1.1：命名常量",
-      "type": "array",
-      "items": { "$ref": "#/$defs/constant" }
-    },
     "requirements": {
-      "description": "5.1.6：需求索引",
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/requirement" }
     }
   },
-  "required": [
-    "schema_version",
-    "meta",
-    "scope",
-    "transport",
-    "types",
-    "messages",
-    "state_machines",
-    "behaviors",
-    "requirements"
-  ],
+  "required": ["schema_version", "protocol", "types", "messages", "requirements"],
   "additionalProperties": false,
   "$defs": {
     "generic_id": {
-      "description": "通用约定（5 章）：id 类字段为小写字母数字与连字符/下划线",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9_-]*$"
     },
     "req_id": {
-      "description": "5.1.6：REQ-<主题>-<三位序号>",
       "type": "string",
       "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$"
     },
     "req_ids": {
       "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
       "items": { "$ref": "#/$defs/req_id" }
     },
-    "utc_timestamp": {
-      "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    "protocol": {
+      "description": "协议文档直接给出的协议身份和参与角色；运行来源、时间与实现范围记录在 run.json/scope 配置中。",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        }
+      },
+      "required": ["name", "version", "roles"],
+      "additionalProperties": false
+    },
+    "transport": {
+      "description": "仅在文档明确给出时记录；未说明的端口或字节序不得猜测。",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "default_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "byte_order": { "enum": ["big_endian", "little_endian"] },
+        "req_ids": { "$ref": "#/$defs/req_ids" }
+      },
+      "required": ["name", "req_ids"],
+      "additionalProperties": false
     },
     "constraint": {
-      "description": "5.1.3：值约束：const、min/max、min_len/max_len、charset、enum",
       "type": "object",
       "properties": {
         "const": {},
@@ -158,13 +83,12 @@
         "min_len": { "type": "integer", "minimum": 0 },
         "max_len": { "type": "integer", "minimum": 0 },
         "charset": { "type": "string", "minLength": 1 },
-        "enum": { "type": "array", "minItems": 1 }
+        "enum": { "type": "array", "minItems": 1, "uniqueItems": true }
       },
       "minProperties": 1,
       "additionalProperties": false
     },
     "presence": {
-      "description": "5.1.3：条件存在；缺省恒存在",
       "type": "object",
       "properties": {
         "when": {
@@ -181,44 +105,136 @@
       "additionalProperties": false
     },
     "derived": {
-      "description": "5.1.3：派生字段，编解码器必须计算而非当作自由输入",
+      "description": "文档明确规定的线上值关系；不得由提取智能体自行推导。",
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["length_of"] },
         "of": {
           "type": "array",
           "minItems": 1,
+          "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         }
       },
-      "required": ["kind"],
-      "additionalProperties": false
-    },
-    "on_violation": {
-      "description": "5.1.3：约束被违反时要求的动作（close_connection、connack_then_close 等，开放词表）",
-      "type": "object",
-      "properties": {
-        "action": { "type": "string", "minLength": 1 },
-        "connack_rc": { "type": "integer", "minimum": 0, "maximum": 255 }
-      },
-      "required": ["action"],
+      "required": ["kind", "of"],
       "additionalProperties": false
     },
     "bit": {
-      "description": "5.1.3：位定义（5.1.7 示例中位项可带 on_violation）",
       "type": "object",
       "properties": {
         "name": { "type": "string", "minLength": 1 },
-        "offset": { "type": "integer", "minimum": 0, "maximum": 7 },
-        "width": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "constraint": { "$ref": "#/$defs/constraint" },
-        "on_violation": { "$ref": "#/$defs/on_violation" }
+        "offset": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "constraint": { "$ref": "#/$defs/constraint" }
       },
       "required": ["name", "offset", "width"],
       "additionalProperties": false
     },
+    "member": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "constraint": { "$ref": "#/$defs/constraint" },
+        "presence": { "$ref": "#/$defs/presence" }
+      },
+      "required": ["name", "type"],
+      "additionalProperties": false
+    },
+    "varint_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "varint" },
+        "max_bytes": { "type": "integer", "minimum": 1 },
+        "data_bits": { "type": "integer", "minimum": 1 },
+        "continuation_bit": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "length_prefixed_string_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "length_prefixed_string" },
+        "length_type": { "type": "string", "minLength": 1 },
+        "charset": { "type": "string", "minLength": 1 }
+      },
+      "required": ["kind", "length_type", "charset"],
+      "additionalProperties": false
+    },
+    "length_prefixed_bytes_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "length_prefixed_bytes" },
+        "length_type": { "type": "string", "minLength": 1 }
+      },
+      "required": ["kind", "length_type"],
+      "additionalProperties": false
+    },
+    "sequence_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "sequence" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/member" }
+        }
+      },
+      "required": ["kind", "members"],
+      "additionalProperties": false
+    },
+    "repeat_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "repeat" },
+        "item_type": { "type": "string", "minLength": 1 },
+        "min_items": { "type": "integer", "minimum": 0 },
+        "max_items": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["kind", "item_type"],
+      "additionalProperties": false
+    },
+    "enum_encoding": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "enum" },
+        "base_type": { "type": "string", "minLength": 1 },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+        }
+      },
+      "required": ["kind", "base_type", "values"],
+      "additionalProperties": false
+    },
+    "encoding": {
+      "oneOf": [
+        { "$ref": "#/$defs/varint_encoding" },
+        { "$ref": "#/$defs/length_prefixed_string_encoding" },
+        { "$ref": "#/$defs/length_prefixed_bytes_encoding" },
+        { "$ref": "#/$defs/sequence_encoding" },
+        { "$ref": "#/$defs/repeat_encoding" },
+        { "$ref": "#/$defs/enum_encoding" }
+      ]
+    },
+    "type_def": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "name": { "type": "string", "minLength": 1 },
+        "encoding": { "$ref": "#/$defs/encoding" },
+        "constraints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/constraint" }
+        },
+        "req_ids": { "$ref": "#/$defs/req_ids" }
+      },
+      "required": ["id", "name", "encoding", "req_ids"],
+      "additionalProperties": false
+    },
     "field": {
-      "description": "5.1.3：字段子结构，顺序即线序",
       "type": "object",
       "properties": {
         "name": { "type": "string", "minLength": 1 },
@@ -232,23 +248,32 @@
         "presence": { "$ref": "#/$defs/presence" },
         "constraint": { "$ref": "#/$defs/constraint" },
         "derived": { "$ref": "#/$defs/derived" },
-        "on_violation": { "$ref": "#/$defs/on_violation" },
         "req_ids": { "$ref": "#/$defs/req_ids" }
       },
-      "required": ["name", "loc", "type"],
+      "required": ["name", "loc", "type", "req_ids"],
       "additionalProperties": false
     },
     "message": {
-      "description": "5.1.3：报文定义；packet_type_code 条件必填（按类型码分发的协议必须提供），条件性由 spec_lint 按协议判定",
       "type": "object",
       "properties": {
         "id": { "$ref": "#/$defs/generic_id" },
         "name": { "type": "string", "minLength": 1 },
-        "packet_type_code": { "type": "integer", "minimum": 0 },
-        "direction": { "enum": ["client_to_server", "server_to_client", "both"] },
+        "senders": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        },
+        "receivers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        },
         "wire_layout": {
           "type": "array",
           "minItems": 1,
+          "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         },
         "fields": {
@@ -256,150 +281,25 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/field" }
         },
-        "req_ids": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/req_id" }
-        }
-      },
-      "required": ["id", "name", "direction", "wire_layout", "fields", "req_ids"],
-      "additionalProperties": false
-    },
-    "transition": {
-      "description": "5.1.4：转移；event/actions 用受限词表",
-      "type": "object",
-      "properties": {
-        "from": { "type": "string", "minLength": 1 },
-        "to": { "type": "string", "minLength": 1 },
-        "event": {
-          "type": "string",
-          "pattern": "^(recv:[A-Za-z0-9_]+|send:[A-Za-z0-9_]+|timer:[a-z0-9_-]+|api:[A-Za-z0-9_]+|transport:(connected|closed))$"
-        },
-        "guard": { "type": "string", "minLength": 1 },
-        "actions": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "pattern": "^(send:[A-Za-z0-9_]+(\\(.*\\))?|close|start_timer:[a-z0-9_-]+|stop_timer:[a-z0-9_-]+|deliver:[A-Za-z0-9_:-]+)$"
-          }
-        },
         "req_ids": { "$ref": "#/$defs/req_ids" }
       },
-      "required": ["from", "to", "event"],
-      "additionalProperties": false
-    },
-    "state_machine": {
-      "description": "5.1.4：每个角色一台状态机；role 必须是 scope.roles 之一（spec_lint 检查 2）",
-      "type": "object",
-      "properties": {
-        "id": { "$ref": "#/$defs/generic_id" },
-        "role": { "type": "string", "minLength": 1 },
-        "states": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "initial": { "type": "string", "minLength": 1 },
-        "transitions": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/transition" }
-        }
-      },
-      "required": ["id", "role", "states", "initial", "transitions"],
-      "additionalProperties": false
-    },
-    "behavior": {
-      "description": "5.1.5：行为条款；observable_check 必填",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^BEH-[A-Z0-9]+-[0-9]+$"
-        },
-        "role": { "type": "string", "minLength": 1 },
-        "trigger": { "type": "string", "minLength": 1 },
-        "requirement": { "type": "string", "minLength": 1 },
-        "level": { "enum": ["MUST", "SHOULD", "MAY"] },
-        "observable_check": { "type": "string", "minLength": 1 },
-        "req_ids": { "$ref": "#/$defs/req_ids" }
-      },
-      "required": ["id", "role", "trigger", "requirement", "level", "observable_check"],
-      "additionalProperties": false
-    },
-    "timer": {
-      "description": "5.1.1：定时器：来源、超时动作（散文描述，结构为合理设计）",
-      "type": "object",
-      "properties": {
-        "id": { "$ref": "#/$defs/generic_id" },
-        "name": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "minLength": 1 },
-        "on_timeout": { "type": "string", "minLength": 1 },
-        "req_ids": { "$ref": "#/$defs/req_ids" }
-      },
-      "required": ["id", "source", "on_timeout"],
-      "additionalProperties": false
-    },
-    "error_def": {
-      "description": "5.1.1：错误条件与要求的处理动作（散文描述，结构为合理设计）",
-      "type": "object",
-      "properties": {
-        "id": { "$ref": "#/$defs/generic_id" },
-        "condition": { "type": "string", "minLength": 1 },
-        "action": { "type": "string", "minLength": 1 },
-        "req_ids": { "$ref": "#/$defs/req_ids" }
-      },
-      "required": ["id", "condition", "action"],
-      "additionalProperties": false
-    },
-    "constant": {
-      "description": "5.1.1：命名常量；9.1.3 按归一化 name 匹配",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "value": { "type": ["string", "number", "integer", "boolean"] },
-        "description": { "type": "string" },
-        "req_ids": { "$ref": "#/$defs/req_ids" }
-      },
-      "required": ["name", "value"],
-      "additionalProperties": false
-    },
-    "type_def": {
-      "description": "5.1.2：命名编码类型；encoding.* 按 kind 取参，故 encoding 允许附加键",
-      "type": "object",
-      "properties": {
-        "id": { "$ref": "#/$defs/generic_id" },
-        "name": { "type": "string", "minLength": 1 },
-        "encoding": {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "enum": ["varint", "length_prefixed_string", "length_prefixed_bytes", "fixed", "enum"]
-            }
-          },
-          "required": ["kind"],
-          "additionalProperties": true
-        },
-        "constraints": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/constraint" }
-        },
-        "req_ids": { "$ref": "#/$defs/req_ids" }
-      },
-      "required": ["id", "name", "encoding"],
+      "required": ["id", "name", "senders", "receivers", "wire_layout", "fields", "req_ids"],
       "additionalProperties": false
     },
     "requirement": {
-      "description": "5.1.6：需求条目（追溯的原子单位）",
+      "description": "一条带直接文档证据的原子陈述；分类、可测试性和实现分解由后续阶段决定。",
       "type": "object",
       "properties": {
         "id": { "$ref": "#/$defs/req_id" },
         "text": { "type": "string", "minLength": 1 },
-        "level": { "enum": ["MUST", "MUST NOT", "SHOULD", "MAY"] },
-        "category": { "enum": ["syntax", "semantics", "timing", "error_handling"] },
+        "level": { "enum": ["DEFINITION", "MUST", "MUST NOT", "SHOULD", "MAY"] },
+        "values": {
+          "description": "原文明确给出的、需要机器消费的命名标量；不得填写计算结果或实现默认值。",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+        },
         "source_ref": {
-          "description": "5.1.6：section + quote + 可选 segment_id/doc_id；gold 规格同样必填",
           "type": "object",
           "properties": {
             "section": { "type": "string", "minLength": 1 },
@@ -409,26 +309,9 @@
           },
           "required": ["section", "quote"],
           "additionalProperties": false
-        },
-        "covered_by": {
-          "type": "object",
-          "properties": {
-            "elements": {
-              "description": "覆盖此需求的规格元素路径",
-              "type": "array",
-              "items": { "type": "string", "minLength": 1 }
-            },
-            "tests": {
-              "description": "覆盖此需求的测试用例标识（pytest nodeid 前缀）",
-              "type": "array",
-              "items": { "type": "string", "minLength": 1 }
-            }
-          },
-          "required": ["elements", "tests"],
-          "additionalProperties": false
         }
       },
-      "required": ["id", "text", "level", "category", "source_ref", "covered_by"],
+      "required": ["id", "text", "level", "source_ref"],
       "additionalProperties": false
     }
   }

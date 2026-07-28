@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -26,7 +27,7 @@ def test_lint_spec_valid_example(tmp_path: Path) -> None:
 
 def test_lint_spec_invalid_returns_one(tmp_path: Path) -> None:
     bad = json.loads((EXAMPLES / "specs-requirements.json").read_text(encoding="utf-8"))
-    del bad["transport"]
+    del bad["protocol"]
     path = tmp_path / "bad.json"
     path.write_text(json.dumps(bad), encoding="utf-8")
     result = runner.invoke(app, ["lint", "spec", str(path)])
@@ -37,8 +38,10 @@ def test_lint_spec_invalid_returns_one(tmp_path: Path) -> None:
 def test_lint_plan_valid_example(tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     spec_path = tmp_path / "spec.json"
-    plan_path.write_text(json.dumps(make_mini_plan()), encoding="utf-8")
     spec_path.write_text(json.dumps(make_mini_spec()), encoding="utf-8")
+    plan = make_mini_plan()
+    plan["input_refs"]["spec"]["sha256"] = hashlib.sha256(spec_path.read_bytes()).hexdigest()
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -50,3 +53,17 @@ def test_lint_plan_valid_example(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_lint_plan_rejects_spec_hash_mismatch(tmp_path: Path) -> None:
+    """CLI 必须用实际 Spec 文件哈希拒绝错位 Plan。"""
+    plan_path = tmp_path / "plan.json"
+    spec_path = tmp_path / "spec.json"
+    plan_path.write_text(json.dumps(make_mini_plan()), encoding="utf-8")
+    spec_path.write_text(json.dumps(make_mini_spec()), encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["lint", "plan", str(plan_path), "--spec", str(spec_path)],
+    )
+    assert result.exit_code == 1
+    assert "PLAN-INPUT-MISMATCH" in result.output

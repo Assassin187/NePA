@@ -1,17 +1,17 @@
 """规格与计划校验器（M0-5）。
 
-- ``spec_lint``：设计文档 5.1.8 的五类确定性检查（结构、引用完整、覆盖
-  完整、词表合规、无孤儿元素），非 LLM。
-- ``plan_lint``：5.2/6.4 的计划检查（DAG 无环、deliverable_files 互斥、
-  acceptance 测试存在性、粒度、MUST 需求经 context_refs 可追溯）。
+- ``spec_lint``：设计文档 5.1.5 的确定性检查（结构、引用完整、来源关联与
+  gold 测试覆盖），非 LLM。
+- ``plan_lint``：5.2/6.4 的计划检查（冻结输入引用、DAG 无环、
+  deliverable_files 互斥、acceptance 测试存在性、粒度、MUST 需求经
+  context_refs 可追溯）。
 
-两者输出统一的结构化报告（错误/警告分级，S3 与 CI 共用，5.1.8）。
+两者输出统一的结构化报告（错误/警告分级，S3 与 CI 共用，5.1.6）。
 """
 
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -30,26 +30,17 @@ _PRIMITIVE_TYPES: frozenset[str] = frozenset(
     {"uint8", "uint16_be", "uint32_be", "bytes", "bitfield8"}
 )
 
-# 5.1.4 受限词表（与 specs-requirements.schema.json 的 pattern 保持一致）
-_EVENT_RE: re.Pattern[str] = re.compile(
-    r"^(recv:(?P<recv>[A-Za-z0-9_]+)|send:(?P<send>[A-Za-z0-9_]+)"
-    r"|timer:[a-z0-9_-]+|api:[A-Za-z0-9_]+|transport:(connected|closed))$"
-)
-_ACTION_RE: re.Pattern[str] = re.compile(
-    r"^(send:(?P<send>[A-Za-z0-9_]+)(\(.*\))?|close|start_timer:[a-z0-9_-]+"
-    r"|stop_timer:[a-z0-9_-]+|deliver:[A-Za-z0-9_:-]+)$"
-)
-# 5.1.4 guard 语法："字段 比较符 常量" 的与组合；连接词取 && / and（保守选型）
-_IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
-_FIELD_PATH = rf"{_IDENT}(?:\.{_IDENT})*"
-_CONST = r"(?:0[xX][0-9A-Fa-f]+|-?[0-9]+(?:\.[0-9]+)?|\"[^\"]*\"|'[^']*'|true|false)"
-_COMPARISON = rf"{_FIELD_PATH}\s*(?:==|!=|<=|>=|<|>)\s*{_CONST}"
-_GUARD_RE: re.Pattern[str] = re.compile(rf"^\s*{_COMPARISON}(?:\s*(?:&&|and)\s+{_COMPARISON})*\s*$")
-
 _MUST_LEVELS: frozenset[str] = frozenset({"MUST", "MUST NOT"})
 
 # 5.2：任务粒度 SHOULD ≤ 4 文件
 _MAX_TASK_FILES: int = 4
+
+_PLAN_INPUT_KINDS: tuple[str, ...] = (
+    "spec",
+    "target_profile",
+    "language_profile",
+    "test_bundle",
+)
 
 
 @dataclass(frozen=True)
@@ -63,7 +54,7 @@ class LintIssue:
 
 @dataclass
 class LintReport:
-    """校验报告，错误/警告分级（5.1.8：结构化报告，S3 与 CI 共用）。"""
+    """校验报告，错误/警告分级（5.1.6：结构化报告，S3 与 CI 共用）。"""
 
     errors: list[LintIssue] = field(default_factory=list)
     warnings: list[LintIssue] = field(default_factory=list)
@@ -110,12 +101,19 @@ def _check_schema(instance: Any, schema_name: str, code: str, errors: list[LintI
         errors.append(LintIssue(code=code, path=path or "<root>", message=err.message))
 
 
-def _manifest_nodeids(tests_manifest: list[Any] | None) -> set[str] | None:
-    """归一化测试清单为 nodeid 集合。
+def _manifest_req_ids(tests_manifest: list[Any] | None) -> set[str] | None:
+    """收集 Test Bundle 清单直接声明覆盖的需求 id。"""
+    if tests_manifest is None:
+        return None
+    req_ids: set[str] = set()
+    for entry in tests_manifest:
+        if isinstance(entry, dict):
+            req_ids.update(rid for rid in _as_list(entry.get("req_ids")) if isinstance(rid, str))
+    return req_ids
 
-    接受 5.3 tests_manifest.json 的 ``tests`` 条目数组（dict 含 nodeid），
-    也容忍纯 nodeid 字符串列表。
-    """
+
+def _manifest_nodeids(tests_manifest: list[Any] | None) -> set[str] | None:
+    """收集 plan acceptance 可引用的测试 nodeid。"""
     if tests_manifest is None:
         return None
     nodeids: set[str] = set()
@@ -128,19 +126,11 @@ def _manifest_nodeids(tests_manifest: list[Any] | None) -> set[str] | None:
 
 
 # ---------------------------------------------------------------------------
-# spec_lint（5.1.8）
+# spec_lint（5.1.6）
 # ---------------------------------------------------------------------------
 
 # 参与全局 id 唯一性检查的 spec 顶层集合（5 章通用约定）
-_SPEC_ID_COLLECTIONS: tuple[str, ...] = (
-    "types",
-    "messages",
-    "state_machines",
-    "behaviors",
-    "timers",
-    "errors",
-    "requirements",
-)
+_SPEC_ID_COLLECTIONS: tuple[str, ...] = ("types", "messages", "requirements")
 
 
 def spec_lint(
@@ -149,13 +139,12 @@ def spec_lint(
     tests_manifest: list | None = None,
     gold_mode: bool = False,
 ) -> LintReport:
-    """按 5.1.8 校验 Spec IR，返回结构化报告。
+    """按 5.1.6 校验 Spec IR，返回结构化报告。
 
-    :param spec: Spec IR（5.1 格式）。
-    :param tests_manifest: gold 测试清单的条目数组（5.3 ``tests`` 字段）；
-        提供时校验所有 ``covered_by.tests`` 引用（nodeid 前缀，5.1.6）存在。
-    :param gold_mode: spec-run/gold 规格模式——每条 MUST/MUST NOT 需求的
-        ``covered_by.tests`` 必须非空（5.1.8 检查 3）。
+    :param spec: Spec IR v3.0（5.1 格式）。
+    :param tests_manifest: Test Bundle 清单的条目数组（5.3 ``tests`` 字段）。
+    :param gold_mode: gold 规格模式——每条 MUST/MUST NOT 需求必须出现在
+        Test Bundle 清单的 ``req_ids`` 中。
     """
     report = LintReport()
     # 检查 1：结构合法
@@ -165,8 +154,7 @@ def spec_lint(
 
     _check_spec_duplicate_ids(spec, report.errors)
     _check_spec_references(spec, report.errors)
-    _check_spec_coverage(spec, tests_manifest, gold_mode, report.errors)
-    _check_spec_orphans(spec, report.errors)
+    _check_spec_test_coverage(spec, tests_manifest, gold_mode, report.errors)
     return report
 
 
@@ -197,17 +185,6 @@ def _defined_req_ids(spec: dict[str, Any]) -> set[str]:
     }
 
 
-def _message_tokens(spec: dict[str, Any]) -> set[str]:
-    """event/actions 中报文名的合法取值：message 的 id 或 name（5.1.7 示例用 name）。"""
-    tokens: set[str] = set()
-    for msg in _as_list(spec.get("messages")):
-        for key in ("id", "name"):
-            value = _as_dict(msg).get(key)
-            if isinstance(value, str):
-                tokens.add(value)
-    return tokens
-
-
 def _iter_req_id_sites(spec: dict[str, Any]) -> list[tuple[str, Any]]:
     """列出全部 req_ids 引用位置：(路径, 值)。"""
     sites: list[tuple[str, Any]] = []
@@ -216,43 +193,91 @@ def _iter_req_id_sites(spec: dict[str, Any]) -> list[tuple[str, Any]]:
         for j, rid in enumerate(_as_list(_as_dict(obj).get("req_ids"))):
             sites.append((f"{prefix}/req_ids/{j}", rid))
 
-    for coll in ("types", "behaviors", "timers", "errors", "constants"):
+    transport = _as_dict(spec.get("transport"))
+    if transport:
+        _collect("transport", transport)
+    for coll in ("types",):
         for i, item in enumerate(_as_list(spec.get(coll))):
             _collect(f"{coll}/{i}", item)
     for i, msg in enumerate(_as_list(spec.get("messages"))):
         _collect(f"messages/{i}", msg)
         for k, fld in enumerate(_as_list(_as_dict(msg).get("fields"))):
             _collect(f"messages/{i}/fields/{k}", fld)
-    for i, sm in enumerate(_as_list(spec.get("state_machines"))):
-        for k, tr in enumerate(_as_list(_as_dict(sm).get("transitions"))):
-            _collect(f"state_machines/{i}/transitions/{k}", tr)
     return sites
 
 
 def _check_spec_references(spec: dict[str, Any], errors: list[LintIssue]) -> None:
-    """检查 2（引用完整）与检查 4（词表合规），单遍完成。"""
+    """检查类型、角色、位置和需求引用完整性。"""
     type_ids = {
         t["id"] for t in _as_list(spec.get("types")) if isinstance(_as_dict(t).get("id"), str)
     }
     req_ids = _defined_req_ids(spec)
-    msg_tokens = _message_tokens(spec)
-    roles = {r for r in _as_list(_as_dict(spec.get("scope")).get("roles")) if isinstance(r, str)}
+    roles = {
+        role
+        for role in _as_list(_as_dict(spec.get("protocol")).get("roles"))
+        if isinstance(role, str)
+    }
 
-    # 2a：字段 type 是原语或 types 中的命名类型（5.1.3）
+    def _check_type_ref(value: Any, path: str) -> None:
+        if isinstance(value, str) and value not in _PRIMITIVE_TYPES and value not in type_ids:
+            errors.append(
+                LintIssue(
+                    "SPEC-REF-TYPE",
+                    path,
+                    f"类型 '{value}' 既非内建原语（5.1.2）也未在 types 中定义",
+                )
+            )
+
+    # 命名类型内部的 sequence/repeat/长度前缀/enum 引用同一类型空间。
+    for i, type_raw in enumerate(_as_list(spec.get("types"))):
+        encoding = _as_dict(_as_dict(type_raw).get("encoding"))
+        kind = encoding.get("kind")
+        if kind == "sequence":
+            for j, member_raw in enumerate(_as_list(encoding.get("members"))):
+                _check_type_ref(
+                    _as_dict(member_raw).get("type"),
+                    f"types/{i}/encoding/members/{j}/type",
+                )
+        elif kind == "repeat":
+            _check_type_ref(encoding.get("item_type"), f"types/{i}/encoding/item_type")
+            min_items = encoding.get("min_items")
+            max_items = encoding.get("max_items")
+            if (
+                isinstance(min_items, int)
+                and not isinstance(min_items, bool)
+                and isinstance(max_items, int)
+                and not isinstance(max_items, bool)
+                and min_items > max_items
+            ):
+                errors.append(
+                    LintIssue(
+                        "SPEC-REPEAT-BOUNDS",
+                        f"types/{i}/encoding",
+                        f"repeat 的 min_items ({min_items}) 不得大于 max_items ({max_items})",
+                    )
+                )
+        elif kind in {"length_prefixed_string", "length_prefixed_bytes"}:
+            _check_type_ref(encoding.get("length_type"), f"types/{i}/encoding/length_type")
+        elif kind == "enum":
+            _check_type_ref(encoding.get("base_type"), f"types/{i}/encoding/base_type")
+
+    # 报文角色、字段类型与线段引用。
     for i, msg in enumerate(_as_list(spec.get("messages"))):
         msg_obj = _as_dict(msg)
+        for key in ("senders", "receivers"):
+            for j, role in enumerate(_as_list(msg_obj.get(key))):
+                if isinstance(role, str) and role not in roles:
+                    errors.append(
+                        LintIssue(
+                            "SPEC-REF-ROLE",
+                            f"messages/{i}/{key}/{j}",
+                            f"角色 '{role}' 未在 protocol.roles 中声明",
+                        )
+                    )
         wire_layout = {loc for loc in _as_list(msg_obj.get("wire_layout")) if isinstance(loc, str)}
         for k, fld in enumerate(_as_list(msg_obj.get("fields"))):
             field = _as_dict(fld)
-            ftype = field.get("type")
-            if isinstance(ftype, str) and ftype not in _PRIMITIVE_TYPES and ftype not in type_ids:
-                errors.append(
-                    LintIssue(
-                        "SPEC-REF-TYPE",
-                        f"messages/{i}/fields/{k}/type",
-                        f"类型 '{ftype}' 既非内建原语（5.1.2）也未在 types 中定义",
-                    )
-                )
+            _check_type_ref(field.get("type"), f"messages/{i}/fields/{k}/type")
             loc = field.get("loc")
             if isinstance(loc, str) and loc not in wire_layout:
                 errors.append(
@@ -263,209 +288,38 @@ def _check_spec_references(spec: dict[str, Any], errors: list[LintIssue]) -> Non
                     )
                 )
 
-    # 5.1.3：MQTT 按固定头类型码分发，packet_type_code 对 MQTT 必填且唯一。
-    protocol_name = str(_as_dict(spec.get("meta")).get("protocol_name", "")).casefold()
-    if "mqtt" in protocol_name:
-        seen_codes: dict[int, str] = {}
-        for i, msg in enumerate(_as_list(spec.get("messages"))):
-            msg_obj = _as_dict(msg)
-            code = msg_obj.get("packet_type_code")
-            if not isinstance(code, int):
-                errors.append(
-                    LintIssue(
-                        "SPEC-REF-PACKET-TYPE",
-                        f"messages/{i}/packet_type_code",
-                        "MQTT 报文必须提供 packet_type_code（5.1.3）",
-                    )
-                )
-            elif code in seen_codes:
-                errors.append(
-                    LintIssue(
-                        "SPEC-DUP-PACKET-TYPE",
-                        f"messages/{i}/packet_type_code",
-                        f"packet_type_code {code} 与 {seen_codes[code]} 重复",
-                    )
-                )
-            else:
-                seen_codes[code] = str(msg_obj.get("id", f"messages/{i}"))
-
-    # 2b：所有 req_ids 已定义
+    # 所有结构化事实都必须引用已定义的直接证据条目。
     for path, rid in _iter_req_id_sites(spec):
         if isinstance(rid, str) and rid not in req_ids:
             errors.append(
                 LintIssue("SPEC-REF-REQ", path, f"req_id '{rid}' 未在 requirements 中定义")
             )
 
-    # 2c/2d/4：状态机——角色、状态名、event/actions 报文名与词表、guard 语法
-    for i, sm_raw in enumerate(_as_list(spec.get("state_machines"))):
-        sm = _as_dict(sm_raw)
-        role = sm.get("role")
-        # 5.1.8 检查 2：role ∈ scope.roles（both 除外）
-        if isinstance(role, str) and role != "both" and role not in roles:
-            errors.append(
-                LintIssue(
-                    "SPEC-REF-ROLE",
-                    f"state_machines/{i}/role",
-                    f"角色 '{role}' 未在 scope.roles 中声明",
-                )
-            )
-        states = {s for s in _as_list(sm.get("states")) if isinstance(s, str)}
-        initial = sm.get("initial")
-        if isinstance(initial, str) and initial not in states:
-            errors.append(
-                LintIssue(
-                    "SPEC-REF-STATE",
-                    f"state_machines/{i}/initial",
-                    f"初始状态 '{initial}' 不在 states 中",
-                )
-            )
-        for k, tr_raw in enumerate(_as_list(sm.get("transitions"))):
-            tr = _as_dict(tr_raw)
-            tr_path = f"state_machines/{i}/transitions/{k}"
-            for end in ("from", "to"):
-                state = tr.get(end)
-                if isinstance(state, str) and state not in states:
-                    errors.append(
-                        LintIssue(
-                            "SPEC-REF-STATE", f"{tr_path}/{end}", f"状态 '{state}' 不在 states 中"
-                        )
-                    )
-            _check_transition_vocab(tr, tr_path, msg_tokens, errors)
-
-    # 2e：behaviors 的 role（5.1.5 允许 both）
-    for i, beh_raw in enumerate(_as_list(spec.get("behaviors"))):
-        role = _as_dict(beh_raw).get("role")
-        if isinstance(role, str) and role != "both" and role not in roles:
-            errors.append(
-                LintIssue(
-                    "SPEC-REF-ROLE",
-                    f"behaviors/{i}/role",
-                    f"角色 '{role}' 未在 scope.roles 中声明",
-                )
-            )
-
-
-def _check_transition_vocab(
-    tr: dict[str, Any],
-    tr_path: str,
-    msg_tokens: set[str],
-    errors: list[LintIssue],
-) -> None:
-    """检查 4：event/actions/guard 受限词表（5.1.4）；顺带做报文名引用检查（检查 2）。"""
-    event = tr.get("event")
-    if isinstance(event, str):
-        match = _EVENT_RE.match(event)
-        if match is None:
-            errors.append(
-                LintIssue(
-                    "SPEC-VOCAB-EVENT",
-                    f"{tr_path}/event",
-                    f"event '{event}' 不符合 5.1.4 受限词表",
-                )
-            )
-        else:
-            msg = match.group("recv") or match.group("send")
-            if msg is not None and msg not in msg_tokens:
-                errors.append(
-                    LintIssue(
-                        "SPEC-REF-MSG",
-                        f"{tr_path}/event",
-                        f"event 引用了未定义的报文 '{msg}'",
-                    )
-                )
-    for j, action in enumerate(_as_list(tr.get("actions"))):
-        if not isinstance(action, str):
-            continue
-        match = _ACTION_RE.match(action)
-        if match is None:
-            errors.append(
-                LintIssue(
-                    "SPEC-VOCAB-ACTION",
-                    f"{tr_path}/actions/{j}",
-                    f"action '{action}' 不符合 5.1.4 受限词表",
-                )
-            )
-        else:
-            msg = match.group("send")
-            if msg is not None and msg not in msg_tokens:
-                errors.append(
-                    LintIssue(
-                        "SPEC-REF-MSG",
-                        f"{tr_path}/actions/{j}",
-                        f"action 引用了未定义的报文 '{msg}'",
-                    )
-                )
-    guard = tr.get("guard")
-    if isinstance(guard, str) and _GUARD_RE.match(guard) is None:
-        errors.append(
-            LintIssue(
-                "SPEC-VOCAB-GUARD",
-                f"{tr_path}/guard",
-                f"guard '{guard}' 不符合 5.1.4 语法（字段 比较符 常量 的与组合）",
-            )
-        )
-
-
-def _check_spec_coverage(
+def _check_spec_test_coverage(
     spec: dict[str, Any],
     tests_manifest: list[Any] | None,
     gold_mode: bool,
     errors: list[LintIssue],
 ) -> None:
-    """检查 3（覆盖完整，按 5.1.8 修订版）。"""
-    nodeids = _manifest_nodeids(tests_manifest)
+    """gold 的测试覆盖只由 Test Bundle manifest 声明，不回写 Spec IR。"""
+    covered_req_ids = _manifest_req_ids(tests_manifest)
+    if not gold_mode:
+        return
     for i, req_raw in enumerate(_as_list(spec.get("requirements"))):
         req = _as_dict(req_raw)
         req_id = req.get("id", f"requirements[{i}]")
-        covered_by = _as_dict(req.get("covered_by"))
-        elements = _as_list(covered_by.get("elements"))
-        tests = _as_list(covered_by.get("tests"))
-        if req.get("level") in _MUST_LEVELS:
-            if not elements:
-                errors.append(
-                    LintIssue(
-                        "SPEC-COV-ELEMENTS",
-                        f"requirements/{i}/covered_by/elements",
-                        f"{req_id}: MUST/MUST NOT 需求的 covered_by.elements 不得为空",
-                    )
+        if (
+            req.get("level") in _MUST_LEVELS
+            and isinstance(req_id, str)
+            and (covered_req_ids is None or req_id not in covered_req_ids)
+        ):
+            errors.append(
+                LintIssue(
+                    "SPEC-COV-TESTS",
+                    f"requirements/{i}",
+                    f"{req_id}: gold 模式下必须由 Test Bundle manifest 的 req_ids 覆盖",
                 )
-            if gold_mode and not tests:
-                errors.append(
-                    LintIssue(
-                        "SPEC-COV-TESTS",
-                        f"requirements/{i}/covered_by/tests",
-                        f"{req_id}: gold 模式下 MUST/MUST NOT 需求的 covered_by.tests 不得为空",
-                    )
-                )
-        if nodeids is not None:
-            # 5.1.6：covered_by.tests 为 pytest nodeid 前缀，故做前缀匹配
-            for j, ref in enumerate(tests):
-                if not isinstance(ref, str):
-                    continue
-                if not any(nodeid == ref or nodeid.startswith(ref) for nodeid in nodeids):
-                    errors.append(
-                        LintIssue(
-                            "SPEC-COV-TEST-MISSING",
-                            f"requirements/{i}/covered_by/tests/{j}",
-                            f"{req_id}: 测试引用 '{ref}' 不在 gold 测试清单中",
-                        )
-                    )
-
-
-def _check_spec_orphans(spec: dict[str, Any], errors: list[LintIssue]) -> None:
-    """检查 5：每个 message/behavior/transition 至少关联一条需求。"""
-
-    def _orphan(path: str, kind: str, obj: Any) -> None:
-        if not _as_list(_as_dict(obj).get("req_ids")):
-            errors.append(LintIssue("SPEC-ORPHAN", path, f"{kind}未关联任何需求（req_ids 为空）"))
-
-    for i, msg in enumerate(_as_list(spec.get("messages"))):
-        _orphan(f"messages/{i}", "message ", msg)
-    for i, beh in enumerate(_as_list(spec.get("behaviors"))):
-        _orphan(f"behaviors/{i}", "behavior ", beh)
-    for i, sm in enumerate(_as_list(spec.get("state_machines"))):
-        for k, tr in enumerate(_as_list(_as_dict(sm).get("transitions"))):
-            _orphan(f"state_machines/{i}/transitions/{k}", "transition ", tr)
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -477,12 +331,14 @@ def plan_lint(
     plan: dict,
     spec: dict,
     tests_manifest: list | None = None,
+    expected_input_refs: dict[str, Any] | None = None,
 ) -> LintReport:
     """按 5.2/6.4 校验 plan.json。
 
-    检查：结构；task id 唯一；depends_on 引用存在且 DAG 无环；
+    检查：结构；input_refs 与调用方提供的冻结输入一致（提供时）；task id
+    唯一；depends_on 引用存在且 DAG 无环；
     deliverable_files 互斥（脚手架任务持有的接口头文件 ``*.h`` 豁免）；
-    acceptance 测试在 gold 清单中存在（未提供清单时跳过）；粒度 ≤ 4 文件
+    acceptance 测试在 Test Bundle 清单中存在（未提供清单时跳过）；粒度 ≤ 4 文件
     （SHOULD 级 → warning）；每条 MUST/MUST NOT 需求经 context_refs 可追溯
     到至少一个任务。
     """
@@ -492,6 +348,7 @@ def plan_lint(
         return report
 
     tasks = [t for t in _as_list(plan.get("tasks")) if isinstance(t, dict)]
+    _check_plan_input_refs(plan, expected_input_refs, report.errors)
     _check_plan_duplicate_ids(tasks, report.errors)
     _check_plan_dag(tasks, report.errors)
     _check_plan_file_exclusivity(tasks, report.errors)
@@ -500,6 +357,32 @@ def plan_lint(
     _check_plan_modules(plan, tasks, report.warnings)
     _check_plan_req_coverage(tasks, spec, report.errors)
     return report
+
+
+def _check_plan_input_refs(
+    plan: dict[str, Any],
+    expected_input_refs: dict[str, Any] | None,
+    errors: list[LintIssue],
+) -> None:
+    """5.2：调用方提供冻结输入时，逐项核对 Plan 的路径与内容哈希。"""
+    if expected_input_refs is None:
+        return
+    actual_refs = _as_dict(plan.get("input_refs"))
+    for kind in _PLAN_INPUT_KINDS:
+        expected = _as_dict(expected_input_refs.get(kind))
+        if not expected:
+            continue
+        actual = _as_dict(actual_refs.get(kind))
+        for key in ("path", "sha256"):
+            if key not in expected or actual.get(key) == expected[key]:
+                continue
+            errors.append(
+                LintIssue(
+                    "PLAN-INPUT-MISMATCH",
+                    f"input_refs/{kind}/{key}",
+                    f"{kind} 的 {key} 与本次运行冻结输入不一致",
+                )
+            )
 
 
 def _check_plan_duplicate_ids(tasks: list[dict[str, Any]], errors: list[LintIssue]) -> None:
@@ -641,8 +524,7 @@ def _check_plan_modules(
 _CONTEXT_KIND_COLLECTIONS: dict[str, str] = {
     "message": "messages",
     "type": "types",
-    "state_machine": "state_machines",
-    "behavior": "behaviors",
+    "requirement": "requirements",
 }
 
 
@@ -676,7 +558,10 @@ def _check_plan_req_coverage(
                     )
                 )
             else:
-                covered.update(element_req_ids(str(ref_kind), element))
+                if ref_kind == "requirement" and isinstance(ref_id, str):
+                    covered.add(ref_id)
+                else:
+                    covered.update(element_req_ids(str(ref_kind), element))
 
     for i, req_raw in enumerate(_as_list(spec.get("requirements"))):
         req = _as_dict(req_raw)
