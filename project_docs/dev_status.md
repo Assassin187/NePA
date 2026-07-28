@@ -18,7 +18,7 @@
 
 | 里程碑 | 状态 | 说明 |
 | --- | --- | --- |
-| 文档 v0.4.0 | ✅ 完成 | R1～R9 边界修订完成；R4 采用 Spec IR v3.0 最小事实层，R6 采用 Plan v2.0 最小输入引用闭包 |
+| 文档 v0.5.2 | ✅ 完成 | 在 v0.5.1 基础上新增 ArchitecturePlanner/ARCH_VALIDATE N=20 bring-up 前置门并拆分 M1-4；temperature 改按“请求值 + provider 能力状态”记账；本次仍只迁移文档 |
 | M0 gold 资产与校验工具 | ✅ 完成 | D0.1～D0.6 全部通过；2026-07-28 修补 Gold 证据后重新完成 D0.2 |
 | M1 spec-run 到可构建 | 🔨 进行中 | 基础 Agent/LLM/工具契约已开始实现；S4～S6 端到端闭环尚未完成 |
 | M2 一致性验证与修复 | ⬜ 未开始 | |
@@ -35,8 +35,8 @@
 | M0-2 | 旧三文件草案迁移映射与归档 | ✅ | 已移入 legacy/，独立字段迁移映射完成并经负责人授权更新设计文档 12.3 |
 | M0-3 | 7.1 功能子集冻结确认 | ✅ | 负责人于 2026-07-27 确认当前基线并授权写入 7.1 |
 | M0-4 | gold 规格 spec.json（v3.0） | ✅ | 10 种报文；20 条需求的 `source_ref` 引文片段已逐段与本地 OASIS PDF 原文核对 |
-| M0-5 | spec_lint / plan_lint + 单测 | ✅ | `nepa lint spec/plan` 可用；增加 `repeat.min_items <= max_items` 关系校验 |
-| M0-6 | gold 测试集（harness + L0/L1/L2） | ✅ | 22 个 manifest 用例；常量从 spec 读取、输入按 seed 随机化；参考模式每轮 19 passed、1 个 workspace 专用用例按设计跳过 |
+| M0-5 | spec_lint / plan_lint + 单测 | ✅ | v0.4 基线 `nepa lint spec/plan` 可用；ARCH_VALIDATE 迁移归 M1-4a，Plan v3 full lint 与 Plan State snapshot/execution lint 迁移归 M1-4b，不倒改 M0 历史完成状态 |
+| M0-6 | gold 测试集（harness + L0/L1/L2） | ✅ | v1 manifest 有 22 个用例；常量从 spec 读取、输入按 seed 随机化；v2 gate/contract/variant 迁移归 M1-4a |
 | M0-7 | 参考实现验证（100% + 20 轮） | ✅ | 2026-07-28 以当前 Spec/Test Bundle 在固定沙箱重跑：20/20 轮均为 19 passed / 1 skipped |
 | M0-8 | 沙箱镜像 Dockerfile | ✅ | 镜像构建及无网络/非 root 自验通过；digest 与 Dockerfile 哈希登记于 `docker/sandbox-image.json` |
 | 基础设施 | pyproject / 包骨架 / LLM 层 / config / run_store | 🔨 | 提前自 M1（不依赖沙箱，先行实现） |
@@ -45,14 +45,16 @@
 
 | 工作项 | 状态 | 当前进展 |
 | --- | --- | --- |
-| M1-1 运行框架 | 🔨 | config/run_store 已有；orchestrator、阶段状态机、预算上限控制与 resume 尚待闭环 |
-| M1-2 LLM 层 | 🔨 | provider、结构化输出修复、缓存、trace 与 client factory 已有；失败结构化调用现纳入预算回调 |
-| M1-3 Agent 框架 | 🔨 | 角色注册、无状态调用器、输出契约和四类提示词骨架已实现并有回归测试 |
-| M1-4 四类资产与 S4 | 🔨 | Plan v2.0 输入引用闭包和 plan_lint 已实现；Profile/Test Bundle 解析冻结与 Planner 尚待完成 |
-| M1-5 S5 | 🔨 | build/git/fs/event 基础工具已起步；完整脚手架、工件清单/契约映射和首提交尚待完成 |
-| M1-6 S6 | 🔨 | 文件写入与提交均校验任务白名单；单任务循环、上下文包和升级路径尚待完成 |
-| M1-7 CLI | ⬜ | `run --spec`、`resume`、`status` 尚未实现 |
-| M1-8 单测与 CI | 🔨 | 当前全量 173 passed，ruff/mypy/gold lint 全绿；CI 集成仍待完成 |
+| M1-1 运行框架 | 🔨 | config/run_store 已有；Run v2、orchestrator、阶段状态机、预算/resume、`--until s6` planned stop，以及 S4～S6 流程错误受控早退的最小 Report v2 partial core 尚待闭环 |
+| M1-2 LLM 层 | 🔨 | provider、结构化输出修复、缓存、trace 与 client factory 已有；失败结构化调用现纳入预算回调；请求参数与 `reported_applied/reported_ignored/unknown` 能力状态、capability probe 尚待补齐 |
+| M1-3 Agent 框架 | 🔨 | v0.4 角色注册、无状态调用器和提示词骨架已有；当前 Coder/Diagnoser/Fixer 源码扫描无 `mqtt_*`；ArchitecturePlanner、TaskPlanner、PlanCritic、A9 FlatPlanBaseline 与协议中立 prompt/lint 待实现 |
+| M1-4a 规划输入与 Architecture bring-up | 🔨 | Plan v2 输入引用闭包已实现；Test Bundle 双摘要、Test Manifest v2 S4 元数据、planning index、Delivery Constraints、ArchitectureDraft Schema/prompt、生产 ARCH_VALIDATE、N=20 spike report，以及负责人 prompt/架构修复默认值/全局重规划暂定上限决策待实现 |
+| M1-4b 确定性编译资产 | 🔨 | basic plan_lint 已实现；Test Summary v2/round index 与 pending-round WAL、Plan v3/Plan State Schema、Delivery Blueprint/PlanDraftIR、Linker 与 full/snapshot/execution lint 待迁移；可与 M1-4a spike 并行 |
+| M1-4c 完整 S4 控制器 | ⬜ | layered task shards、A9 flat baseline、PlanCritic、预算化修复、检查点/resume 与 atomic seal 尚未实现；必须等待 M1-4a 的 prompt/Schema/validator 与架构预算冻结决策后再冻结/联调 |
+| M1-5 S5 | 🔨 | build/git/fs/event 基础工具已起步；O-18 必须先裁决 broker 多连接扇出 ABI/定长容量，session/net 专属模板冻结受阻；其余 blueprint、脚手架、owner/contract、summary/receipt 工作可继续 |
+| M1-6 S6 | 🔨 | 文件写入与提交已有任务白名单校验；Plan State admission/迁移 API、micro-plan 单任务循环、task evidence/commit trailers、commit/state reconciliation、S6 receipt 与升级路径待实现 |
+| M1-7 CLI | ⬜ | `run --spec [--until s6]`、`resume`、`status` 尚未实现；M1 正常验收用 planned stop，不运行 S7/S9 |
+| M1-8 单测与 CI | 🔨 | 当前 173 passed、ruff/mypy/gold lint 全绿仅代表 v0.4 实现基线；v0.5 Schema/collector/lint/summary/receipt 及通用 prompt 静态/双 fixture 协议中立门仍待完成 |
 
 ## M0 DoD 验收记录
 
@@ -69,19 +71,39 @@
 
 | id | 日期 | 决策 | 依据/影响 |
 | --- | --- | --- | --- |
-| DEC-1 | 2026-07-26 | 测试期所有档位（T1/T2/T3）绑定 DeepSeek：T1=deepseek-reasoner，T2/T3=deepseek-chat，密钥走环境变量 `DS_API` | 用户指示。偏离设计文档 4.6 规则 3"评审角色应当不同 provider"——单 provider 测试配置下 SpecCritic 暂与 SpecExtractor 同厂不同型号，正式实验前需补第二 provider |
+| DEC-1 | 2026-07-26 | 测试期所有档位（T1/T2/T3）绑定 DeepSeek：T1=deepseek-reasoner，T2/T3=deepseek-chat，密钥走环境变量 `DS_API` | 用户指示。偏离设计文档 4.6 规则 3“评审角色应当不同 provider”——单 provider 测试配置下 SpecCritic 暂与 SpecExtractor 同厂不同型号，正式实验前需补第二 provider。`deepseek-reasoner` 是否实际应用 temperature 在 capability probe 前按 `unknown` 记录；temperature 0 不作为确定性保证，bring-up/D1.3 依靠关闭跨 run 缓存后的 N 次独立重复估计稳定性 |
 | DEC-2 | 2026-07-26 | Docker 权限开通前，只实现不依赖沙箱执行的模块；沙箱严格按 8.5 实现 docker 后端，不做宿主机执行后备 | 用户选择"开通 docker 权限"方案，无偏离 |
 | DEC-3 | 2026-07-26 | D0.2 参考实现验证推迟到 mosquitto 安装后补跑，测试先行编写 | 用户确认；风险 V-3 在此期间未闭合，记录在案 |
 | DEC-4 | 2026-07-26 | NePA 仓库提交纪律：阶段性成果由用户确认后提交（未经用户要求不自动 commit/push） | 遵循协作约定 |
 | DEC-5 | 2026-07-27 | 负责人确认四项既有约定调整：M1 引入 Target/Language Profile 与 Test Bundle 边界；M6a 前置于 M5；A7 改用独立合成 oracle；Spec IR 收窄为协议事实唯一来源 | 对应设计 v0.4.0；保持 R4/R6、Spec/Plan Schema、gold 数据与 7.4 契约不变 |
 | DEC-6 | 2026-07-27 | R4 采用“可直接提取的最小事实层”：Spec IR v3.0 不保存状态机、行为拆解、测试步骤或反向覆盖；复合线格式只增加 `sequence/repeat` | 已同步设计、Schema、gold、lint、切片与 plan requirement 引用；R6 仍待负责人确认 |
 | DEC-7 | 2026-07-28 | R6 采用最小输入引用闭包：Plan v2.0 仅以 `{path, sha256}` 绑定 Spec、Target Profile、Language Profile、Test Bundle | 由 S4 控制器确定性注入并由 `plan_lint` 比对；不增加 capability、推理摘要或输入内容副本 |
+| DEC-8 | 2026-07-28 | 负责人批准设计 v0.5.0：S4 改为 layered Plan Compiler；Plan v3 静态合同与 Plan State 执行账本分离；S5 独占 scaffold；Test Manifest 升 v2 | 取代 DEC-5“Plan Schema 不变”和 DEC-7“Plan v2 为活动版本”的部分，但保留 DEC-7 四项最小 `input_refs`；本次仅修改 `system_design.md` 与 `dev_status.md`，实际 Schema/prompt/lint/gold 资产暂不修改并转入 M1 |
+| DEC-9 | 2026-07-28 | 负责人批准 v0.5.0 终审闭环：M1 用 `--until s6` planned stop；round 发布引入 pending WAL；S8 单轮单簇且快验失败不提交；M5 拆出 M5-prep/M5-0 scale gate；Report 明确四态执行计数 | 同步消除 M1 正常终止、S5 故障注入、round 恢复、S8 预算、M5 gate 循环依赖与 report 聚合歧义；仍只修改两份文档，实际资产继续按里程碑迁移 |
+| DEC-10 | 2026-07-28 | 负责人要求通用 Coder prompt 不含任何 `mqtt_*`，协议专属命名只能由冻结资产/工件注入；确认旧 7.3 session 签名无法表达 broker 扇出，按 11.3 立项 O-18 | 设计升 v0.5.1；O-18 在 M1-5 模板冻结前必须裁决连接寻址、共享 broker 状态、out batch 与 K×消息容量/满载行为；实际 prompt 当前扫描无 `mqtt_*`，本次不改资产 |
+| DEC-11 | 2026-07-28 | 完整 Plan Compiler 前先做 ArchitecturePlanner prompt + 生产 ARCH_VALIDATE 的 N=20 bring-up；原 M1-4 拆成 M1-4a/b/c，依据逐门/联合首次通过率和一次修复收益冻结 prompt/Schema/validator 与架构修复默认值 | S4 是全链最高经验不确定点；spike 产物隔离在 `runs/_bringup`，不冒充正式 Run/S4 结果。全局重规划因依赖 Critic，只在 M1-4a 记录进入 M1-4c 的暂定上限，正式默认值由 D1.3 复核；M1-4b 可并行，M1-4c 冻结/联调受决策门约束；本次仍不修改实际资产 |
 
 ## 待办（需用户/负责人动作）
 
+- [ ] 在 M1-5 session/net 模板冻结前裁决 O-18：比较候选 ABI、定长扇出容量和满载行为，并批准胜出方案
+- [ ] 审阅 M1-4a N=20 `spike_report.json`，签字冻结 ArchitecturePlanner prompt/Schema/validator 哈希与 `plan_architecture_repairs` 默认值，并记录 `plan_global_replans` 暂定上限，再放行 M1-4c 冻结/联调
 - [ ] 按 DEC-4 审阅并确认当前 M1 基础实现与本批修补后再提交
 
 ## 会话日志
+
+### 2026-07-28（会话 8）
+- 负责人要求在完整 Plan Compiler 前增加廉价 ArchitecturePlanner/ARCH_VALIDATE bring-up；设计升至 v0.5.2，规定 gold spec 上 N=20 独立调用、关闭跨 trial 缓存，逐项报告 Schema/ARCH_VALIDATE 首次通过率、一次修复提升、失败共现、成本/延迟/截断。
+- 原超重 M1-4 拆为 M1-4a 规划输入与架构 spike、M1-4b 确定性编译资产、M1-4c 完整 S4 控制器；M1-4b 可并行，M1-4c 必须等待 spike 报告及负责人 prompt/预算冻结决策。
+- 记录 DEC-1 的 provider 能力边界：T1 当前绑定 deepseek-reasoner，但 temperature 是否生效在 capability probe 前视为 `unknown`；trace 分开记录请求值与 `reported_applied/reported_ignored/unknown`，复现依靠独立重复统计。
+- 负责人批准把结合 Codex/Claude Code 公开工程经验形成的 S4 方案写入设计，并明确本次只修改两份文档、实际资产暂不迁移。
+- `system_design.md` 升至 v0.5.0：S4 从一次性 Planner 改为 architecture → work-package expansion → deterministic link/full lint → independent critic → atomic seal；生产默认 layered，flat 只作显式消融。
+- Plan 设计升至 v3：不可变 `plan.json` 与 S6 admission 初始化的 `plan_state.json` 分离；S5 独占 scaffold，并以共享 Delivery Compiler/blueprint hash 约束工件、契约和文件所有权。
+- Test Manifest 目标设计升至 v2，新增 `gate`、`required_contracts` 与可选 `build_variant_ids`；同步修订 S5～S9、恢复协议、指标、M1 DoD、风险/O-16 和修订历史。
+- 终审补齐实现闭环：Blueprint hash 移出编译输入以消除自引用；需求责任进入正式工作包/任务字段；S4/S5 用 `run.json.output_refs` 独立封存；Test Bundle 使用 manifest/tree 双摘要；Plan State 拆为 snapshot/transition/execution 校验并明确 resume reconciliation；S9 支持工件缺失的条件化部分报告。
+- 负责人批准终审发现的六项契约修订：M1 正常以 `--until s6` planned stop；S5 不承担 LLM 结构化失败注入；round 以 pending WAL 原子发布；S8 每轮只处理一个簇且快验失败回滚不提交；M5 先做 M5-prep/M5-0 scale qualification；Report 单列 pass/fail/error/skipped 与 disabled/not_run。
+- v0.5.1 修复 7.3 边界：通用 Coder/Diagnoser/Fixer prompt 不得内嵌 `mqtt_*`，实例标识符只由冻结 Spec/Profile/Plan/contract/interface 上下文注入；当前实际通用 prompt 源码只读扫描为 0 命中。
+- 撤销旧 session/net 固定签名并新增 active/blocking 的 O-18：broker 输入必须可寻址连接、输出必须支持有界多目标 batch，K×消息容量及满载行为必须在 M1-5 模板冻结前裁决。
+- 现有 Plan v2 Schema、Planner prompt、plan_lint、Test Manifest v1/collector/gold 与 summary/report 等实现资产均未修改；12.3、M1/M2 进度与 M5\-0 明确记录迁移缺口。
 
 ### 2026-07-28（会话 7）
 - 复核 Gold 需求证据，仅修补 `source_ref.section/quote`：从仓库内 OASIS MQTT 3.1.1 PDF 实际检索并摘录；跨条款引文用 `[…]` 明示省略，归一化逐段比对结果为 0 个缺失片段。
@@ -128,7 +150,7 @@
 
 ### 2026-07-27（会话 2）
 - 两个评审工作流返回并全部落实：
-  - **一致性校验**：56 条发现、54 条经对抗验证确认，全部修入设计文档（新增 5.6 工件结构小节与 tests_manifest 工件；统一 T1 升级时机为 3+1、受控出口语义、任务状态枚举；修复 D0.2/D1.1/D1.3/M3 入口条件等 DoD 可执行性问题；新增 SegmentClassifier 角色、scope 配置结构、7.3 varint 映射与 session/net 固定接口）。
+  - **一致性校验**：56 条发现、54 条经对抗验证确认，全部修入设计文档（新增 5.6 工件结构小节与 tests_manifest 工件；统一 T1 升级时机为 3+1、受控出口语义、任务状态枚举；修复 D0.2/D1.1/D1.3/M3 入口条件等 DoD 可执行性问题；新增 SegmentClassifier 角色、scope 配置结构、7.3 varint 映射与当时的 session/net 固定接口；该接口后由 v0.5.1/O-18 撤销）。
   - **长期目标对照评审**：六视角 29 条差距、27 条确认。结论：架构方向与长期目标对齐（Spec IR 枢纽 + 协议无关流水线 + 语言约定隔离于第 7 章），确认缺口以 O-9～O-17 记入 11.2（多文档输入、图形摄取、ASCII/ABNF 保护、代理形态、TLS 路径、**无 gold 协议的测试合成路线（O-15，长期关键）**、分层规划、语言参数化）；Spec IR 的 4 处 MQTT 硬编码在 schema 冻结前完成协议无关化修正。
 - 设计文档升版 **v0.3.1**。
 - 工程实施启动：uv 依赖装好、包骨架建立、configs/default.yaml（DeepSeek 三档位，DS_API）与 scope-mqtt-min.yaml 写入。
