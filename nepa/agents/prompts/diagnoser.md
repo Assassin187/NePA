@@ -14,7 +14,7 @@ Return exactly one JSON object conforming to this schema:
 {{ output_schema_json }}
 </output_schema>
 Minimal example:
-{"root_cause":"reason","suspect_files":["src/x.c"],"fix_guidance":"specific correction"}
+{"root_cause":"reason","suspect_files":["src/module.ext"],"fix_guidance":"specific correction"}
 
 4. CHECKLIST
 1) Base the diagnosis only on the task, Spec slice, relevant code, and failure excerpt.

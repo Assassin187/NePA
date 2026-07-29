@@ -2,7 +2,42 @@
 
 from __future__ import annotations
 
+import json
+from functools import cache
+from pathlib import Path
 from typing import Any
+
+_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
+
+
+@cache
+def architecture_draft_schema() -> dict[str, Any]:
+    """活动 ArchitectureDraft Schema；调用方不得维护第二份内嵌副本。"""
+    value = json.loads(
+        (_SCHEMA_DIR / "architecture-draft.schema.json").read_text(encoding="utf-8")
+    )
+    if not isinstance(value, dict):
+        raise TypeError("architecture-draft schema root must be object")
+    return value
+
+
+def _load_schema(name: str) -> dict[str, Any]:
+    value = json.loads((_SCHEMA_DIR / name).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"{name} schema root must be object")
+    return value
+
+
+@cache
+def task_shard_schema() -> dict[str, Any]:
+    """活动 TaskPlanner 局部语义输出契约。"""
+    return _load_schema("task-shard.schema.json")
+
+
+@cache
+def plan_critic_schema() -> dict[str, Any]:
+    """活动 PlanCritic 结构化 issue-list 输出契约。"""
+    return _load_schema("plan-critic.schema.json")
 
 CODER_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",

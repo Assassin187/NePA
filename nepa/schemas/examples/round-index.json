@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "rounds": [
+    {
+      "round_id": 1,
+      "trigger": "s6_task",
+      "workspace_head": "0123456789abcdef0123456789abcdef01234567",
+      "parent_round_id": null,
+      "summary_ref": {
+        "path": "test_results/round_001/summary.json",
+        "sha256": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  ]
+}

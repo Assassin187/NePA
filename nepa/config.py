@@ -60,11 +60,37 @@ class RoleConfig(_StrictModel):
 class BudgetsConfig(_StrictModel):
     """预算默认值（4.7、8.3）。"""
 
-    wall_clock_hours: float = 4.0
-    max_cost_usd: float = 20.0  # 4.7：default.yaml 提供，实验前须显式覆盖
+    wall_clock_hours: float = Field(default=4.0, gt=0)
+    max_cost_usd: float = Field(default=20.0, gt=0)
+    plan_architecture_repairs: int = 1
+    plan_task_shard_repairs: int = 1
+    plan_critic_repairs: int = 2
+    plan_global_replans: int = 1
     coder_context_max_tokens: int = 24000
     task_fix_attempts: int = 3
     repair_rounds: int = 3
+
+
+class PlanningConfig(_StrictModel):
+    """S4 Plan Compiler 的确定性策略与输出边界（6.4、8.3）。"""
+
+    strategy: Literal["layered", "flat"] = "layered"
+    max_task_files: int = 4
+    context_safety_margin_ratio: float = 0.15
+
+
+class RunConfig(_StrictModel):
+    """运行入口的持久化控制参数（4.7、8.3）。"""
+
+    until: Literal["s3", "s6"] | None = None
+
+
+class AssetsConfig(_StrictModel):
+    """默认四资产组合中三个可配置资产的版本化标识（4.2、8.3）。"""
+
+    target_profile: str = Field(default="mqtt-client-broker", pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    language_profile: str = Field(default="c99-posix", pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    test_bundle: str = Field(default="mqtt-3-1-1-min-gold", pattern=r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class StagesConfig(_StrictModel):
@@ -122,7 +148,10 @@ class NepaConfig(_StrictModel):
     tiers: dict[str, TierConfig] = Field(default_factory=dict)
     roles: dict[str, RoleConfig] = Field(default_factory=dict)
     budgets: BudgetsConfig = Field(default_factory=BudgetsConfig)
+    planning: PlanningConfig = Field(default_factory=PlanningConfig)
+    run: RunConfig = Field(default_factory=RunConfig)
     stages: StagesConfig = Field(default_factory=StagesConfig)
+    assets: AssetsConfig = Field(default_factory=AssetsConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     pricing: dict[str, PricingEntry] = Field(default_factory=dict)
 

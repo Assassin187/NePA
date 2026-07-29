@@ -1,38 +1,39 @@
 {
-  "schema_version": "1.0",
-  "round": 1,
-  "trigger": "s7_full",
-  "build": {
-    "release": { "ok": true, "warnings": 0, "errors": 0 },
-    "san": { "ok": true, "warnings": 0, "errors": 0 }
-  },
+  "schema_version": "2.0",
+  "round_id": 1,
+  "trigger": "s6_task",
+  "task_id": "T-001",
+  "attempt": 1,
+  "workspace_head": "0123456789abcdef0123456789abcdef01234567",
+  "workspace_tree": "1123456789abcdef0123456789abcdef01234567",
+  "parent_round_id": null,
+  "plan_sha256": "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "delivery_blueprint_sha256": "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "manifest_sha256": "4123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "bundle_tree_sha256": "5123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "build_results": [
+    {
+      "variant_id": "release",
+      "result": "pass",
+      "duration_ms": 420.5,
+      "warnings": 0,
+      "errors": 0
+    }
+  ],
   "cases": [
     {
-      "nodeid": "l1_codec/test_varint.py::test_remaining_length_roundtrip",
+      "nodeid": "tests/l1_codec/test_frame.py::test_roundtrip",
       "layer": "l1",
       "result": "pass",
       "duration_ms": 42.1,
       "req_ids": ["REQ-FRAME-001"]
-    },
-    {
-      "nodeid": "l2_behavior/test_connect.py::test_bad_protocol_level",
-      "layer": "l2",
-      "result": "fail",
-      "duration_ms": 1830.0,
-      "failure_excerpt": "AssertionError: expected CONNACK rc=1, got connection reset without CONNACK",
-      "req_ids": ["REQ-CONNECT-002"]
     }
   ],
   "req_matrix": [
     {
       "req_id": "REQ-FRAME-001",
-      "tests": ["l1_codec/test_varint.py::test_remaining_length_roundtrip"],
-      "passed": true
-    },
-    {
-      "req_id": "REQ-CONNECT-002",
-      "tests": ["l2_behavior/test_connect.py::test_bad_protocol_level"],
-      "passed": false
+      "tests": ["tests/l1_codec/test_frame.py::test_roundtrip"],
+      "result": "pass"
     }
   ]
 }

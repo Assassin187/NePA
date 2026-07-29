@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "plan_ref": {
+    "path": "plan/plan.json",
+    "sha256": "5123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "attempts": 0,
+      "notes": "",
+      "commit_sha": null,
+      "last_error": null,
+      "acceptance_evidence": {
+        "task_evidence_ref": null
+      }
+    }
+  ]
+}

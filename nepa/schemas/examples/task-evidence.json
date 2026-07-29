@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "task_id": "T-001",
+  "attempt": 1,
+  "plan_sha256": "5123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "workspace_tree": "0123456789abcdef0123456789abcdef01234567",
+  "build_result_refs": [
+    {
+      "path": "test_results/task_evidence/T-001/build_attempt_001.json",
+      "sha256": "6123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "test_summary_refs": []
+}

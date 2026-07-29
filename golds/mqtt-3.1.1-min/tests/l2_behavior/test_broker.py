@@ -18,6 +18,12 @@ from harness.mqtt import (
 )
 from harness.spec_model import named_constant, packet_type
 
+pytestmark = [
+    pytest.mark.gate("task"),
+    pytest.mark.contract("broker-process"),
+    pytest.mark.build_variant("san"),
+]
+
 
 def _connected(broker, client_id: str, *, keep_alive: int = 30) -> socket.socket:
     sock = broker.connect()
@@ -180,6 +186,7 @@ def test_keep_alive_timeout(
 
 @pytest.mark.req("REQ-PUBLISH-001")
 @pytest.mark.req("REQ-ROUTE-001")
+@pytest.mark.contract("client-cli")
 def test_client_cli_publish_contract(
     broker,
     randomized: dict[str, object],
@@ -206,6 +213,7 @@ def test_client_cli_publish_contract(
 
 @pytest.mark.req("REQ-SUBSCRIBE-001")
 @pytest.mark.req("REQ-ROUTE-001")
+@pytest.mark.contract("client-cli")
 def test_client_cli_subscribe_contract(
     broker,
     randomized: dict[str, object],

@@ -19,19 +19,22 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 import httpx
 import jsonschema
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 __all__ = [
     "LLMClient",
     "LLMError",
     "LLMRequest",
     "LLMResponse",
+    "ParameterSupport",
     "Provider",
+    "ProviderCallRecord",
     "ProviderHTTPError",
+    "ProviderResponseError",
     "RawResult",
     "RetryExhaustedError",
     "StructuredOutputError",
@@ -39,6 +42,12 @@ __all__ = [
     "extract_first_json",
     "request_with_retries",
     "schema_errors",
+]
+
+ParameterSupport: TypeAlias = Literal[
+    "reported_applied",
+    "reported_ignored",
+    "unknown",
 ]
 
 
@@ -56,6 +65,10 @@ class ProviderHTTPError(LLMError):
         super().__init__(f"provider HTTP {status_code}: {detail}")
         self.status_code = status_code
         self.detail = detail
+
+
+class ProviderResponseError(LLMError):
+    """Provider returned HTTP success with a malformed or error-shaped body."""
 
 
 class RetryExhaustedError(LLMError):
@@ -83,11 +96,48 @@ class LLMRequest(BaseModel):
     """统一请求。字段按 8.4 简化签名。"""
 
     role: str  # 角色名，用于 trace 与路由（4.6）
+    tier: str | None = None  # 实际解析档位；只用于 trace/成本归因
     system: str = ""
     user: str
     json_schema: dict[str, Any] | None = None  # 非空则要求结构化输出
     temperature: float = 0.0
     max_tokens: int = 4096
+
+
+class ProviderCallRecord(BaseModel):
+    """一次真实 provider 调用的完整运行时证据。
+
+    StructuredProvider 可能为一个逻辑 structured completion 发起初次调用和
+    一次格式修复调用。两次必须分别落 trace；本记录仅在内存中传给 LLMClient，
+    不序列化进响应缓存。
+    """
+
+    request: LLMRequest
+    text: str
+    parsed: dict[str, Any] | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    model: str = ""
+    parameter_support: dict[str, ParameterSupport] = Field(default_factory=dict)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
+    validation: Literal["pass", "repaired", "fail"] | None = None
+    latency_ms: int = 0
+    provider_call_index: int
+    call_kind: Literal["initial", "format_repair"]
+
+    def as_response(self) -> LLMResponse:
+        """构造供 TraceWriter 使用的单次调用响应视图。"""
+        return LLMResponse(
+            text=self.text,
+            parsed=self.parsed,
+            tokens_in=self.tokens_in,
+            tokens_out=self.tokens_out,
+            model=self.model,
+            parameter_support=dict(self.parameter_support),
+            provider_metadata=dict(self.provider_metadata),
+            validation=self.validation,
+            latency_ms=self.latency_ms,
+        )
 
 
 class LLMResponse(BaseModel):
@@ -103,8 +153,11 @@ class LLMResponse(BaseModel):
     cost_usd: float = 0.0  # 由 telemetry 按价格表折算（8.4 要点 5）
     model: str = ""
     cached: bool = False
+    parameter_support: dict[str, ParameterSupport] = Field(default_factory=dict)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
     validation: Literal["pass", "repaired", "fail"] | None = None  # 5.5
     latency_ms: int = 0
+    provider_calls: list[ProviderCallRecord] = Field(default_factory=list, exclude=True)
 
 
 @runtime_checkable
@@ -230,6 +283,8 @@ class RawResult:
     tokens_in: int
     tokens_out: int
     model: str
+    parameter_support: dict[str, ParameterSupport]
+    provider_metadata: dict[str, Any]
 
 
 class StructuredProvider(ABC):
@@ -242,32 +297,55 @@ class StructuredProvider(ABC):
     model: str = ""
     supports_native_json: bool = False  # True 时 _raw_complete 收到 json_mode=True
 
+    @staticmethod
+    def _response_fields(raw: RawResult) -> dict[str, Any]:
+        """把 provider 明确报告的能力与元数据原样提升到统一响应。
+
+        adapter 不得从 HTTP 成功推断采样参数已应用；不能证明时 provider
+        必须在 RawResult 中写 ``unknown``（8.4 要点 4）。
+        """
+        return {
+            "parameter_support": dict(raw.parameter_support),
+            "provider_metadata": dict(raw.provider_metadata),
+        }
+
+    @staticmethod
+    def _merge_parameter_support(
+        *results: RawResult,
+    ) -> dict[str, ParameterSupport]:
+        """合并结构修复涉及的多次调用；报告不一致时保守降为 unknown。"""
+        keys = {key for result in results for key in result.parameter_support}
+        merged: dict[str, ParameterSupport] = {}
+        for key in sorted(keys):
+            values = {result.parameter_support.get(key, "unknown") for result in results}
+            merged[key] = values.pop() if len(values) == 1 else "unknown"
+        return merged
+
+    @classmethod
+    def _repair_response_fields(cls, *results: RawResult) -> dict[str, Any]:
+        """保留结构修复每次 provider 调用的元数据，避免聚合后丢失证据。"""
+        return {
+            "parameter_support": cls._merge_parameter_support(*results),
+            "provider_metadata": {
+                "calls": [dict(result.provider_metadata) for result in results],
+                "finish_reason": results[-1].provider_metadata.get("finish_reason"),
+            },
+        }
+
     @abstractmethod
     def _raw_complete(
         self, *, system: str, user: str, temperature: float, max_tokens: int, json_mode: bool
     ) -> RawResult: ...
 
-    def complete(self, req: LLMRequest) -> LLMResponse:
-        if req.json_schema is None:
-            raw = self._raw_complete(
-                system=req.system,
-                user=req.user,
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-                json_mode=False,
-            )
-            return LLMResponse(
-                text=raw.text,
-                parsed=None,
-                tokens_in=raw.tokens_in,
-                tokens_out=raw.tokens_out,
-                model=raw.model,
-                validation=None,
-            )
-
-        # 优先原生 JSON 模式；schema 始终内嵌提示词以传达目标结构（8.4 要点 2）
-        json_mode = self.supports_native_json
-        user = embed_schema_prompt(req.user, req.json_schema)
+    def _invoke_raw(
+        self,
+        req: LLMRequest,
+        *,
+        user: str,
+        json_mode: bool,
+    ) -> tuple[RawResult, int]:
+        """执行并计时一次真实 provider 调用（含该调用自己的基础设施重试）。"""
+        started = time.perf_counter()
         raw = self._raw_complete(
             system=req.system,
             user=user,
@@ -275,6 +353,65 @@ class StructuredProvider(ABC):
             max_tokens=req.max_tokens,
             json_mode=json_mode,
         )
+        return raw, int((time.perf_counter() - started) * 1000)
+
+    @staticmethod
+    def _call_record(
+        req: LLMRequest,
+        raw: RawResult,
+        *,
+        user: str,
+        parsed: dict[str, Any] | None,
+        validation: Literal["pass", "repaired", "fail"] | None,
+        latency_ms: int,
+        provider_call_index: int,
+        call_kind: Literal["initial", "format_repair"],
+    ) -> ProviderCallRecord:
+        """把一次 raw 调用规范化为可逐行落 trace 的运行时记录。"""
+        return ProviderCallRecord(
+            request=req.model_copy(update={"user": user}),
+            text=raw.text,
+            parsed=parsed,
+            tokens_in=raw.tokens_in,
+            tokens_out=raw.tokens_out,
+            model=raw.model,
+            parameter_support=dict(raw.parameter_support),
+            provider_metadata=dict(raw.provider_metadata),
+            validation=validation,
+            latency_ms=latency_ms,
+            provider_call_index=provider_call_index,
+            call_kind=call_kind,
+        )
+
+    def complete(self, req: LLMRequest) -> LLMResponse:
+        if req.json_schema is None:
+            raw, raw_latency_ms = self._invoke_raw(req, user=req.user, json_mode=False)
+            return LLMResponse(
+                text=raw.text,
+                parsed=None,
+                tokens_in=raw.tokens_in,
+                tokens_out=raw.tokens_out,
+                model=raw.model,
+                validation=None,
+                provider_calls=[
+                    self._call_record(
+                        req,
+                        raw,
+                        user=req.user,
+                        parsed=None,
+                        validation=None,
+                        latency_ms=raw_latency_ms,
+                        provider_call_index=1,
+                        call_kind="initial",
+                    )
+                ],
+                **self._response_fields(raw),
+            )
+
+        # 优先原生 JSON 模式；schema 始终内嵌提示词以传达目标结构（8.4 要点 2）
+        json_mode = self.supports_native_json
+        user = embed_schema_prompt(req.user, req.json_schema)
+        raw, raw_latency_ms = self._invoke_raw(req, user=user, json_mode=json_mode)
         tokens_in, tokens_out = raw.tokens_in, raw.tokens_out
         parsed, errors = self._try_parse(raw.text, req.json_schema)
         if not errors:
@@ -285,20 +422,37 @@ class StructuredProvider(ABC):
                 tokens_out=tokens_out,
                 model=raw.model,
                 validation="pass",
+                provider_calls=[
+                    self._call_record(
+                        req,
+                        raw,
+                        user=user,
+                        parsed=parsed,
+                        validation="pass",
+                        latency_ms=raw_latency_ms,
+                        provider_call_index=1,
+                        call_kind="initial",
+                    )
+                ],
+                **self._response_fields(raw),
             )
 
         # 校验失败：自动发一次修复调用（把错误清单馈给模型）
         repair_user = build_repair_prompt(raw.text, errors, req.json_schema)
-        raw2 = self._raw_complete(
-            system=req.system,
-            user=repair_user,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            json_mode=json_mode,
-        )
+        raw2, raw2_latency_ms = self._invoke_raw(req, user=repair_user, json_mode=json_mode)
         tokens_in += raw2.tokens_in
         tokens_out += raw2.tokens_out
         parsed2, errors2 = self._try_parse(raw2.text, req.json_schema)
+        first_call = self._call_record(
+            req,
+            raw,
+            user=user,
+            parsed=None,
+            validation="fail",
+            latency_ms=raw_latency_ms,
+            provider_call_index=1,
+            call_kind="initial",
+        )
         if not errors2:
             return LLMResponse(
                 text=raw2.text,
@@ -307,6 +461,20 @@ class StructuredProvider(ABC):
                 tokens_out=tokens_out,
                 model=raw2.model,
                 validation="repaired",
+                provider_calls=[
+                    first_call,
+                    self._call_record(
+                        req,
+                        raw2,
+                        user=repair_user,
+                        parsed=parsed2,
+                        validation="repaired",
+                        latency_ms=raw2_latency_ms,
+                        provider_call_index=2,
+                        call_kind="format_repair",
+                    ),
+                ],
+                **self._repair_response_fields(raw, raw2),
             )
 
         # 仍失败：向上报错，携带 fail 响应供 trace 落盘（5.5）
@@ -317,6 +485,20 @@ class StructuredProvider(ABC):
             tokens_out=tokens_out,
             model=raw2.model,
             validation="fail",
+            provider_calls=[
+                first_call,
+                self._call_record(
+                    req,
+                    raw2,
+                    user=repair_user,
+                    parsed=None,
+                    validation="fail",
+                    latency_ms=raw2_latency_ms,
+                    provider_call_index=2,
+                    call_kind="format_repair",
+                ),
+            ],
+            **self._repair_response_fields(raw, raw2),
         )
         raise StructuredOutputError(errors2, fail_resp)
 
@@ -355,6 +537,8 @@ class TraceSink(Protocol):
         attempt: int = 1,
         task_id: str | None = None,
         latency_ms: int = 0,
+        provider_call_index: int | None = None,
+        call_kind: str = "initial",
     ) -> dict[str, Any]: ...
 
 
@@ -380,6 +564,52 @@ class LLMClient:
         self._cache = cache
         self._trace = trace
 
+    def _record_trace(
+        self,
+        req: LLMRequest,
+        resp: LLMResponse,
+        *,
+        stage: str,
+        task_id: str | None,
+        attempt: int,
+    ) -> None:
+        """逐真实 provider 调用落 trace，并把单次成本汇总回逻辑响应。"""
+        if self._trace is None:
+            return
+
+        if not resp.cached and resp.provider_calls:
+            total_cost = 0.0
+            for call in resp.provider_calls:
+                call_resp = call.as_response()
+                line = self._trace.record(
+                    req=call.request,
+                    resp=call_resp,
+                    provider_name=self._provider_name,
+                    stage=stage,
+                    attempt=attempt,
+                    task_id=task_id,
+                    latency_ms=call.latency_ms,
+                    provider_call_index=call.provider_call_index,
+                    call_kind=call.call_kind,
+                )
+                total_cost += float(line.get("cost_usd", 0.0))
+            resp.cost_usd = round(total_cost, 8)
+            return
+
+        # 缓存命中没有真实 provider 调用，但保留一条零成本 replay 事件，
+        # 明确与 initial/format_repair 区分，便于重放审计。
+        self._trace.record(
+            req=req,
+            resp=resp,
+            provider_name=self._provider_name,
+            stage=stage,
+            attempt=attempt,
+            task_id=task_id,
+            latency_ms=resp.latency_ms,
+            provider_call_index=None,
+            call_kind="cache_replay" if resp.cached else "initial",
+        )
+
     def complete(
         self,
         req: LLMRequest,
@@ -387,10 +617,11 @@ class LLMClient:
         stage: str = "",
         task_id: str | None = None,
         attempt: int = 1,
+        use_cache: bool = True,
     ) -> LLMResponse:
         key: str | None = None
         resp: LLMResponse | None = None
-        if self._cache is not None:
+        if use_cache and self._cache is not None:
             key = self._cache.make_key(self._provider_name, self._model, req)
             resp = self._cache.get(key)
 
@@ -399,31 +630,20 @@ class LLMClient:
             try:
                 resp = self._provider.complete(req)
             except StructuredOutputError as exc:
-                # fail 响应也落 trace（5.5 validation=fail），再向上抛
-                if self._trace is not None and exc.response is not None:
+                # 两次均失败时仍逐 raw call 落 trace，再向上抛。
+                if exc.response is not None:
                     exc.response.latency_ms = int((time.perf_counter() - t0) * 1000)
-                    self._trace.record(
-                        req=req,
-                        resp=exc.response,
-                        provider_name=self._provider_name,
+                    self._record_trace(
+                        req,
+                        exc.response,
                         stage=stage,
-                        attempt=attempt,
                         task_id=task_id,
-                        latency_ms=exc.response.latency_ms,
+                        attempt=attempt,
                     )
                 raise
             resp.latency_ms = int((time.perf_counter() - t0) * 1000)
-            if self._cache is not None and key is not None:
+            if use_cache and self._cache is not None and key is not None:
                 self._cache.put(key, resp)
 
-        if self._trace is not None:
-            self._trace.record(
-                req=req,
-                resp=resp,
-                provider_name=self._provider_name,
-                stage=stage,
-                attempt=attempt,
-                task_id=task_id,
-                latency_ms=resp.latency_ms,
-            )
+        self._record_trace(req, resp, stage=stage, task_id=task_id, attempt=attempt)
         return resp

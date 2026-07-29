@@ -1,83 +1,144 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.dev/schemas/test-summary.schema.json",
-  "title": "NePA test_results/round_NNN/summary.json v1.0",
-  "description": "设计文档 5.4：测试轮次摘要——轮次号、触发者（S6 任务/S7 全量/S8 回归）、构建配置、每用例结果、按需求聚合的通过矩阵。5.4 为散文描述，字段命名为合理设计；构建记录同时服务 9.1.4 的 build_ok。",
+  "title": "NePA test_results/round_NNN/summary.json v2.0",
+  "description": "设计文档 5.4：测试轮次摘要、冻结输入哈希、构建结果、用例结果与需求矩阵。",
   "type": "object",
   "properties": {
-    "schema_version": { "const": "1.0" },
-    "round": {
-      "description": "轮次号 NNN，与目录名一致",
+    "schema_version": { "const": "2.0" },
+    "round_id": { "type": "integer", "minimum": 1 },
+    "trigger": {
+      "enum": ["s5_scaffold", "s6_task", "s7_full", "s8_cluster", "s8_regression"]
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^T-[0-9]{3,}$"
+    },
+    "attempt": {
       "type": "integer",
       "minimum": 1
     },
-    "trigger": {
-      "description": "触发者：S6 任务 / S7 全量 / S8 回归",
-      "enum": ["s6_task", "s7_full", "s8_regression"]
-    },
-    "task_id": {
-      "description": "trigger 为 s6_task 时必填：触发本轮的任务",
+    "repair_id": {
       "type": "string",
-      "pattern": "^T-[0-9]{3}$"
+      "pattern": "^R-[0-9]{3,}$"
     },
-    "build": {
-      "description": "构建配置与结果：release 即 make，san 即 make SAN=1（7.4）",
-      "type": "object",
-      "properties": {
-        "release": { "$ref": "#/$defs/build_result" },
-        "san": { "$ref": "#/$defs/build_result" }
-      },
-      "minProperties": 1,
-      "additionalProperties": false
+    "workspace_head": { "$ref": "#/$defs/git_oid" },
+    "workspace_tree": { "$ref": "#/$defs/git_oid" },
+    "parent_round_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ]
     },
-    "cases": {
-      "description": "每用例结果：pass/fail/error(/skipped) + 耗时 + 失败输出摘录",
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "delivery_blueprint_sha256": { "$ref": "#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "bundle_tree_sha256": { "$ref": "#/$defs/sha256" },
+    "build_results": {
       "type": "array",
       "minItems": 1,
+      "items": { "$ref": "#/$defs/build_result" }
+    },
+    "cases": {
+      "type": "array",
       "items": { "$ref": "#/$defs/case_result" }
     },
     "req_matrix": {
-      "description": "按需求聚合的通过矩阵",
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "req_id": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" },
-          "tests": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "passed": {
-            "description": "关联测试全部 pass 才为 true（9.1.4 口径）",
-            "type": "boolean"
-          }
-        },
-        "required": ["req_id", "tests", "passed"],
-        "additionalProperties": false
-      }
+      "items": { "$ref": "#/$defs/req_result" }
     }
   },
-  "required": ["schema_version", "round", "trigger", "build", "cases", "req_matrix"],
-  "if": {
-    "properties": { "trigger": { "const": "s6_task" } },
-    "required": ["trigger"]
-  },
-  "then": { "required": ["task_id"] },
+  "required": [
+    "schema_version",
+    "round_id",
+    "trigger",
+    "workspace_head",
+    "workspace_tree",
+    "parent_round_id",
+    "plan_sha256",
+    "delivery_blueprint_sha256",
+    "manifest_sha256",
+    "bundle_tree_sha256",
+    "build_results",
+    "cases",
+    "req_matrix"
+  ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "trigger": { "const": "s6_task" } },
+        "required": ["trigger"]
+      },
+      "then": {
+        "required": ["task_id", "attempt"],
+        "not": { "required": ["repair_id"] }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["task_id"] },
+            { "required": ["attempt"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "trigger": { "enum": ["s8_cluster", "s8_regression"] }
+        },
+        "required": ["trigger"]
+      },
+      "then": { "required": ["repair_id"] },
+      "else": { "not": { "required": ["repair_id"] } }
+    }
+  ],
   "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "reason_excerpt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
     "build_result": {
       "type": "object",
       "properties": {
-        "ok": {
-          "description": "零警告零错误才为 true（9.1.4 build_ok 口径）",
-          "type": "boolean"
+        "variant_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
         },
+        "result": { "enum": ["pass", "fail", "error"] },
+        "duration_ms": { "type": "number", "minimum": 0 },
         "warnings": { "type": "integer", "minimum": 0 },
         "errors": { "type": "integer", "minimum": 0 },
-        "output_excerpt": { "type": "string" }
+        "output_excerpt": { "$ref": "#/$defs/reason_excerpt" }
       },
-      "required": ["ok"],
-      "additionalProperties": false
+      "required": ["variant_id", "result", "duration_ms", "warnings", "errors"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "result": { "const": "pass" } },
+            "required": ["result"]
+          },
+          "then": {
+            "properties": {
+              "warnings": { "const": 0 },
+              "errors": { "const": 0 }
+            },
+            "not": { "required": ["output_excerpt"] }
+          },
+          "else": { "required": ["output_excerpt"] }
+        }
+      ]
     },
     "case_result": {
       "type": "object",
@@ -86,23 +147,42 @@
         "layer": { "enum": ["l0", "l1", "l2", "l3"] },
         "result": { "enum": ["pass", "fail", "error", "skipped"] },
         "duration_ms": { "type": "number", "minimum": 0 },
-        "failure_excerpt": {
-          "description": "失败输出摘录；fail/error 时必填",
-          "type": "string",
-          "minLength": 1
-        },
+        "output_excerpt": { "$ref": "#/$defs/reason_excerpt" },
         "req_ids": {
-          "description": "该用例 @pytest.mark.req 标注（5.3 规则 2）",
           "type": "array",
-          "items": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" }
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^REQ-[A-Z0-9]+-[0-9]{3,}$"
+          }
         }
       },
-      "required": ["nodeid", "result", "duration_ms"],
+      "required": ["nodeid", "layer", "result", "duration_ms", "req_ids"],
+      "additionalProperties": false,
       "if": {
-        "properties": { "result": { "enum": ["fail", "error"] } },
+        "properties": { "result": { "const": "pass" } },
         "required": ["result"]
       },
-      "then": { "required": ["failure_excerpt"] },
+      "then": { "not": { "required": ["output_excerpt"] } },
+      "else": { "required": ["output_excerpt"] }
+    },
+    "req_result": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "string",
+          "pattern": "^REQ-[A-Z0-9]+-[0-9]{3,}$"
+        },
+        "tests": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "result": { "enum": ["pass", "fail", "error", "skipped"] }
+      },
+      "required": ["req_id", "tests", "result"],
       "additionalProperties": false
     }
   }

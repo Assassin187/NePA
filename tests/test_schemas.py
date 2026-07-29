@@ -20,15 +20,25 @@ EXAMPLE_DIR: Path = SCHEMA_DIR / "examples"
 
 # schema 文件名 -> 示例文件名（任务 A1 要求的 10 个工件 schema）
 PAIRS: dict[str, str] = {
+    "architecture-draft.schema.json": "architecture-draft.json",
+    "plan-critic.schema.json": "plan-critic.json",
+    "language-profile.schema.json": "language-profile.json",
     "specs-requirements.schema.json": "specs-requirements.json",
     "plan.schema.json": "plan.json",
+    "plan-state.schema.json": "plan-state.json",
+    "pending-round.schema.json": "pending-round.json",
     "segments.schema.json": "segments.json",
     "run.schema.json": "run.json",
     "spec-review.schema.json": "spec-review.json",
+    "task-evidence.schema.json": "task-evidence.json",
+    "task-shard.schema.json": "task-shard.json",
     "merge-decisions.schema.json": "merge-decisions.json",
     "test-summary.schema.json": "test-summary.json",
+    "target-profile.schema.json": "target-profile.json",
+    "test-bundle.schema.json": "test-bundle.json",
     "repair-log.schema.json": "repair-log.json",
     "report.schema.json": "report.json",
+    "round-index.schema.json": "round-index.json",
     "tests-manifest.schema.json": "tests-manifest.json",
 }
 
@@ -61,6 +71,165 @@ def test_example_validates(schema_name: str, example_name: str) -> None:
     errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.absolute_path))
     messages = [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in errors]
     assert not errors, f"{example_name} 未通过 {schema_name}:\n" + "\n".join(messages)
+
+
+# ---------------------------------------------------------------------------
+# Run v2 反例（5.6.2）
+# ---------------------------------------------------------------------------
+
+
+def _run_example() -> dict[str, Any]:
+    return copy.deepcopy(_load_json(EXAMPLE_DIR / "run.json"))
+
+
+def test_run_v2_spec_entry_rejects_doc_and_scope() -> None:
+    bad = _run_example()
+    bad["inputs"]["doc"] = {"path": "source.pdf", "sha256": "ab" * 32}
+    bad["inputs"]["scope"] = {"path": "scope.yaml", "sha256": "cd" * 32}
+
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(bad)
+
+
+def test_run_v2_doc_entry_requires_doc_and_scope_and_forbids_spec() -> None:
+    bad = _run_example()
+    bad["entry"] = "doc-run"
+
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(bad)
+
+    good = _run_example()
+    good["entry"] = "doc-run"
+    del good["inputs"]["spec"]
+    good["inputs"]["doc"] = {"path": "source.pdf", "sha256": "ab" * 32}
+    good["inputs"]["scope"] = {"path": "scope.yaml", "sha256": "cd" * 32}
+    _validator("run.schema.json").validate(good)
+
+
+def test_run_v2_asset_paths_are_frozen_run_descriptions() -> None:
+    bad = _run_example()
+    bad["inputs"]["target_profile"]["path"] = "profiles/target.json"
+
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(bad)
+
+
+def test_run_v2_planned_stop_forbids_outcome() -> None:
+    bad = _run_example()
+    bad["outcome"] = "success"
+
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(bad)
+
+
+def _controlled_run() -> dict[str, Any]:
+    value = _run_example()
+    value["stages"]["s5"] = {
+        "status": "failed",
+        "started_at": "2026-07-26T14:36:00Z",
+        "ended_at": "2026-07-26T14:37:30Z",
+        "error": "Blueprint drift.",
+    }
+    value["termination_request"] = {
+        "kind": "controlled_exit",
+        "stage": "s5",
+        "requested_at": "2026-07-26T14:37:30Z",
+        "reason": {
+            "code": "DELIVERY_BLUEPRINT_DRIFT",
+            "detail": "S5 rejected a recomputed Delivery Blueprint.",
+        },
+    }
+    value["termination_kind"] = "controlled_exit"
+    value["outcome"] = "failed"
+    value["exit_code"] = 20
+    return value
+
+
+def test_run_v2_controlled_exit_requires_request_and_rejects_success() -> None:
+    missing = _controlled_run()
+    del missing["termination_request"]
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(missing)
+
+    success = _controlled_run()
+    success["outcome"] = "success"
+    success["exit_code"] = 0
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(success)
+
+
+def test_run_v2_internal_error_may_retain_request() -> None:
+    value = _controlled_run()
+    value["termination_kind"] = "internal_error"
+    del value["outcome"]
+    value["exit_code"] = 1
+
+    _validator("run.schema.json").validate(value)
+
+
+@pytest.mark.parametrize("kind", ["completed", "planned_stop"])
+def test_run_v2_completed_and_planned_stop_forbid_request(kind: str) -> None:
+    value = _controlled_run()
+    value["termination_kind"] = kind
+    if kind == "completed":
+        value["outcome"] = "failed"
+        value["exit_code"] = 20
+    else:
+        del value["outcome"]
+        value["exit_code"] = 0
+
+    with pytest.raises(ValidationError):
+        _validator("run.schema.json").validate(value)
+
+
+# ---------------------------------------------------------------------------
+# Report v2 availability envelope 反例（5.4）
+# ---------------------------------------------------------------------------
+
+
+def _report_example() -> dict[str, Any]:
+    return copy.deepcopy(_load_json(EXAMPLE_DIR / "report.json"))
+
+
+def test_report_v2_available_value_forbids_reason() -> None:
+    bad = _report_example()
+    bad["metrics"]["cost"]["total_usd"]["reason"] = {
+        "code": "SHOULD_NOT_EXIST",
+        "detail": "Available values cannot carry a reason.",
+    }
+
+    with pytest.raises(ValidationError):
+        _validator("report.schema.json").validate(bad)
+
+
+def test_report_v2_unavailable_value_requires_null_and_reason() -> None:
+    bad = _report_example()
+    bad["metrics"]["task_completion_rate"] = {
+        "status": "unavailable",
+        "value": 0,
+    }
+
+    with pytest.raises(ValidationError):
+        _validator("report.schema.json").validate(bad)
+
+
+def test_report_v2_unavailable_reason_code_is_machine_readable() -> None:
+    bad = _report_example()
+    bad["req_coverage"]["reason"]["code"] = "plan missing"
+
+    with pytest.raises(ValidationError):
+        _validator("report.schema.json").validate(bad)
+
+
+def test_report_v2_available_artifact_forbids_reason() -> None:
+    bad = _report_example()
+    bad["artifact_availability"]["run"]["reason"] = {
+        "code": "CONTRADICTION",
+        "detail": "Available artifacts cannot carry a reason.",
+    }
+
+    with pytest.raises(ValidationError):
+        _validator("report.schema.json").validate(bad)
 
 
 # ---------------------------------------------------------------------------

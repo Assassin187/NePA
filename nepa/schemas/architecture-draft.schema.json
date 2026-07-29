@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/architecture-draft.schema.json",
+  "title": "NePA ArchitectureDraft v1.0",
+  "description": "Active structured output contract for ArchitecturePlanner. It contains architecture and work-package semantics only; final task ids, task instructions, hashes, coverage, review, execution state, and S5 contents are forbidden.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "architecture": { "$ref": "#/$defs/architecture" },
+    "work_packages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/work_package" }
+    }
+  },
+  "required": ["schema_version", "architecture", "work_packages"],
+  "additionalProperties": false,
+  "$defs": {
+    "generic_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "module_owner": {
+      "type": "string",
+      "pattern": "^(?!s5$)[a-z0-9][a-z0-9_-]*$"
+    },
+    "req_id": {
+      "type": "string",
+      "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$"
+    },
+    "safe_relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "id_set": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/generic_id" }
+    },
+    "nonempty_id_set": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/generic_id" }
+    },
+    "file_set": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/safe_relative_path" }
+    },
+    "context_ref": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["message", "type", "requirement", "interface_file"] },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["kind", "id"],
+      "additionalProperties": false
+    },
+    "context_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/context_ref" }
+    },
+    "decision": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "topic": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "context_refs": { "$ref": "#/$defs/context_refs" }
+      },
+      "required": ["id", "topic", "statement", "context_refs"],
+      "additionalProperties": false
+    },
+    "assumption": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "statement": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "context_refs": { "$ref": "#/$defs/context_refs" }
+      },
+      "required": ["id", "statement", "rationale", "context_refs"],
+      "additionalProperties": false
+    },
+    "s5_contract": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["external", "internal"] },
+        "purpose": { "type": "string", "minLength": 1 },
+        "owner": { "const": "s5" },
+        "interface_files": { "$ref": "#/$defs/file_set" },
+        "ready_gate": { "const": "s5" }
+      },
+      "required": ["id", "kind", "purpose", "owner", "interface_files", "ready_gate"],
+      "additionalProperties": false
+    },
+    "task_contract": {
+      "description": "Draft-only provider_work_package_id reserves one provider package before TaskPlanner can name the final provider task. Linker replaces it with provider_task_id in Plan v3.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["external", "internal"] },
+        "purpose": { "type": "string", "minLength": 1 },
+        "owner": { "$ref": "#/$defs/module_owner" },
+        "interface_files": { "$ref": "#/$defs/file_set" },
+        "ready_gate": { "const": "task" },
+        "provider_work_package_id": { "$ref": "#/$defs/generic_id" }
+      },
+      "required": [
+        "id",
+        "kind",
+        "purpose",
+        "owner",
+        "interface_files",
+        "ready_gate",
+        "provider_work_package_id"
+      ],
+      "additionalProperties": false
+    },
+    "contract": {
+      "oneOf": [
+        { "$ref": "#/$defs/s5_contract" },
+        { "$ref": "#/$defs/task_contract" }
+      ]
+    },
+    "module": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "name": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string", "minLength": 1 },
+        "responsibilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "non_goals": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "owns_files": { "$ref": "#/$defs/file_set" },
+        "provides_contracts": { "$ref": "#/$defs/id_set" },
+        "consumes_contracts": { "$ref": "#/$defs/id_set" }
+      },
+      "required": [
+        "id",
+        "name",
+        "purpose",
+        "responsibilities",
+        "non_goals",
+        "owns_files",
+        "provides_contracts",
+        "consumes_contracts"
+      ],
+      "additionalProperties": false
+    },
+    "architecture": {
+      "type": "object",
+      "properties": {
+        "decisions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/decision" }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assumption" }
+        },
+        "contracts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/contract" }
+        },
+        "modules": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/module" }
+        }
+      },
+      "required": ["decisions", "assumptions", "contracts", "modules"],
+      "additionalProperties": false
+    },
+    "requirement_responsibility": {
+      "type": "object",
+      "properties": {
+        "req_id": { "$ref": "#/$defs/req_id" },
+        "role": { "enum": ["primary", "supporting"] }
+      },
+      "required": ["req_id", "role"],
+      "additionalProperties": false
+    },
+    "work_package": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "title": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "module": { "$ref": "#/$defs/generic_id" },
+        "kind": {
+          "enum": ["codec", "state", "logic", "transport", "app", "integration"]
+        },
+        "context_refs": { "$ref": "#/$defs/context_refs" },
+        "requirement_responsibilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement_responsibility" }
+        },
+        "allowed_files": { "$ref": "#/$defs/file_set" },
+        "provides_contracts": { "$ref": "#/$defs/id_set" },
+        "consumes_contracts": { "$ref": "#/$defs/id_set" },
+        "depends_on": { "$ref": "#/$defs/id_set" },
+        "acceptance": {
+          "type": "object",
+          "properties": {
+            "outcome": { "type": "string", "minLength": 1 }
+          },
+          "required": ["outcome"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "goal",
+        "module",
+        "kind",
+        "context_refs",
+        "requirement_responsibilities",
+        "allowed_files",
+        "provides_contracts",
+        "consumes_contracts",
+        "depends_on",
+        "acceptance"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "schema_version" : "1.0",
+  "asset": {
+    "id": "sample-client-server",
+    "version": "1.0.0",
+    "description": "Minimal review fixture for a client, server, codec CLI, and deterministic project layout."
+  },
+  "source_ref": {
+    "path": "profiles/targets/sample-client-server.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "deliverables": [
+    {
+      "id": "codec-tool",
+      "kind": "adapter",
+      "protocol_role": "client",
+      "purpose": "Expose the public codec contract to black-box tests.",
+      "entry_contract_ids": ["codec-cli"]
+    },
+    {
+      "id": "client_app",
+      "kind": "client",
+      "protocol_role": "client",
+      "purpose": "Provide the selected client command-line delivery.",
+      "entry_contract_ids": ["client-cli"]
+    },
+    {
+      "id": "server_app",
+      "kind": "server",
+      "protocol_role": "server",
+      "purpose": "Provide the selected server process delivery.",
+      "entry_contract_ids": ["server-process"]
+    }
+  ],
+  "naming": {
+    "identifier_case": "snake",
+    "file_case": "snake",
+    "public_include_prefix": "include/proto",
+    "symbol_prefix": "proto_",
+    "normalization": "ascii_lower"
+  },
+  "templates": [
+    {
+      "id": "sample-layout",
+      "version": "1.0.0",
+      "path": "templates/targets/sample-layout",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "file_rules": [
+    {
+      "id": "build-file",
+      "path_template": "Makefile",
+      "expansion_source": "none",
+      "kind": "build",
+      "mutability": "s5_frozen",
+      "producer": "language_template"
+    },
+    {
+      "id": "readme",
+      "path_template": "README.md",
+      "expansion_source": "none",
+      "kind": "documentation",
+      "mutability": "s5_frozen",
+      "producer": "target_template",
+      "template_id": "sample-layout"
+    },
+    {
+      "id": "public-codec-header",
+      "path_template": "include/proto/codec.h",
+      "expansion_source": "none",
+      "kind": "public_header",
+      "mutability": "s5_frozen",
+      "producer": "target_template",
+      "template_id": "sample-layout"
+    },
+    {
+      "id": "internal-interface-slots",
+      "path_template": "include/proto/{id}.h",
+      "expansion_source": "internal_interface_slots",
+      "kind": "internal_header",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "message-codecs",
+      "path_template": "src/codec/codec_{id}.c",
+      "expansion_source": "spec_messages",
+      "kind": "source",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "network-source",
+      "path_template": "src/net.c",
+      "expansion_source": "none",
+      "kind": "source",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "codec-cli-app",
+      "path_template": "apps/codec_cli.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "client-app",
+      "path_template": "apps/client_app.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "server-app",
+      "path_template": "apps/server_app.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    }
+  ],
+  "external_contracts": [
+    {
+      "id": "build-system",
+      "purpose": "Build every required variant through the frozen build entrypoint.",
+      "ready_gate": "s5",
+      "interface_files": ["Makefile"],
+      "entrypoints": [
+        {
+          "id": "make-all",
+          "kind": "build",
+          "description": "Invoke the Language Profile build command."
+        }
+      ]
+    },
+    {
+      "id": "codec-cli",
+      "purpose": "Exercise encoding and decoding through a public command-line boundary.",
+      "ready_gate": "task",
+      "interface_files": ["include/proto/codec.h", "apps/codec_cli.c"],
+      "entrypoints": [
+        {
+          "id": "codec-command",
+          "kind": "cli",
+          "description": "Encode or decode one value through the generated codec executable."
+        }
+      ]
+    },
+    {
+      "id": "client-cli",
+      "purpose": "Run the generated client application.",
+      "ready_gate": "task",
+      "interface_files": ["apps/client_app.c"],
+      "entrypoints": [
+        {
+          "id": "client-command",
+          "kind": "cli",
+          "description": "Invoke one selected client operation."
+        }
+      ]
+    },
+    {
+      "id": "server-process",
+      "purpose": "Run the generated server over the selected transport.",
+      "ready_gate": "task",
+      "interface_files": ["apps/server_app.c"],
+      "entrypoints": [
+        {
+          "id": "server-command",
+          "kind": "network",
+          "description": "Start and stop one foreground server process."
+        }
+      ]
+    }
+  ],
+  "internal_interface_slots": [
+    {
+      "id": "core-transport",
+      "purpose": "Separate protocol processing from transport lifecycle handling.",
+      "interface_files": ["include/proto/core_transport.h"],
+      "required": true,
+      "template_id": "sample-layout"
+    }
+  ],
+  "resource_limits": [
+    {
+      "id": "connection-capacity",
+      "purpose": "Bound the number of simultaneously represented connections.",
+      "unit": "connections",
+      "maximum": 16,
+      "exhaustion_behavior": "backpressure"
+    }
+  ],
+  "constraints": [
+    "Generated tests remain outside the workspace.",
+    "The delivery compiler must derive every workspace path from file_rules."
+  ]
+}

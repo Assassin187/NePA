@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 from nepa.agents.base import AgentRunner, ClientFactory
+from nepa.agents.contracts import architecture_draft_schema
+from nepa.agents.prompt_lint import (
+    COMMON_CODE_ROLES,
+    lint_non_mqtt_render,
+    lint_prompt_directory,
+    lint_prompt_source,
+)
 from nepa.agents.roles import ResolvedRole, RoleRegistry
 from nepa.llm.client import LLMRequest, LLMResponse, StructuredOutputError
 
@@ -29,6 +37,7 @@ class _Client:
     def __init__(self, response: LLMResponse, *, fail: bool = False) -> None:
         self.response = response
         self.fail = fail
+        self.last_request: LLMRequest | None = None
 
     def complete(
         self,
@@ -38,7 +47,8 @@ class _Client:
         task_id: str | None = None,
         attempt: int = 1,
     ) -> LLMResponse:
-        del req, stage, task_id, attempt
+        self.last_request = req
+        del stage, task_id, attempt
         if self.fail:
             raise StructuredOutputError(["invalid output"], self.response)
         return self.response
@@ -102,3 +112,75 @@ def test_failed_structured_invocation_still_counts_usage_once() -> None:
         )
 
     assert usage == [response]
+
+
+def test_common_code_prompt_sources_are_protocol_neutral() -> None:
+    prompts_dir = Path(__file__).parents[1] / "nepa" / "agents" / "prompts"
+
+    assert lint_prompt_directory(prompts_dir) == []
+
+
+def test_prompt_source_lint_reports_identifier_location() -> None:
+    findings = lint_prompt_source("coder", "first line\ncall mqtt_encode_packet now")
+
+    assert len(findings) == 1
+    assert findings[0].value == "mqtt_encode_packet"
+    assert findings[0].line == 2
+    assert findings[0].column == 6
+
+
+@pytest.mark.parametrize("role_name", COMMON_CODE_ROLES)
+def test_non_mqtt_fixture_render_has_no_mqtt_residue(role_name: str) -> None:
+    response = LLMResponse(text='{"ok":true}', parsed={"ok": True})
+    runner = _runner(response, [], fail=False)
+    payload = {
+        "protocol": "sample-wire",
+        "task": {
+            "deliverable_files": ["src/frame_codec.rs"],
+            "required_contracts": ["frame-codec"],
+        },
+        "language_profile": {
+            "language": "Rust",
+            "coding_rules": ["Use the standard library only."],
+        },
+        "interfaces": ["encode_frame(input, output)"],
+    }
+
+    rendered = runner.render_prompt(role_name, payload, _SCHEMA)
+
+    assert '"protocol": "sample-wire"' in rendered
+    assert lint_non_mqtt_render(role_name, rendered) == []
+
+
+def test_non_mqtt_render_lint_rejects_protocol_name_path_and_interface() -> None:
+    rendered = "protocol MQTT\npath src/mqtt/codec.c\ncall mqtt_encode_packet"
+
+    findings = lint_non_mqtt_render("coder", rendered)
+
+    assert [finding.value.lower() for finding in findings] == [
+        "mqtt",
+        "mqtt",
+        "mqtt_encode_packet",
+    ]
+
+
+def test_architecture_planner_prompt_is_independent_and_schema_is_activity_source() -> None:
+    response = LLMResponse(text='{"ok":true}', parsed={"ok": True})
+    runner = _runner(response, [], fail=False)
+    schema = architecture_draft_schema()
+    rendered = runner.render_prompt(
+        "architecture_planner",
+        {
+            "planning_index": {"protocol": {"name": "sample-wire"}},
+            "delivery_constraints": {
+                "external_contracts": [{"id": "frame-cli"}],
+                "file_slots": [{"path": "src/frame.c", "mutability": "s6_owned"}],
+            },
+        },
+        schema,
+    )
+
+    assert "ArchitectureDraft" in rendered
+    assert "provider_work_package_id" in rendered
+    assert schema["$id"] == "https://nepa.dev/schemas/architecture-draft.schema.json"
+    assert "planner_input" not in rendered

@@ -1,0 +1,1 @@
+{"schema_version":"1.0","verdict":"pass","issues":[{"id":"PI-001","severity":"minor","scope":"task","target_id":"T-001","code":"CLARIFY_ERROR_PATH","description":"The error path could be more explicit.","required_change":"Document the malformed-input return path.","context_refs":[{"kind":"requirement","id":"REQ-CONNECT-001"}]}]}

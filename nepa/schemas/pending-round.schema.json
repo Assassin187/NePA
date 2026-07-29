@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/pending-round.schema.json",
+  "title": "NePA pending test round WAL v1.0",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "round_id": { "type": "integer", "minimum": 1 },
+    "stage": { "enum": ["s5", "s6", "s7", "s8"] },
+    "trigger": {
+      "enum": ["s5_scaffold", "s6_task", "s7_full", "s8_cluster", "s8_regression"]
+    },
+    "producer_context": {
+      "type": "object",
+      "properties": {
+        "task_id": { "type": "string", "pattern": "^T-[0-9]{3,}$" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "repair_id": { "type": "string", "pattern": "^R-[0-9]{3,}$" }
+      },
+      "additionalProperties": false
+    },
+    "workspace_head": { "$ref": "#/$defs/git_oid" },
+    "workspace_tree": { "$ref": "#/$defs/git_oid" },
+    "parent_round_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    },
+    "temp_dir": {
+      "type": "string",
+      "pattern": "^test_results/\\.round_[0-9]{3,}\\.[a-z0-9]+\\.tmp$"
+    },
+    "final_dir": {
+      "type": "string",
+      "pattern": "^test_results/round_[0-9]{3,}$"
+    },
+    "summary_ref": { "$ref": "#/$defs/file_ref" },
+    "junit_ref": { "$ref": "#/$defs/file_ref" }
+  },
+  "required": [
+    "schema_version",
+    "round_id",
+    "stage",
+    "trigger",
+    "producer_context",
+    "workspace_head",
+    "workspace_tree",
+    "parent_round_id",
+    "temp_dir",
+    "final_dir",
+    "summary_ref"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "trigger": { "const": "s6_task" } },
+        "required": ["trigger"]
+      },
+      "then": {
+        "properties": {
+          "stage": { "const": "s6" },
+          "producer_context": {
+            "required": ["task_id", "attempt"],
+            "not": { "required": ["repair_id"] }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "trigger": { "enum": ["s8_cluster", "s8_regression"] }
+        },
+        "required": ["trigger"]
+      },
+      "then": {
+        "properties": {
+          "stage": { "const": "s8" },
+          "producer_context": {
+            "required": ["repair_id"],
+            "not": {
+              "anyOf": [
+                { "required": ["task_id"] },
+                { "required": ["attempt"] }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "trigger": { "const": "s5_scaffold" } },
+        "required": ["trigger"]
+      },
+      "then": {
+        "properties": {
+          "stage": { "const": "s5" },
+          "producer_context": { "maxProperties": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "trigger": { "const": "s7_full" } },
+        "required": ["trigger"]
+      },
+      "then": {
+        "properties": {
+          "stage": { "const": "s7" },
+          "producer_context": { "maxProperties": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "file_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    }
+  }
+}

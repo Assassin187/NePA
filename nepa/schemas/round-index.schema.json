@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/round-index.schema.json",
+  "title": "NePA accepted test round index v1.0",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "rounds": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/round_entry" }
+    }
+  },
+  "required": ["schema_version", "rounds"],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "file_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "round_entry": {
+      "type": "object",
+      "properties": {
+        "round_id": { "type": "integer", "minimum": 1 },
+        "trigger": {
+          "enum": ["s5_scaffold", "s6_task", "s7_full", "s8_cluster", "s8_regression"]
+        },
+        "workspace_head": { "$ref": "#/$defs/git_oid" },
+        "parent_round_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "summary_ref": { "$ref": "#/$defs/file_ref" },
+        "junit_ref": { "$ref": "#/$defs/file_ref" }
+      },
+      "required": [
+        "round_id",
+        "trigger",
+        "workspace_head",
+        "parent_round_id",
+        "summary_ref"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

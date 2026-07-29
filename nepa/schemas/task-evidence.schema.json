@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/task-evidence.schema.json",
+  "title": "NePA Task Evidence v1.0",
+  "description": "设计文档 5.4：S6 task/attempt 的不可变验收证据。",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "task_id": {
+      "type": "string",
+      "pattern": "^T-[0-9]{3,}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "workspace_tree": { "$ref": "#/$defs/git_oid" },
+    "build_result_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/file_ref" }
+    },
+    "test_summary_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/file_ref" }
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_id",
+    "attempt",
+    "plan_sha256",
+    "workspace_tree",
+    "build_result_refs",
+    "test_summary_refs"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "file_ref": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    }
+  }
+}

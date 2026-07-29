@@ -1,0 +1,244 @@
+{
+  "schema_version": "1.0",
+  "asset": {
+    "id": "mqtt-client-broker",
+    "version": "1.0.0",
+    "description": "MQTT 3.1.1 client, CLI tools, and bounded single-thread broker delivery."
+  },
+  "deliverables": [
+    {
+      "id": "codec-tool",
+      "kind": "adapter",
+      "protocol_role": "client",
+      "purpose": "Expose packet encoding and decoding to black-box tests.",
+      "entry_contract_ids": ["codec-cli"]
+    },
+    {
+      "id": "client-cli-app",
+      "kind": "client",
+      "protocol_role": "client",
+      "purpose": "Publish and subscribe through the frozen command-line contract.",
+      "entry_contract_ids": ["client-cli"]
+    },
+    {
+      "id": "broker-app",
+      "kind": "broker",
+      "protocol_role": "broker",
+      "purpose": "Serve bounded MQTT connections over IPv4 TCP.",
+      "entry_contract_ids": ["broker-process"]
+    }
+  ],
+  "naming": {
+    "identifier_case": "snake",
+    "file_case": "snake",
+    "public_include_prefix": "include/mqtt",
+    "symbol_prefix": "mqtt_",
+    "normalization": "ascii_lower"
+  },
+  "templates": [
+    {
+      "id": "mqtt-client-broker-layout",
+      "version": "1.0.0",
+      "path": "profiles/templates/mqtt-client-broker"
+    }
+  ],
+  "file_rules": [
+    {
+      "id": "build-file",
+      "path_template": "Makefile",
+      "expansion_source": "none",
+      "kind": "build",
+      "mutability": "s5_frozen",
+      "producer": "language_template"
+    },
+    {
+      "id": "readme",
+      "path_template": "README.md",
+      "expansion_source": "none",
+      "kind": "documentation",
+      "mutability": "s5_frozen",
+      "producer": "target_template",
+      "template_id": "mqtt-client-broker-layout"
+    },
+    {
+      "id": "types-header",
+      "path_template": "include/mqtt/mqtt_types.h",
+      "expansion_source": "none",
+      "kind": "public_header",
+      "mutability": "s5_frozen",
+      "producer": "mechanical_spec"
+    },
+    {
+      "id": "codec-header",
+      "path_template": "include/mqtt/mqtt_codec.h",
+      "expansion_source": "none",
+      "kind": "public_header",
+      "mutability": "s5_frozen",
+      "producer": "mechanical_spec"
+    },
+    {
+      "id": "session-header",
+      "path_template": "include/mqtt/mqtt_session.h",
+      "expansion_source": "none",
+      "kind": "internal_header",
+      "mutability": "s5_frozen",
+      "producer": "target_template",
+      "template_id": "mqtt-client-broker-layout"
+    },
+    {
+      "id": "net-header",
+      "path_template": "include/mqtt/mqtt_net.h",
+      "expansion_source": "none",
+      "kind": "internal_header",
+      "mutability": "s5_frozen",
+      "producer": "target_template",
+      "template_id": "mqtt-client-broker-layout"
+    },
+    {
+      "id": "message-codecs",
+      "path_template": "src/codec/codec_{id}.c",
+      "expansion_source": "spec_messages",
+      "kind": "source",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "session-source",
+      "path_template": "src/session/mqtt_session.c",
+      "expansion_source": "none",
+      "kind": "source",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "net-source",
+      "path_template": "src/net/mqtt_net.c",
+      "expansion_source": "none",
+      "kind": "source",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "broker-app",
+      "path_template": "apps/mqtt_broker_main.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "client-app",
+      "path_template": "apps/mqtt_client_cli.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    },
+    {
+      "id": "codec-app",
+      "path_template": "apps/mqtt_codec_cli.c",
+      "expansion_source": "none",
+      "kind": "app",
+      "mutability": "s6_owned",
+      "producer": "stub"
+    }
+  ],
+  "external_contracts": [
+    {
+      "id": "build-system",
+      "purpose": "Build all required targets and variants.",
+      "ready_gate": "s5",
+      "interface_files": ["Makefile"],
+      "entrypoints": [
+        {"id": "make-all", "kind": "build", "description": "Run the selected make variant."}
+      ]
+    },
+    {
+      "id": "codec-cli",
+      "purpose": "Encode and decode MQTT packets through the public CLI.",
+      "ready_gate": "task",
+      "interface_files": ["include/mqtt/mqtt_codec.h", "apps/mqtt_codec_cli.c"],
+      "entrypoints": [
+        {"id": "codec-command", "kind": "cli", "description": "Invoke encode or decode."}
+      ]
+    },
+    {
+      "id": "client-cli",
+      "purpose": "Publish or subscribe through the public client CLI.",
+      "ready_gate": "task",
+      "interface_files": ["apps/mqtt_client_cli.c"],
+      "entrypoints": [
+        {"id": "client-command", "kind": "cli", "description": "Invoke pub or sub."}
+      ]
+    },
+    {
+      "id": "broker-process",
+      "purpose": "Run one foreground MQTT broker process.",
+      "ready_gate": "task",
+      "interface_files": ["apps/mqtt_broker_main.c"],
+      "entrypoints": [
+        {"id": "broker-command", "kind": "network", "description": "Start the broker on a port."}
+      ]
+    }
+  ],
+  "internal_interface_slots": [
+    {
+      "id": "client-session",
+      "purpose": "Single-connection client protocol session API.",
+      "interface_files": ["include/mqtt/mqtt_session.h"],
+      "required": true,
+      "template_id": "mqtt-client-broker-layout"
+    },
+    {
+      "id": "broker-core",
+      "purpose": "Shared multi-connection broker core with stable connection identity.",
+      "interface_files": ["include/mqtt/mqtt_session.h"],
+      "required": true,
+      "template_id": "mqtt-client-broker-layout"
+    },
+    {
+      "id": "net-loop",
+      "purpose": "Connection lifecycle and targeted socket output boundary.",
+      "interface_files": ["include/mqtt/mqtt_net.h"],
+      "required": true,
+      "template_id": "mqtt-client-broker-layout"
+    }
+  ],
+  "resource_limits": [
+    {
+      "id": "connection-capacity",
+      "purpose": "Maximum simultaneously represented broker connections.",
+      "unit": "connections",
+      "maximum": 16,
+      "exhaustion_behavior": "resource_error"
+    },
+    {
+      "id": "fanout-target-capacity",
+      "purpose": "Maximum output targets produced by one broker event.",
+      "unit": "targets",
+      "maximum": 16,
+      "exhaustion_behavior": "resource_error"
+    },
+    {
+      "id": "out-item-byte-capacity",
+      "purpose": "Maximum bytes carried by one targeted output item.",
+      "unit": "bytes",
+      "maximum": 4096,
+      "exhaustion_behavior": "resource_error"
+    },
+    {
+      "id": "out-batch-byte-capacity",
+      "purpose": "Maximum aggregate bytes carried by one output batch.",
+      "unit": "bytes",
+      "maximum": 65536,
+      "exhaustion_behavior": "resource_error"
+    }
+  ],
+  "constraints": [
+    "Connection id zero is invalid; live connections use stable non-zero uint32 identifiers.",
+    "Every broker event starts with an empty output batch.",
+    "Capacity failure is atomic: return no partial outputs and never report success.",
+    "Oversized input or output returns MQTT_ERR_RESOURCE_LIMIT and closes its source connection.",
+    "The network layer routes output by conn_id and contains no subscription semantics."
+  ]
+}

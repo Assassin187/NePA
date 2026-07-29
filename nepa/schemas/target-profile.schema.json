@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/target-profile.schema.json",
+  "title": "NePA parsed Target Profile v1.0",
+  "description": "Active contract for inputs/target.json. It describes delivery shape, naming, template references, file slots, external contracts, and bounded resources. It MUST NOT contain protocol behavior.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "asset": { "$ref": "#/$defs/asset_identity" },
+    "source_ref": { "$ref": "#/$defs/artifact_ref" },
+    "deliverables": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/deliverable" }
+    },
+    "naming": { "$ref": "#/$defs/naming" },
+    "templates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/template_ref" }
+    },
+    "file_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/file_rule" }
+    },
+    "external_contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/external_contract" }
+    },
+    "internal_interface_slots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/internal_interface_slot" }
+    },
+    "resource_limits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource_limit" }
+    },
+    "constraints": {
+      "description": "Delivery-only constraints. Protocol state transitions and wire behavior are forbidden here.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "required": [
+    "schema_version",
+    "asset",
+    "source_ref",
+    "deliverables",
+    "naming",
+    "templates",
+    "file_rules",
+    "external_contracts",
+    "internal_interface_slots",
+    "resource_limits",
+    "constraints"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "generic_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "safe_relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "asset_identity": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "version": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "version", "description"],
+      "additionalProperties": false
+    },
+    "artifact_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "deliverable": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": {
+          "enum": ["library", "client", "server", "broker", "proxy", "cli", "adapter"]
+        },
+        "protocol_role": { "$ref": "#/$defs/generic_id" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "entry_contract_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        }
+      },
+      "required": ["id", "kind", "protocol_role", "purpose", "entry_contract_ids"],
+      "additionalProperties": false
+    },
+    "naming": {
+      "type": "object",
+      "properties": {
+        "identifier_case": { "enum": ["snake", "camel", "pascal", "kebab"] },
+        "file_case": { "enum": ["snake", "kebab", "preserve"] },
+        "public_include_prefix": { "type": "string" },
+        "symbol_prefix": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "normalization": {
+          "enum": ["ascii_lower", "ascii_upper", "preserve"]
+        }
+      },
+      "required": [
+        "identifier_case",
+        "file_case",
+        "public_include_prefix",
+        "symbol_prefix",
+        "normalization"
+      ],
+      "additionalProperties": false
+    },
+    "template_ref": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "version": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["id", "version", "path", "sha256"],
+      "additionalProperties": false
+    },
+    "file_rule": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "path_template": { "$ref": "#/$defs/safe_relative_path" },
+        "expansion_source": {
+          "enum": [
+            "none",
+            "spec_messages",
+            "spec_roles",
+            "deliverables",
+            "internal_interface_slots"
+          ]
+        },
+        "kind": {
+          "enum": ["build", "documentation", "public_header", "internal_header", "source", "app"]
+        },
+        "mutability": { "enum": ["s5_frozen", "s6_owned"] },
+        "producer": {
+          "enum": ["target_template", "language_template", "mechanical_spec", "stub"]
+        },
+        "template_id": { "$ref": "#/$defs/generic_id" }
+      },
+      "required": [
+        "id",
+        "path_template",
+        "expansion_source",
+        "kind",
+        "mutability",
+        "producer"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "producer": { "const": "target_template" } },
+            "required": ["producer"]
+          },
+          "then": { "required": ["template_id"] },
+          "else": { "not": { "required": ["template_id"] } }
+        }
+      ]
+    },
+    "entrypoint": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["build", "executable", "cli", "network", "library"] },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "kind", "description"],
+      "additionalProperties": false
+    },
+    "external_contract": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "ready_gate": { "enum": ["s5", "task"] },
+        "interface_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safe_relative_path" }
+        },
+        "entrypoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/entrypoint" }
+        }
+      },
+      "required": ["id", "purpose", "ready_gate", "interface_files", "entrypoints"],
+      "additionalProperties": false
+    },
+    "internal_interface_slot": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "interface_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safe_relative_path" }
+        },
+        "required": { "type": "boolean" },
+        "template_id": { "$ref": "#/$defs/generic_id" }
+      },
+      "required": ["id", "purpose", "interface_files", "required", "template_id"],
+      "additionalProperties": false
+    },
+    "resource_limit": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "maximum": { "type": "integer", "minimum": 1 },
+        "exhaustion_behavior": {
+          "enum": ["resource_error", "backpressure", "drain_batches"]
+        }
+      },
+      "required": ["id", "purpose", "unit", "maximum", "exhaustion_behavior"],
+      "additionalProperties": false
+    }
+  }
+}

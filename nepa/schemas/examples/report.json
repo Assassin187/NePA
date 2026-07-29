@@ -1,73 +1,331 @@
 {
-  "schema_version": "1.0",
-  "conclusion": {
-    "outcome": "success",
-    "summary": "M0 子集全部 MUST 需求测试通过，1 轮修复后收敛"
+  "schema_version": "2.0",
+  "run_id": "20260728T1200Z_sample_spec-run",
+  "entry": "spec-run",
+  "termination_kind": "controlled_exit",
+  "outcome": "failed",
+  "summary": "S4 could not seal a valid plan; later artifacts were not produced.",
+  "termination_reason": {
+    "code": "PLAN_NOT_SEALED",
+    "detail": "S4 exhausted its repair budget before publishing plan/plan.json."
   },
-  "req_coverage": [
-    {
-      "req_id": "REQ-FRAME-001",
-      "level": "MUST",
-      "spec_status": "covered",
-      "task_ids": ["T-001"],
-      "code_status": "done",
-      "test_status": "pass"
+  "frozen_inputs": {
+    "spec": {
+      "path": "golds/sample/spec/spec.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
-    {
-      "req_id": "REQ-CONNECT-002",
-      "level": "MUST",
-      "spec_status": "covered",
-      "task_ids": ["T-001", "T-002"],
-      "code_status": "done",
-      "test_status": "pass"
+    "target_profile": {
+      "id": "sample-target",
+      "version": "1.0",
+      "path": "inputs/target.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "language_profile": {
+      "id": "sample-language",
+      "version": "1.0",
+      "path": "inputs/language.json",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "test_bundle": {
+      "id": "sample-tests",
+      "version": "1.0",
+      "path": "inputs/test_bundle.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
-  ],
+  },
+  "artifact_availability": {
+    "run": {
+      "status": "available",
+      "evidence": {
+        "path": "run.json",
+        "run_id": "20260728T1200Z_sample_spec-run"
+      }
+    },
+    "spec": {
+      "status": "available",
+      "evidence": {
+        "path": "spec/spec.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "plan": {
+      "status": "unavailable",
+      "reason": {
+        "code": "PLAN_NOT_SEALED",
+        "detail": "S4 exhausted its repair budget before publishing plan/plan.json."
+      }
+    },
+    "plan_state": {
+      "status": "not_run",
+      "reason": {
+        "code": "UPSTREAM_PLAN_UNAVAILABLE",
+        "detail": "S6 admission did not run because no sealed Plan exists."
+      }
+    },
+    "artifact_manifest": {
+      "status": "not_run",
+      "reason": {
+        "code": "UPSTREAM_PLAN_UNAVAILABLE",
+        "detail": "S5 did not run because no sealed Plan exists."
+      }
+    },
+    "contract_map": {
+      "status": "not_run",
+      "reason": {
+        "code": "UPSTREAM_PLAN_UNAVAILABLE",
+        "detail": "S5 did not run because no sealed Plan exists."
+      }
+    },
+    "workspace": {
+      "status": "not_run",
+      "reason": {
+        "code": "UPSTREAM_PLAN_UNAVAILABLE",
+        "detail": "No generated workspace commit was produced."
+      }
+    },
+    "test_results": {
+      "status": "not_run",
+      "reason": {
+        "code": "STAGE_NOT_RUN",
+        "detail": "No test stage was reached."
+      }
+    },
+    "repair_log": {
+      "status": "not_run",
+      "reason": {
+        "code": "STAGE_NOT_RUN",
+        "detail": "No repair stage was reached."
+      }
+    }
+  },
+  "req_coverage": {
+    "status": "unavailable",
+    "value": null,
+    "reason": {
+      "code": "PLAN_NOT_SEALED",
+      "detail": "Requirement ownership cannot be computed without a sealed Plan."
+    }
+  },
   "test_final": {
-    "passed": 42,
-    "failed": 0,
-    "skipped": 2,
-    "errors": 0,
-    "failures": []
+    "status": "not_run",
+    "value": null,
+    "reason": {
+      "code": "STAGE_NOT_RUN",
+      "detail": "No accepted terminal test round exists."
+    }
   },
   "process_stats": {
     "stage_duration_s": {
-      "s3": 65.0,
-      "s4": 170.0,
-      "s5": 90.0,
-      "s6": 2550.0,
-      "s7": 480.0,
-      "s8": 300.0,
-      "s9": 60.0
-    },
-    "llm_usage": [
-      {
-        "role": "planner",
-        "model": "provider/model-large",
-        "tokens_in": 52000,
-        "tokens_out": 9800,
-        "cost_usd": 0.62
-      },
-      {
-        "role": "coder",
-        "model": "provider/model-mid",
-        "tokens_in": 610000,
-        "tokens_out": 152000,
-        "cost_usd": 2.9
+      "status": "available",
+      "value": {
+        "s4": 12.5
       }
-    ],
+    },
+    "llm_usage": {
+      "status": "available",
+      "value": [
+        {
+          "stage": "s4",
+          "role": "architecture_planner",
+          "model": "provider/model",
+          "tokens_in": 1000,
+          "tokens_out": 250,
+          "cost_usd": 0.02
+        }
+      ]
+    },
     "repair": {
-      "rounds_used": 1,
-      "failures_by_round": [1, 0],
-      "converged": true
+      "status": "not_run",
+      "value": null,
+      "reason": {
+        "code": "STAGE_NOT_RUN",
+        "detail": "S8 repair did not run."
+      }
+    }
+  },
+  "metrics": {
+    "build_ok": {
+      "status": "not_run",
+      "value": null,
+      "reason": {
+        "code": "STAGE_NOT_RUN",
+        "detail": "No build was attempted."
+      }
+    },
+    "task_completion_rate": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "PLAN_STATE_UNAVAILABLE",
+        "detail": "Task execution state was not initialized."
+      }
+    },
+    "first_pass_rate": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "PLAN_STATE_UNAVAILABLE",
+        "detail": "Task attempts were not recorded."
+      }
+    },
+    "test_pass_rate": {
+      "l0": {
+        "status": "not_run",
+        "value": null,
+        "reason": {
+          "code": "STAGE_NOT_RUN",
+          "detail": "L0 tests did not run."
+        }
+      },
+      "l1": {
+        "status": "not_run",
+        "value": null,
+        "reason": {
+          "code": "STAGE_NOT_RUN",
+          "detail": "L1 tests did not run."
+        }
+      },
+      "l2": {
+        "status": "not_run",
+        "value": null,
+        "reason": {
+          "code": "STAGE_NOT_RUN",
+          "detail": "L2 tests did not run."
+        }
+      },
+      "l3": {
+        "status": "not_run",
+        "value": null,
+        "reason": {
+          "code": "STAGE_NOT_RUN",
+          "detail": "L3 tests did not run."
+        }
+      }
+    },
+    "req_pass_rate": {
+      "all": {
+        "status": "unavailable",
+        "value": null,
+        "reason": {
+          "code": "TEST_RESULTS_UNAVAILABLE",
+          "detail": "No requirement-level test results exist."
+        }
+      },
+      "must": {
+        "status": "unavailable",
+        "value": null,
+        "reason": {
+          "code": "TEST_RESULTS_UNAVAILABLE",
+          "detail": "No MUST requirement test results exist."
+        }
+      }
+    },
+    "cost": {
+      "total_usd": {
+        "status": "available",
+        "value": 0.02
+      },
+      "by_stage": {
+        "status": "available",
+        "value": [
+          {
+            "key": "s4",
+            "tokens_in": 1000,
+            "tokens_out": 250,
+            "cost_usd": 0.02
+          }
+        ]
+      },
+      "by_role": {
+        "status": "available",
+        "value": [
+          {
+            "key": "architecture_planner",
+            "tokens_in": 1000,
+            "tokens_out": 250,
+            "cost_usd": 0.02
+          }
+        ]
+      },
+      "by_tier": {
+        "status": "unavailable",
+        "value": null,
+        "reason": {
+          "code": "TRACE_TIER_UNAVAILABLE",
+          "detail": "The recorded call did not carry a resolved tier."
+        }
+      }
+    },
+    "cost_per_req_passed": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "REQ_RESULTS_UNAVAILABLE",
+        "detail": "No passed requirement denominator exists."
+      }
+    },
+    "escalation_rate": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "PLAN_STATE_UNAVAILABLE",
+        "detail": "No task or repair attempts exist."
+      }
+    },
+    "validation_repair_rate": {
+      "status": "available",
+      "value": 0
+    },
+    "planning": {
+      "status": "available",
+      "value": {
+        "calls": 1,
+        "cost_usd": 0.02,
+        "first_lint_pass": false,
+        "critic_issue_count": 0,
+        "repair_count": 0
+      }
     }
   },
   "assumptions_and_defects": {
-    "assumptions": ["client_id 仅含字母数字（spec 约束 charset 0-9a-zA-Z）"],
-    "known_defects": []
+    "status": "unavailable",
+    "value": null,
+    "reason": {
+      "code": "PLAN_NOT_SEALED",
+      "detail": "Formal architecture assumptions and review defects are unavailable."
+    }
   },
   "reproducibility": {
-    "config_snapshot_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    "git_commit": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
-    "model_versions": ["provider/model-large-2026-05-01", "provider/model-mid-2026-04-15"]
+    "config_snapshot_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "plan_sha256": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "PLAN_NOT_SEALED",
+        "detail": "No immutable Plan hash exists."
+      }
+    },
+    "delivery_blueprint_sha256": {
+      "status": "unavailable",
+      "value": null,
+      "reason": {
+        "code": "PLAN_NOT_SEALED",
+        "detail": "No sealed Delivery Blueprint hash exists."
+      }
+    },
+    "git_commit": {
+      "status": "not_run",
+      "value": null,
+      "reason": {
+        "code": "STAGE_NOT_RUN",
+        "detail": "No workspace commit was created."
+      }
+    },
+    "model_versions": {
+      "status": "available",
+      "value": [
+        "provider/model"
+      ]
+    }
   }
 }

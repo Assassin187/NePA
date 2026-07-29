@@ -1,9 +1,9 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：0.5.2\
-> 最后更新：2026\-07\-28\
-> 修订说明：v0.5.2 在完整 Plan Compiler 前增加 ArchitecturePlanner/ARCH\_VALIDATE bring\-up spike，并把架构提示词与架构修复预算冻结改为数据驱动前置门；同时记录 provider 可能不支持或忽略 temperature 的能力边界。v0.5.1 的 prompt 中立/O\-18 与 v0.5.0 的分层 S4 设计保持不变。修订历史见 12.4。
+> 设计版本：0.5.12\
+> 最后更新：2026\-07\-29\
+> 修订说明：v0.5.12 关闭 O\-18 并回填胜出 ABI，明确 round WAL 不一致的隔离继续语义、Test Summary 单一发布路径及 S6 子集交付；同时收口仓库现状。修订历史见 12.4。
 
 ## 0\. 阅读指南
 
@@ -366,6 +366,8 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 | S7/S8 | 全局修复轮数                  | ≤ 3 轮；一轮只选择一个失败簇、至多一个 commit | 快验拒绝也消耗一轮；预算尽则跳转 S9 |
 | S7/S8 | 收敛判据                      | 每个已 commit 的全量回归轮失败测试数必须严格递减 | 不递减即回滚该 commit 并停止修复（防振荡） |
 
+全局墙钟采用**跨 resume 累计的活跃 controller 运行时间**，不是 `created_at` 到当前时刻的绝对差。每次 controller 进程以 monotonic clock 计量本会话，在阶段/外部调用边界和正常退出前把增量原子累加到 `run.json.budget_used.wall_clock_s`；resume 从该持久值继续新会话。进程未运行、等待人工审阅及两次 resume 之间的离线时间均不计入预算。外部调用开始前先检查既有预算，调用完成后必须在同一次预算检查中登记该活跃时间及实际新增成本/token；缓存重放的 provider 成本/token 增量为 0，但本地活跃时间照常累计。
+
 这里的“每工作包重做”覆盖 Schema 修复成功之后由 shard 自身问题或 Critic 局部 issue 触发的全部语义重展开；Provider 层统一的一次结构化输出 Schema 修复按 8.4 单独计数，不重复消耗该额度。
 
 S4 三项候选值在 M1\-4a 前**不是已验证默认值**。必须先按 6.4.8 在 gold spec 上测量 ArchitecturePlanner 的逐门/联合首次通过率及一次架构修复收益，再由项目负责人冻结提示词版本与 `plan_architecture_repairs`，并为 `plan_global_replans` 记录进入 M1\-4c 的暂定政策上限；后者无法由不含 Critic 的 spike 直接验证。TaskPlanner/PlanCritic 预算也可先保留候选值，但所有完整链预算仍须由 D1.3 实测复核后成为正式默认值。预算调整不得用来掩盖系统性 prompt/Schema 缺陷，冻结后生产运行仍按受控失败诚实退出。
@@ -374,11 +376,16 @@ S4 三项候选值在 M1\-4a 前**不是已验证默认值**。必须先按 6.4.
 
 用户显式 `--until <stage>` 是唯一不走 S9 的正常半程出口：完成目标阶段后写 `termination_kind=planned_stop`、退出码 0，不写三值 outcome。它不属于预算/错误受控出口，只供里程碑明确定义的半程验收使用：M1 的正常终点是 spec\-run `--until s6`，M3 的前半程评估是 doc\-run `--until s3`；其他目标阶段必须由对应里程碑另行声明。
 
+受控出口决定必须先以 Run v2 `termination_request` 原子持久化，再进入 S9。其 `kind` 固定为 `controlled_exit`，`stage ∈ {s1..s8}`，reason 复用 5.4 的开放机器码结构。`stages[termination_request.stage].status` 必须为 `failed`（阶段内触发）或 `pending`（进入阶段前预算已耗尽）；done/running/skipped 均是工件损坏。S9 是受控出口必经的确定性 producer，入口及执行后预算同步一律 `enforce=false`，不得因已耗尽预算再次抛错。`controlled_exit` 必须携带 request，且 outcome 只能 degraded/failed；completed/planned\_stop 禁止 request；internal\_error 可有可无，以保留“S9 原本在处理何种受控出口”的审计证据。
+
+`--until` 不使用 `termination_request`。CLI 合并后的值必须持久化到 `config_snapshot.run.until` 并被 `config_snapshot_sha256` 封存；resume 在目标阶段已 done、planned\_stop 尚未 finalize 的窗口中，必须从该冻结值重推停止，禁止继续进入下一阶段。
+
 ### 4\.8 断点恢复与幂等
 
 - `run.json` 维护阶段状态机：`pending / running / done / failed / skipped`；每项可带 `output_refs`，以 `{path, sha256}` 或阶段专用 receipt 锚定输出。每次状态变更用"写临时文件 \+ 原子改名"落盘。
 - 阶段完成的判定 \= 输出工件存在、通过对应 Schema/完整性校验，且与 `output_refs` 一致，而非仅有状态标记。
 - `nepa resume <run_id>` 从第一个未完成阶段续跑。S4 只复用 Schema 合法且父输入哈希匹配的 `_s4` 架构/工作包检查点；正式 Plan 已发布后重跑 S4 是无害空操作。
+- resume 在确认原 controller 进程不再活跃后，先把所有遗留 `running` 阶段原子改为 `failed`，`error="process crashed mid-stage"`，且不得因此新增 `termination_request`；随后普通阶段按 failed→running 重试。若已有 request 且尚无 `termination_kind`，则跳过全部非 S9 阶段：S9 receipt/Schema/工件完整则直接 finalize，否则把 orphaned `s9=running` 依同一规则转 failed 后，以 failed→running 重跑 S9。若 `s9=done` 但 receipt、Report Schema、文件哈希或 request 交叉绑定任一校验失败，则视为终态工件损坏并 finalize 为 `internal_error`，保留 request；`done` 仍是终态，禁止为修复该损坏开放 done→running。
 - S4 seal 的同一次 `run.json` 原子更新必须写入正式 Plan 与 Blueprint 的 hash；S5 完成时同样锚定 artifact manifest、contract map、S5 summary 与 workspace 首提交；S6 完成时锚定包含证据内容哈希的 Plan State 与 workspace HEAD。后续阶段先核对这些独立锚点，禁止只比较多个工件中可一起被篡改的内嵌字段。
 - S6 以任务为恢复粒度，依据 `plan_state.json`、任务验收证据与 workspace git 提交对账，**禁止**从 Plan 推断运行状态。成功路径固定为"验收证据落盘 → 带任务 id trailer 的 git commit → 原子写 `plan_state` 的 done/commit\_sha"；若崩溃发生在 commit 后、state 前，resume 可凭有效提交与证据前向补记，反向出现 state=done 但提交缺失则视为工件损坏并受控失败。resume 先 reconciliation、后 clean gate，不能用“工作区必须先干净”阻断恢复。
 - 所有 Stage 控制器**必须**幂等：重复执行已完成阶段是无害的空操作。
@@ -407,6 +414,8 @@ v1 为线性流水线；以下扩展点在架构上预留接口，未来按需�
 - 所有 `id` 类字段：小写字母数字与连字符/下划线，全局唯一性由校验器检查。
 - 所有工件顶层**必须**带 `schema_version` 字段（语义化版本），消费者按主版本兼容。
 - 校验分两级：**结构校验**（JSON Schema draft 2020\-12）与**引用完整性校验**（自研 `spec_lint` 工具，见本章各节"校验规则"）。
+- `{path, sha256}` 中的 `sha256` 一律对 `path` 所指文件的**原始字节**计算；目录树按 5.3 单独定义的树算法计算。Canonical SHA\-256 只用于内存 JSON 对象：唯一编码为 `json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")`，不带尾随换行，再对该字节串取 SHA\-256。输入必须递归拒绝非 `str` 的 object key；`int` 原样，`float` 使用 CPython shortest\-repr，NaN/Infinity 拒绝。该算法只承诺本项目的单 Python 实现可复现，不采用 RFC 8785/JCS，也不承诺跨语言字节一致；若未来需要跨语言验证，必须按开放问题和工件主版本迁移处理。
+- NePA 自产且需要 canonical 锚定的 JSON 工件（包括解析后的 `inputs/*.json` 与正式 `plan.json`）发布时直接写上述 canonical 字节，使文件原始字节 SHA\-256 与对象 canonical SHA\-256 重合。`run.json` 等可变人读状态可继续缩进并带尾随换行，其 `{path, sha256}` 按落盘原始字节计算，而 `config_snapshot_sha256` 只哈希内存中的 `config_snapshot` 对象。
 
 ### 5\.1 Spec IR：specs\-requirements.schema.json
 
@@ -736,6 +745,16 @@ Spec 中每条 requirement 恰有一行；`DEFINITION` 行的 primary 工作包/
 
 状态枚举为 `pending / in_progress / done / blocked / blocked_by_dependency`。初始化时 task id 集合必须与 Plan 完全相等，全部为 `pending/0/""`；不得有缺失或多余 id。`attempts` 是已**开始**的持久化尝试数，resume 不得重置；令 `t2_limit = config_snapshot.budgets.task_fix_attempts`、`total_limit = t2_limit + 1`，合法范围为 `0..total_limit`，前 `t2_limit` 次使用 T2，最后一次使用 T1（默认 3\+1）。`done` 必须同时具有有效 `commit_sha` 与满足 Plan acceptance 的证据引用。
 
+各状态的字段条件表如下；Schema 与 snapshot lint 必须同时锁定，不允许 producer 留下含糊中间态：
+
+| 状态 | `attempts` | `notes` | `commit_sha` / evidence | `last_error` |
+| --- | --- | --- | --- | --- |
+| `pending` | `0` | 必须为空 | 必须均为 `null` | 必须为 `null` |
+| `in_progress` | `1..total_limit` | 可记录内容 | 必须均为 `null` | 必须为 `null`；开始下一次 attempt 时清空上一错误 |
+| `done` | `1..total_limit` | 可记录内容 | commit 与 evidence 均必填 | 必须为 `null` |
+| `blocked` | 必须等于 `total_limit` | 可记录内容 | 必须均为 `null` | 必填非空错误 |
+| `blocked_by_dependency` | `0` | 必须为空 | 必须均为 `null` | 必填非空错误 |
+
 统一状态 API 只允许以下迁移：
 
 - `pending → in_progress`；
@@ -744,7 +763,17 @@ Spec 中每条 requirement 恰有一行；`DEFINITION` 行的 primary 工作包/
 - resume reconciliation 可在 commit 与证据均有效时把 `in_progress → done` 前向补记；
 - `done / blocked / blocked_by_dependency` 在 S6 内均为终态，不允许回退或改写。
 
-每次迁移先由 API 校验旧/新状态及事件，再以"临时文件 \+ fsync \+ 原子改名"落盘。
+迁移事件固定为五种判别类型，调用方不得提交任意 `new` task state：
+
+| event | 合法迁移 | 关键约束 |
+| --- | --- | --- |
+| `attempt_started` | `pending/in_progress → in_progress` | attempts 严格加一；重试事件携带上一 attempt 错误用于事件审计，新状态清空 `last_error` |
+| `attempt_succeeded` | `in_progress → done` | 携带 commit、当前 attempt 的 evidence ref 与 notes |
+| `attempts_exhausted` | `in_progress → blocked` | 仅当 attempts 已等于 `total_limit`，携带非空最终错误 |
+| `dependency_blocked` | `pending → blocked_by_dependency` | API 从 Plan `depends_on` 与完整当前 State 证明至少一个依赖已阻塞，禁止相信调用方自报 dependency id |
+| `reconciled_commit` | `in_progress → done` | 只接受 execution reconciliation 生成且 task/attempt/commit/evidence 完整匹配的类型化 proof |
+
+原子更新 API 在持有 run 互斥锁的前提下从磁盘重新加载完整 State，先跑 snapshot lint，再由 event 确定性推导唯一新 task state，复跑 snapshot lint 后以"临时文件 \+ fsync \+ 原子改名"写回；禁止用调用方陈旧的内存副本覆盖其他 task 已持久化的进展。
 
 #### 5\.2.5 校验与迁移
 
@@ -818,6 +847,10 @@ golds/mqtt-3.1.1-min/
 
 **测试轮次摘要 v2** `test_results/round_NNN/summary.json`：`schema_version: "2.0"`、全 run 唯一的 `round_id`、触发者（`s5_scaffold / s6_task / s7_full / s8_cluster / s8_regression`）、可选 `task_id/attempt/repair_id`、`workspace_head/workspace_tree`、`parent_round_id`、构建配置、每用例结果（`pass/fail/error/skipped` \+ 耗时 \+ 失败输出摘录）、按需求聚合的通过矩阵。`s8_cluster` 是 pre\-commit 簇快验，永不作为 terminal round。build\-only 的 S6 任务允许 `cases=[]`，但必须有成功构建记录；Plan 不允许空构建验收。禁用测试不伪装成 runtime `skipped`，而是在 coverage/report 中记为 disabled/not\_run；enabled 测试的动态 skipped 是未验证结果。每份摘要记录 `plan_sha256`、`delivery_blueprint_sha256`、`manifest_sha256` 与 `bundle_tree_sha256`；空用例和受控中止均有明确 Schema 表达，禁止靠字段缺失猜测。
 
+精确条件为：`s6_task` 必须且只能带 `task_id + attempt`；`s8_cluster/s8_regression` 必须且只能带 `repair_id`；其余 trigger 禁止这些 producer context 字段。`parent_round_id` 在首轮为 `null`，否则必须小于当前 `round_id`。`build_results[]` 至少一项且 `variant_id` 唯一，结果为 `pass/fail/error`；pass 强制 warnings/errors 均为 0 且无错误摘录，其他结果必须带非空摘录。`cases[].nodeid` 唯一，pass 禁止摘录，fail/error/skipped 必须带摘录；动态 skipped 仍进入执行计数。
+
+`req_matrix` 禁止调用方填写：producer 从 cases 的 `req_ids` 确定性重算，按 req id 与 nodeid 排序，聚合优先级固定为 `error > fail > skipped > pass`，因此只要任一关联测试未验证或失败就不能得到 pass。Test Summary producer 只构造和校验内存对象；最终 `round_NNN/summary.json` **只能**由 RoundStore 写入临时目录并走下述 WAL/index 协议发布，禁止存在绕过 WAL 的第二条最终路径。同一 pending round 的 canonical 字节完全相同时才允许恢复重放；裸目录存在本身不构成接受事实。
+
 `test_results/index.json` 是已接受轮次的权威索引；`test_results/pending_round.json` 是单写者发布 WAL，稳定状态下必须不存在。WAL 使用 `schema_version: "1.0"`，至少记录 `round_id/stage/trigger/producer_context`（task/attempt/repair 等）、`workspace_head/workspace_tree`、`parent_round_id`、临时/最终目录、`summary_ref/junit_ref?` 及其内容哈希。控制器持有同一把 round 锁时，必须先完成下述 WAL/orphan 对账，再以 `max(index.round_id, pending_round.round_id) + 1` 分配编号，避免未登记目录占用新编号；随后严格执行：
 
 1. 在同文件系统临时目录生成结果，校验 summary/junit 并计算内容哈希；
@@ -826,9 +859,11 @@ golds/mqtt-3.1.1-min/
 4. 原子更新 `index.json`，追加 `{round_id, trigger, workspace_head, parent_round_id, summary_ref, junit_ref?}` 并 `fsync`；
 5. 删除已完成的 `pending_round.json`，再次 `fsync test_results/`。
 
-resume 在同一锁内按 WAL 对账：WAL 指向的临时或最终目录只有在 stage/producer context、workspace HEAD/tree、parent round 与所有内容哈希完全匹配时才可继续改名或前向登记；index 已含完全相同条目时只清除 WAL；任一不符即隔离 WAL 与未登记目录，禁止接受。没有 WAL 的未登记临时/round 目录一律是 orphan，不能凭目录名、最大编号或 `stage_events.ndjson` 前向登记。S9 永不按“最大目录号”猜终态。无 S8 时，S7 receipt 封存 accepted terminal round；经过 S8 时由 S8 receipt 封存最终 accepted `s8_regression` round。S9/9.1 只认该条件分支的 terminal receipt。
+resume 在同一锁内按 WAL 对账：WAL 指向的临时或最终目录只有在 stage/producer context、workspace HEAD/tree、parent round 与所有内容哈希完全匹配时才可继续改名或前向登记；index 已含完全相同条目时只清除 WAL。若 index 尚未接受该 round，任一不符必须隔离 WAL 与未登记目录、禁止接受，并允许后续发布复用该连续编号；若 index 已有权威条目但其 final 工件损坏，则属于已接受证据损坏，保持 fail\-stop 并按 `internal_error` 处理，不得通过隔离偷偷改写权威历史。没有 WAL 的未登记临时/round 目录一律是 orphan，不能凭目录名、最大编号或 `stage_events.ndjson` 前向登记。S9 永不按“最大目录号”猜终态。无 S8 时，S7 receipt 封存 accepted terminal round；经过 S8 时由 S8 receipt 封存最终 accepted `s8_regression` round。S9/9.1 只认该条件分支的 terminal receipt。
 
-**Task evidence v1** 固定写到 `test_results/task_evidence/<task_id>/attempt_NNN.json`，至少包含 `schema_version: "1.0"`、`task_id`、`attempt`、`plan_sha256`、`workspace_tree`、`build_result_refs[]`、`test_summary_refs[]`；所有 refs 都带内容哈希。文件自身 canonical SHA\-256 同时进入 git trailer 与 Plan State 的 `task_evidence_ref`，形成 5.2.4 的 commit/state 恢复锚点。
+**Task evidence v1** 固定写到 `test_results/task_evidence/<task_id>/attempt_NNN.json`，闭合对象固定包含 `schema_version: "1.0"`、`task_id`、`attempt`、`plan_sha256`、`workspace_tree`、`build_result_refs[]`、`test_summary_refs[]`；所有 refs 都带内容哈希。`build_result_refs` 至少一项；build\-only task 的 `test_summary_refs` 允许为空。producer 必须先校验所有来源 ref 的文件原始字节哈希，再以项目 canonical JSON 字节不可变发布；同路径重复发布只有字节完全相同才是幂等，否则视为工件冲突。文件自身 canonical SHA\-256 同时进入 git trailer 与 Plan State 的 `task_evidence_ref`，形成 5.2.4 的 commit/state 恢复锚点。
+
+Task commit 采用严格两阶段：先对白名单变更 stage 并以 `git write-tree` 封存待提交 tree；随后发布绑定该 tree 的 Task Evidence；最后仅在 staged tree 与工作树均未变化时提交，并写入恰一份 `NePA-Task`、`NePA-Attempt`、`NePA-Evidence-SHA256` trailer。reconciliation 联合验证 commit tree、三项 trailer、evidence 自身 canonical hash、task/attempt/Plan/tree 字段及其所有来源 refs 后，才可构造 5.2.4 的类型化 proof；普通调用方不能直接构造 proof。
 
 **修复日志 v2** `repair/repair_log.json` 是每次 S8 修复轮的原子索引，一轮恰有一条。公共字段至少包含 `repair_id`、`repair_round`、失败聚类签名与连续未消除次数、`round_start_ref`、`round_start_sha`、`parent_sha`、诊断结论、目标文件/diff 摘要、簇快验 summary ref、状态与消耗；`status ∈ {rejected_quick_test, committed_pending_regression, accepted, rolled_back}`。`rejected_quick_test` 必须没有 `commit_sha/repair_evidence_ref/regression_summary_ref`，并证明 HEAD/工作树已恢复到 `parent_sha`；其余三态必须带 `commit_sha` 与不可变 `repair_evidence_ref`，有全量回归后还必须带 regression summary ref。
 
@@ -836,7 +871,7 @@ resume 在同一锁内按 WAL 对账：WAL 指向的临时或最终目录只有�
 
 **证据报告 v2** `report/report.json`（`schema_version: "2.0"`，机器）\+ `report.md`（人读）**必须**包含：
 
-1. 工件可用性与结论：`artifact_availability` 逐项记录 `available/invalid/unavailable/not_run` 及原因；流程报告写 `termination_kind ∈ {completed, controlled_exit}`、`outcome ∈ {success, degraded, failed}` 与一句话摘要；
+1. 工件可用性与结论：`artifact_availability` 逐项记录 `available/invalid/unavailable/not_run` 及原因；流程报告写 `termination_kind ∈ {completed, controlled_exit}`、`outcome ∈ {success, degraded, failed}`、机器可读 `termination_reason` 与一句话摘要；
 2. 需求覆盖矩阵：每条 REQ 的规格覆盖、代码任务、测试结果三列状态；
 3. 测试终态：`pass/fail/error/skipped` 四项执行计数及失败/错误/动态跳过清单；配置禁用的测试另记 `disabled/not_run`，不得并入上述执行计数；
 4. 过程统计：各阶段耗时、各角色/模型 token 与成本、修复轮次与收敛曲线；
@@ -845,6 +880,10 @@ resume 在同一锁内按 WAL 对账：WAL 指向的临时或最终目录只有�
 
 S9 的报告 Schema 必须支持受控早退：Plan 未 seal 时，覆盖/代码/测试字段标为 `unavailable/not_run`；Plan 已 seal 但 Plan State 或测试尚未产生时，使用静态 coverage 并把执行状态标为 `not_started/unavailable`。任何依赖缺失工件的数值指标写 `null` 并附机器可读 reason，**不得**以 0 冒充测量结果。`internal_error` 诊断包不属于本三值流程报告。
 
+Report v2 中所有上述条件值统一使用 availability envelope。可用值严格为 `{"status":"available","value":<非 null 值>}` 且禁止 `reason`；不可用值严格为 `{"status":"invalid|unavailable|not_run","value":null,"reason":{"code":"<机器码>","detail":"<说明>"}}`。`reason.code` 匹配 `^[A-Z][A-Z0-9_]*$`，保持开放代码空间以免每增加一种受控原因就修改 Schema；producer 仍必须用稳定常量而非任意自然语言充当 code。该 envelope 用于 `req_coverage`、`test_final`、假设/缺陷及所有依赖条件工件的数值/布尔/列表指标。`artifact_availability` 自身逐工件保存 `{status, evidence?, reason?}`，不再嵌套 `value`：available 禁止 reason，其他三态 reason 必填。
+
+`reason` 是 Run/Report 共用值对象，不允许各模块各自定义近似规则。`termination_request.reason` 是受控退出原因的唯一写入点；Report v2 `termination_reason` 必须直接复制并逐字段等于它，S9 禁止根据当前工件再次推断一个新原因。
+
 Report v2 的完整条件化 Schema 在 M1\-1 一次定义并支持上述全部分支；M1 先实现 S4～S6 受控早退的最小确定性 producer，M2\-5 再填充终态测试/修复/覆盖数据和 report.md，不在 M2 临时改变 v2 字段语义。
 
 ### 5\.5 Trace 与证据链
@@ -852,7 +891,7 @@ Report v2 的完整条件化 Schema 在 M1\-1 一次定义并支持上述全部�
 `trace/llm_calls.ndjson` 每行一条：
 
 ```json
-{"ts": "2026-07-26T14:35:02Z", "run_id": "...", "stage": "S6", "agent_role": "coder",
+{"ts": "2026-07-26T14:35:02Z", "run_id": "...", "stage": "S6", "agent_role": "coder", "tier": "T2",
  "task_id": "T-012", "attempt": 1, "model": "<provider>/<model>",
  "params_requested": {"temperature": 0.1},
  "parameter_support": {"temperature": "unknown"},
@@ -861,7 +900,7 @@ Report v2 的完整条件化 Schema 在 M1\-1 一次定义并支持上述全部�
  "cost_usd": 0.031, "latency_ms": 12873, "validation": "pass"}
 ```
 
-规则：提示词与输出全文落盘（引用路径），trace 行只存哈希与元数据；`validation ∈ {pass, repaired, fail}` 记录 Schema 校验结果（P8）；`params_requested` 记录客户端请求值，`parameter_support` 对每个可能被 provider 忽略的参数记录 `reported_applied/reported_ignored/unknown`，未知不得写成已生效；`stage_events.ndjson` 记录阶段启停、预算消耗快照、受控失败事件。S4 调用额外记录 `compiler_phase`、可选 `work_package_id`、直接父工件哈希、`finish_reason` 与是否命中局部/全局修复预算。trace \+ 工件 \+ git 历史共同构成 M4 要求的"证据"。
+规则：提示词与输出全文落盘（引用路径），trace 行只存哈希与元数据；`tier` 记录本次调用实际解析档位，供成本按档位归因，升级调用不得回填默认档位；`validation ∈ {pass, repaired, fail}` 记录 Schema 校验结果（P8）；`params_requested` 记录客户端请求值，`parameter_support` 对每个可能被 provider 忽略的参数记录 `reported_applied/reported_ignored/unknown`，未知不得写成已生效；`stage_events.ndjson` 记录阶段启停、预算消耗快照、受控失败事件。S4 调用额外记录 `compiler_phase`、可选 `work_package_id`、直接父工件哈希、`finish_reason` 与是否命中局部/全局修复预算。trace \+ 工件 \+ git 历史共同构成 M4 要求的"证据"。
 
 ### 5\.6 其他工件结构
 
@@ -886,15 +925,22 @@ Report v2 的完整条件化 Schema 在 M1\-1 一次定义并支持上述全部�
 | `run_id`          | string | 是   | 与运行目录名一致（4.4）                                      |
 | `entry`           | enum   | 是   | `spec-run` / `doc-run`                                       |
 | `created_at`      | string | 是   | UTC ISO8601                                                  |
-| `inputs`          | object | 是   | `spec_path` 或 `doc_path`、`scope_path`（doc\-run），以及解析后的 Target/Language/Test Bundle 标识、版本与 `sha256` |
+| `inputs`          | object | 是   | 嵌套引用；两种 entry 都必须含 `target_profile/language_profile/test_bundle`，spec\-run 另含且只含 `spec`，doc\-run 另含且只含 `doc/scope` |
 | `config_snapshot` | object | 是   | 解析后的完整配置，密钥只留环境变量名（8.3）                  |
 | `config_snapshot_sha256` | string | 是 | `config_snapshot` 的 canonical SHA\-256；S4 seal 绑定该值    |
 | `stages`          | object | 是   | 每阶段一项：`{status, started_at, ended_at, error, output_refs?}`；`output_refs` 用 `{path, sha256}`/receipt 独立锚定已发布输出（4.8） |
-| `budget_used`     | object | 是   | `wall_clock_s`、`cost_usd`、`tokens_in`、`tokens_out`（随运行原子更新） |
+| `budget_used`     | object | 是   | `wall_clock_s` 为跨 resume 累计活跃 controller 秒数；`cost_usd/tokens_in/tokens_out` 为真实 provider 新增消耗，缓存重放不重复计入；均随运行原子更新 |
 | `flags`           | object | 否   | `degraded_segmentation` 等运行标志                           |
+| `termination_request` | object | 条件 | 受控出口的唯一决定记录：`{kind:"controlled_exit", stage:s1..s8, requested_at, reason:{code,detail}}`；stage 状态必须 failed/pending |
 | `termination_kind` | enum  | 终态 | `completed / planned_stop / controlled_exit / internal_error` |
 | `outcome`         | enum   | 条件 | 仅 `completed/controlled_exit` 写 9\.1.2 三值；另两类不得伪造 outcome |
 | `exit_code`       | int    | 终态 | 8\.7 约定                                                    |
+
+`inputs.spec/doc/scope` 均为 `{path, sha256}`：`path` 是调用方给定的源文件路径，`sha256` 是该源文件原始字节哈希。三项资产引用均为 `{id, version, path, sha256}`：`id/version` 标识源资产；`path/sha256` 锚定本 run 内冻结的解析描述文件，路径分别固定为 `inputs/target.json`、`inputs/language.json`、`inputs/test_bundle.json`，源 Profile/Bundle 的外部来源引用保留在描述文件内部。`entry=spec-run` 必须有 `spec` 并禁止 `doc/scope`；`entry=doc-run` 必须同时有 `doc/scope` 并禁止 `spec`。这项根层条件由 Run v2 Schema 的 `if/then` 强制执行。
+
+`config_snapshot_sha256` 严格使用第 5 章通用约定中的 canonical JSON 算法对内存 `config_snapshot` 对象计算，不是 `run.json` 文件哈希。S4 seal 绑定该值；load/resume 必须重算并拒绝不一致。
+
+终态条件表：`controlled_exit` 必须有 `termination_request`、outcome 仅 degraded/failed、退出码仅 10/20；`completed/planned_stop` 禁止 request；`internal_error` 可与 request 共存；尚无 `termination_kind` 时 request 可有可无，以表达 crash-before-S9/finalize 的恢复窗口。Report v2 的 `termination_reason` 必须逐字段等于 `termination_request.reason`，S9 只引用该决定，禁止重新推断或改写原因。
 
 #### 5\.6.3 规格评审 spec/spec\_review.json
 
@@ -1208,7 +1254,7 @@ M1\-4a 的通过条件是 N \= 20 批次完整、报告可重算，并由项目�
 3. 把重算出的 constraints/blueprint 传给 stage full `plan_lint`；只有 full lint 0 error 后才允许第一个 workspace 副作用。
 4. S5 作为 scaffold **唯一生产阶段**，按 blueprint 物化所有目录、构建文件、`s5_frozen` 机械文件和 `s6_owned` 可构建存根。协议事实只从 Spec IR 读取，禁止重新决定 Plan 的架构、owner 或 contract。
 5. 确定性生成带 blueprint hash 的 `artifact_manifest.json` 与 `contract_map.json`：前者区分 `created_by_stage` 与 `owner_task_id`，后者物化全部 external/internal contract；所有 Test Manifest `required_contracts` 必须解析到公开入口。
-6. 默认资产组合通过冻结 Target Profile 引用的专属模板机械复现第 7.2/7.3 已裁决的 MQTT 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；通用 S5 代码不得按 MQTT 名称分支。7.3 规则 9 的 session/broker 内部 ABI 在 O\-18 裁决前不得写入模板或宣称冻结；`s5_frozen` 与 `s6_owned` 分类仍必须与 Plan 完全一致。
+6. 默认资产组合通过冻结 Target Profile 引用的专属模板机械复现第 7.2/7.3 已裁决的 MQTT 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；通用 S5 代码不得按 MQTT 名称分支。7.3 规则 9 的 session/broker 内部 ABI 已按 DEC\-22 冻结，S5 必须逐值核对模板、Target Profile resource limits 与 Blueprint contract；`s5_frozen` 与 `s6_owned` 分类仍必须与 Plan 完全一致。
 7. `git init`、首提交；在沙箱执行 Language Profile 默认构建，并运行所有启用的 `gate=s5` 测试，生成并按 5.4 登记 trigger=`s5_scaffold` 的 Test Summary v2。
 8. 重读并校验全部输出，最后原子把 S5 标为 done，同时在 `run.json.stages.s5.output_refs` 封存 artifact manifest、contract map、S5 summary 的 `{path, sha256}` 及 workspace 首提交 SHA。
 
@@ -1298,7 +1344,7 @@ Coder 的上下文按固定顺序组装，总量受 `coder_context_max_tokens`�
 
 #### 6\.6.3 输出契约
 
-Coder 输出 JSON：`{"micro_plan": ["..."], "files": [{"path": "...", "content": "完整文件内容"}], "notes": "假设与待办说明"}`。`micro_plan` 只描述本次 task 内部步骤并进入 trace，不是 Plan amendment。**必须**输出完整文件而非 diff——补丁应用的脆弱性是弱模型的高频失败模式，完整文件牺牲少量 token 换取确定性。`notes` 写入对应 Plan State 项，由 S9 汇入报告；任何试图修改宏计划的说明触发 `PLAN_INVALID_AT_EXECUTION`，不得只当普通 notes 忽略。
+Coder 输出 JSON：`{"micro_plan": ["..."], "files": [{"path": "...", "content": "完整文件内容"}], "notes": "假设与待办说明"}`。`files` 可以是 `task.deliverable_files` 的非空子集；白名单是本任务可修改上界，不要求从未创建或本次无需修改的路径必须出现。提交边界只暂存实际变更集，仍必须先证明该集合完全落在白名单内。`micro_plan` 只描述本次 task 内部步骤并进入 trace，不是 Plan amendment。**必须**输出完整文件而非 diff——补丁应用的脆弱性是弱模型的高频失败模式，完整文件牺牲少量 token 换取确定性。`notes` 写入对应 Plan State 项，由 S9 汇入报告；任何试图修改宏计划的说明触发 `PLAN_INVALID_AT_EXECUTION`，不得只当普通 notes 忽略。
 
 ### 6\.7 S7 集成与一致性测试
 
@@ -1374,7 +1420,7 @@ S8 可以读取 Plan State 判断相关任务是否曾完成，但禁止修改 P
 
 ## 7\. 生成代码的目标形态（MQTT 3.1.1 / C）
 
-本章是默认 MQTT client\+broker Target Profile、C99/POSIX Language Profile 与 MQTT Test Bundle 的实例约束，不是通用阶段中的协议判断条件。三类资产必须共同复现本章已裁决的约定；其中 7.4 的现有外部契约保持冻结，7.3 规则 9 的内部扇出 ABI 尚待 O\-18 裁决。
+本章是默认 MQTT client\+broker Target Profile、C99/POSIX Language Profile 与 MQTT Test Bundle 的实例约束，不是通用阶段中的协议判断条件。三类资产必须共同复现本章已裁决的约定；其中 7.4 的现有外部契约保持冻结，7.3 规则 9 的内部扇出 ABI 已按 DEC\-22 冻结并由 Target Profile/template 复现。
 
 ### 7\.1 M0 功能子集
 
@@ -1399,8 +1445,8 @@ workspace/
 ├── include/mqtt/
 │   ├── mqtt_types.h          # 机械派生：报文枚举、错误码、报文结构体（S5，非 LLM）
 │   ├── mqtt_codec.h          # 编解码接口声明（机械派生）
-│   ├── mqtt_session.h        # 状态机/broker core 接口槽位；ABI 待 O-18 裁决
-│   └── mqtt_net.h            # 套接字封装接口槽位；ABI 待 O-18 裁决
+│   ├── mqtt_session.h        # 冻结的 client session/shared broker core ABI
+│   └── mqtt_net.h            # 冻结的 conn_id 定向 batch 应用边界
 ├── src/
 │   ├── codec/                # 每报文一个文件：codec_connect.c、codec_publish.c …
 │   ├── session/              # per-connection 状态与共享 broker 订阅/转发 core
@@ -1452,14 +1498,12 @@ workspace/
 
 8. **风格**：4 空格缩进；函数 ≤ 80 行；文件 ≤ 400 行（与 5.2 任务粒度呼应）。
 
-9. **session/net 内部接口设计门（O\-18，M1\-5 前必须裁决）**：撤销旧的单输入/单输出固定签名，不得把它写入 S5 模板。旧设计既不能表达“每连接一个 session、broker 状态跨连接共享”，也不能表达“单 broker 实例接收带连接身份的输入并向多个连接路由输出”。裁决后的接口至少必须：
-   - 区分 per\-connection client/session 状态与跨连接共享的 broker core/订阅状态，不强迫两种角色共用同一上下文类型；
-   - 给 broker 输入携带稳定 `conn_id`，输出使用有界 `out_batch`，每项至少含 `{conn_id, bytes, close}`，从而表达一次 PUBLISH 向多个订阅者扇出；
-   - 让 broker core 接收连接建立/断开与 tick 事件：断开时可确定性清理该连接的订阅，单次 tick 可为多个超时连接产生带目标的 close 输出；
-   - 为单次扇出的目标数 `K`、单项字节数及批次总字节数设置由 Target Profile 冻结的显式常量上界，并定义达到上界时的确定性行为（分批 drain、背压或资源错误），禁止截断后伪装成功；
-   - 保持 net 层只负责连接生命周期、事件循环与按目标写 socket；协议状态和订阅/路由语义留在 broker core。
-
-建议默认方向是分别冻结单连接 client session API 与共享 broker core API；broker 入口形态可采用 `broker_on_bytes(broker, conn_id, in, len, out_batch)`。这只是 O\-18 的候选，不是已冻结 ABI。O\-18 未关闭前，M1\-5 可以实现通用模板机制和无关文件，但不得完成 session/net 模板冻结，也不得通过 D1.7。
+9. **session/net 冻结内部 ABI（O\-18 已按 DEC\-22 关闭）**：
+   - client 使用单连接 opaque `mqtt_client_session_t`，broker 使用跨连接共享 opaque `mqtt_broker_t`；两者均由 caller\-provided storage 初始化，不共用上下文类型；
+   - `mqtt_conn_id_t` 为非零 `uint32_t`，0 永远非法；broker 提供 connect/bytes/disconnect/tick 四事件入口，bytes 入口携带来源 `conn_id`；
+   - 输出为原子 `mqtt_out_batch_t`，每项包含目标 `conn_id`、bytes/len 与 close；net 层仅按目标写 socket/关闭连接，不维护订阅或协议状态；
+   - 上限冻结为 16 个连接、每事件最多 16 个目标、每项 4096 bytes、每 batch 65536 bytes；所有 broker 入口要求空 batch，容量失败不暴露部分输出；
+   - 连接容量耗尽返回 `MQTT_ERR_CAPACITY`；输入或输出资源超限返回 `MQTT_ERR_RESOURCE_LIMIT` 并关闭来源连接。具体声明以冻结的 `include/mqtt/mqtt_session.h` 与 `include/mqtt/mqtt_net.h` Target template 为准，并由 C99 `-Werror` ABI 测试逐值核对。
 
 ### 7\.4 构建、运行与外部契约
 
@@ -1579,12 +1623,14 @@ planning:
   strategy: layered       # flat 仅允许显式消融，禁止自动 fallback
   max_task_files: 4
   context_safety_margin_ratio: 0.15
+run:
+  until: null             # CLI 可覆盖为 s3/s6；进入 config_snapshot
 stages:
   l3_interop: false
 assets:
   target_profile: mqtt-client-broker
   language_profile: c99-posix
-  test_bundle: mqtt-3.1.1-min-gold
+  test_bundle: mqtt-3-1-1-min-gold
 sandbox:
   image: nepa-sandbox:latest
   cpu: 2
@@ -1627,7 +1673,7 @@ class Provider(Protocol):
 1. **两个内置 provider 覆盖所有 API 型号**：`openai_compat`（任何 OpenAI 兼容端点：OpenAI、DeepSeek、Qwen、Kimi、vLLM 自部署等，只换 `base_url`）与 `anthropic`（原生）。新 provider 只需实现 `complete`。
 2. **结构化输出统一策略**（P8）：优先用 provider 原生的 JSON/schema 模式；不支持则退化为"schema 内嵌提示词 \+ 抽取首个 JSON \+ `jsonschema` 校验"。校验失败自动发一次修复调用（把错误清单馈给模型），仍失败则向上报错——行为对所有 provider 一致。
 3. **重试与限流**：网络/5xx/限流错误指数退避重试 ≤ 3 次；重试不计入阶段预算（区分"模型失败"与"基础设施失败"）。
-4. **参数能力记账**：adapter 不得静默丢弃请求参数。若 provider 明确报告某参数已应用或被忽略，分别记录 `reported_applied/reported_ignored`；若 API 不能证明其实际行为则记录 `unknown`。测试期的 `deepseek-reasoner` 在完成 capability probe 前，其 temperature 状态按 `unknown` 处理；temperature 0 不能单独作为确定性或可复现性承诺。
+4. **参数能力记账与 probe 证据标准**：adapter 不得静默丢弃请求参数。若 provider 响应或 provider 专属 capability 端点明确报告某参数已应用或被忽略，分别记录 `reported_applied/reported_ignored`；若 API 不能证明其实际行为则记录 `unknown`。Capability probe 使用关闭缓存的最小非结构化请求，逐项记录请求值、请求是否被接受、返回模型、token/成本/延迟、错误与能力状态；请求被接受只证明 API 在语法层接受该参数，证据种类记为 `request_accepted_only`，**禁止**据此升级为 `reported_applied`。输出差异或多次采样的统计推断也不得升级能力状态；请求失败时相关参数仍为 `unknown`。只有上述 provider 显式报告才使用 `provider_report` 证据并写两个 `reported_*` 状态。测试期 `deepseek-reasoner` 若无此类显式证据，其 temperature 在 probe 后仍诚实保持 `unknown`；temperature 0 不能单独作为确定性或可复现性承诺。
 5. **缓存**：键 \= sha256(provider\+model\+请求参数\+完整提示词)；命中时 `cached: true`、成本计 0；用于重放调试（4.8）与消融实验省钱。
 6. **计费**：价格表在配置中按型号维护（每百万 token 输入/输出单价）；telemetry 模块负责折算并写 trace（5.5）。
 
@@ -2091,9 +2137,9 @@ flowchart LR
 | O\-14 | TLS/安全层的演进路径                                         | 2.4 排除 TLS，但 transport 模型无安全层槽位、7.3 禁第三方库使 TLS 事实上不可实现；强依赖 TLS 的现代协议将无法承接 | transport 增加可选 `security` 槽位（minor 演进）；生成侧例外允许链接系统 TLS 库（需推翻 7.3 的裁决） | M6 后按需      |
 | O\-15 | **无 gold 测试集协议的验证闭环（长期目标关键路线）**         | v3 Spec IR 有带证据的原子需求和线格式事实，但刻意不含测试步骤；厂商私有协议仍缺独立 oracle | 另设测试设计 Agent 从 Spec IR 生成候选 Test Bundle，再由独立路径审批；不得把测试决策塞回 Spec IR | M4 后立项评估  |
 | O\-16 | 大规格下的全局输入分区与 S2/S3 分批归并                      | v0.5.0 已以架构→工作包展开解决 S4 详细输出规模，但 ArchitecturePlanner 的 planning index、S2 Reduce 与 S3 整本评审在完整 MQTT5/HTTP 量级仍可能超过上下文；静默裁剪会漏规范性需求 | M1 先做 token preflight，超限受控失败；M6a 后进入 10.6 的 M5\-prep/M5\-0，先冻结完整预备输入，再由 M5\-0b scale gate 判定：可容纳才进入正式 M5，否则先交付 M5\-0c 的分区与确定性归并 | 正式 M5 pipeline 前 |
-| O\-18 | **MQTT broker 多连接扇出内部 ABI**                           | 旧规则 9 的单 `session + in → out` 签名没有输入连接身份，输出也没有目标连接；per\-connection session 无法独占跨连接订阅表，单 broker session 又无法区分来源/去向。若直接冻结，M1 生成物无法正确表达 A 发布后向 B/C 转发 | 优先拆分单连接 client session 与共享 broker core；broker 输入带稳定 `conn_id`，输出为有界 `{conn_id, bytes, close}` batch。Target Profile 必须冻结扇出目标数 K、单项/总字节上界及满载行为；用 1→N 转发、断连和容量边界测试裁决候选 ABI | **M1\-5 session/net 模板冻结前** |
+| O\-18 | **MQTT broker 多连接扇出内部 ABI**                           | 旧规则 9 的单 `session + in → out` 签名没有输入连接身份，输出也没有目标连接；per\-connection session 无法独占跨连接订阅表，单 broker session 又无法区分来源/去向。若直接冻结，M1 生成物无法正确表达 A 发布后向 B/C 转发 | **已按 DEC\-22 关闭**：拆分单连接 client session 与共享 broker core，冻结非零 `uint32_t conn_id`、有界原子 batch、16 connections/targets、4096 bytes/item、65536 bytes/batch 及 CAPACITY/RESOURCE\_LIMIT 行为；胜出接口已回填 7.3 并落入 Target template | 2026\-07\-29 已裁决 |
 
-O\-18 状态为 **active / blocking**。按 11.3 裁决时必须提交候选 ABI 对比、Target Profile/模板/Plan contract 影响、定长容量计算、满载行为和对应正反测试；项目负责人确认后，才可把胜出接口移回 7.3 正文、更新 7.2/7.4（如受影响）并在 12.4 登记。裁决前不得用“默认可推翻”作为继续冻结旧接口的许可。
+O\-18 状态为 **closed / non\-blocking**。DEC\-22、Target Profile resource limits、冻结 session/net 模板与 C99 编译/边界测试共同构成裁决证据；D1.7 仍须在正式 S5 工件链中重算 Blueprint、contract map 与 receipt，不能只凭模板存在即宣称通过。
 
 ### 11\.3 决策与变更流程
 
@@ -2155,19 +2201,20 @@ O\-18 状态为 **active / blocking**。按 11.3 裁决时必须提交候选 ABI
 
 ### 12\.3 仓库现状与本文档的对应关系
 
-截至 2026\-07\-28，v0.5.2 设计修订后，NePA 仓库文件与本文档的关系如下。此次只修改设计/状态文档，实际资产迁移尚未执行：
+截至 2026\-07\-29，v0.5.12 设计修订后，NePA 仓库文件与本文档的关系如下。M1 资产正在分批迁移，未完成项不得视为活动实现：
 
 | 现有文件/目录                                      | 性质                                       | 当前处置                                                     |
 | -------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
 | `protocol_docs/mqtt-v3.1.1-os.pdf`                 | 规范源文档                                 | 保留；doc\-run 输入与 gold `source_ref` 指向对象             |
-| `nepa/schemas/*.json`                              | v0.4.0 实现基线的 JSON Schema              | Run/Plan/Test Manifest/summary/repair\_log/report 仍是旧结构，ArchitectureDraft、Plan State/S4 内部/round index/pending WAL/task/repair evidence Schema 尚缺；Run 与 partial Report 归 M1\-1，ArchitectureDraft/Test Manifest 输入归 M1\-4a，Plan/Test Summary/round WAL/状态迁移归 M1\-4b/M1\-8，Repair Log v2/evidence 归 M2\-4，完整 Report 分支归 M2\-5，scale gate Schema 归 M5\-0b |
-| `nepa/agents/prompts/planner.md`                   | v0.4.0 一次性 Planner 提示词               | 待在 M1\-3 拆为 ArchitecturePlanner、TaskPlanner、PlanCritic，并新增 A9 专用 FlatPlanBaseline；当前不得视为 v0.5.0 S4 实现 |
-| `nepa/agents/prompts/coder.md`                     | v0.4.0 通用 Coder 提示词                   | 当前源码扫描已无 `mqtt_*`；本次不改实际 prompt，M1\-8 仍须补 8.8 的静态/非 MQTT fixture 渲染门，防止后续回归 |
-| `nepa/speclib/lint.py`                             | v0.4.0 spec/plan lint 基线                  | basic 检查已存在；`ARCH_VALIDATE` 待 M1\-4a，blueprint full lint、coverage/contract readiness 与 Plan State snapshot/execution lint 待 M1\-4b |
+| `nepa/schemas/*.json`                              | 分批迁移中的活动 JSON Schema              | Run/Report v2、Plan State/Task Evidence/Test Summary v2、Test Manifest v2、Target/Language/Test Bundle、ArchitectureDraft、TaskShard、PlanCritic、round index/pending WAL 均已迁移；Plan 仍为 v2，Repair Log 仍为 v1，repair evidence 与 scale gate Schema 尚缺 |
+| `nepa/agents/prompts/planner.md` 与规划 prompts    | v0.4 Planner 基线及 v0.5 分层角色提示词    | ArchitecturePlanner、TaskPlanner、PlanCritic 已有活动 prompt/Schema；旧 `planner.md` 不作为生产 S4，A9 FlatPlanBaseline 与完整 S4 controller 仍待实现 |
+| `nepa/agents/prompts/coder.md`                     | v0.5 通用 Coder 提示词                     | 已移除语言/协议职责硬编码，并与 Diagnoser/Fixer 一同接入源码扫描和非 MQTT fixture 渲染门；默认 MQTT fixture 的来源追溯审计仍待正式运行工件链 |
+| `nepa/architecture.py`、`nepa/delivery.py`、`nepa/plan_state.py` 与 `nepa/speclib/lint.py` | 架构/交付/Plan 确定性工具 | 生产 `ARCH_VALIDATE`、Delivery Constraints/Blueprint、Plan State snapshot/迁移及 v2 basic plan lint 已存在；Plan v3 Linker、blueprint full lint、coverage/contract readiness 与 execution lint 待 M1\-4b |
+| `profiles/`                                        | 默认 Target/Language/Test Bundle 源资产、解析描述与模板 | 三资产可重复解析并绑定源字节/manifest/tree 摘要；O\-18 session/net 模板及资源上限已冻结，完整 S5 materialization/receipt 尚待闭环 |
 | `golds/mqtt-3.1.1-min/spec/spec.json`              | Spec IR v3.0 活动 gold 规格                 | 由 v2.0 按 5.1.7 迁移；范围由独立 scope 配置冻结             |
 | `golds/mqtt-3.1.1-min/tests/`                      | 活动 gold harness 与 L0/L1/L2 测试         | M0\-6 交付；只通过 7.4 外部契约接触生成物                    |
-| `golds/mqtt-3.1.1-min/tests_manifest.json`         | v1 gold 测试清单实现基线                    | 尚无 v0.5.0 要求的 gate/required contracts/build variants，解析描述也未封存 manifest/tree 双摘要；连同 collector/测试元数据在 M1\-4a 迁移并重跑 gold lint |
-| `legacy/schemas/`                                  | 早期三文件 schema 草案                     | M0\-2 完整归档；禁止作为活动 schema 使用                     |
+| `golds/mqtt-3.1.1-min/tests_manifest.json`         | v2 gold 测试清单活动实现                    | 22 个用例已带 gate/required contracts/build variants，由 collector canonical 重建；Test Bundle 解析描述已封存 manifest/tree 双摘要并通过 gold lint |
+| `legacy/schemas/`                                  | 早期三文件 schema 草案                       | M0\-2 完整归档；禁止作为活动 schema 使用                     |
 | `legacy/gold_specs/`                               | 早期 MQTT wire/requirements/profile 实例   | M0\-2 完整归档；仅作为迁移追溯与 O\-5/v3.0 的设计输入        |
 | `legacy/migration-to-spec-ir-v2.md`                | 旧三文件 → Spec IR v2.0 字段迁移映射       | M0\-2 迁移记录                                               |
 | `legacy/migration-spec-ir-v2-to-v3.md`             | Spec IR v2.0 → v3.0 字段迁移映射           | R4 主版本迁移记录                                            |
@@ -2194,3 +2241,13 @@ O\-18 状态为 **active / blocking**。按 11.3 裁决时必须提交候选 ABI
 | 0.5.0  | 2026-07-28 | 经项目负责人追加确认终审闭环：M1 正常验收采用 `--until s6` planned stop；测试 round 以 pending WAL 发布；S8 固定单轮单簇并定义快验拒绝路径；M5 拆出 M5\-prep/M5\-0 scale qualification 后再进入正式 runs；Report v2 单列四态执行计数；D1 故障注入与阶段职责对齐。仍不迁移实际资产。 |
 | 0.5.1  | 2026-07-28 | 修复 7.3 的通用/实例边界：通用 Coder/Diagnoser/Fixer prompt 禁止内嵌 `mqtt_*`，协议标识符只能由冻结资产和运行工件注入；撤销无法表达 broker 多连接扇出的旧 session 固定签名，按 11.3 新增 active/blocking 的 O\-18，并将其设为 M1\-5 模板冻结及 D1.7 的前置条件。本次仍只修改设计/状态文档。 |
 | 0.5.2  | 2026-07-28 | 在完整 Plan Compiler 前新增 M1\-4a ArchitecturePlanner \+ `ARCH_VALIDATE` N\=20 bring\-up spike，以逐门/联合首次通过率和一次修复收益驱动 prompt/Schema/validator 与架构预算冻结；将原 M1\-4 拆为规划输入与 spike、确定性编译资产、完整 S4 控制器三项。同步把 temperature 定义为 provider 可能忽略的请求参数，trace 记录能力状态，复现性依赖独立重复统计而非 temperature 0 的字面承诺。本次仍只修改设计/状态文档。 |
+| 0.5.3  | 2026-07-28 | 经项目负责人确认 capability probe 证据标准：probe 必须关闭缓存；请求被接受仅记 `request_accepted_only`，不能证明参数实际应用；输出统计推断不得升级能力状态；只有 provider 响应或专属 capability 端点的显式报告才可记 `reported_applied/reported_ignored`，否则 probe 后仍为 `unknown`。 |
+| 0.5.4  | 2026-07-28 | 经项目负责人确认 Run v2 输入与哈希契约：`inputs` 改为和 Plan 同名的嵌套引用，根层按 entry 强制 spec\-run 与 doc\-run（后者 scope 必填）；三项资产引用锚定 run 内 canonical 解析描述，源文件引用哈希原始字节。冻结单 Python canonical JSON 精确算法、非字符串键/非有限浮点拒绝、文件字节哈希与内存 canonical 哈希二分法；不采用 RFC 8785/JCS，未来跨语言需求走开放问题与主版本迁移。 |
+| 0.5.5  | 2026-07-28 | 经项目负责人确认全局墙钟预算采用跨 resume 累计的活跃 controller 运行时间：以 monotonic clock 分会话计量并原子累加，排除离线、人工暂停和两次 resume 之间的时间；外部调用前后检查，缓存重放只累计本地活跃时间，不重复累计 provider 成本/token。 |
+| 0.5.6  | 2026-07-28 | 经项目负责人确认 Report v2 条件值统一采用 availability envelope：available 必须有非 null value 且无 reason，invalid/unavailable/not_run 必须 value=null 并带开放机器码与说明；artifact availability 使用同态 status/evidence/reason 但不重复 value。M1 partial 与 M2 full producer 共用同一字段语义。 |
+| 0.5.7  | 2026-07-29 | 经项目负责人确认受控出口恢复协议：Run v2 新增 `termination_request`，stage 仅 s1～s8 且对应状态只允许 failed/pending；controlled exit 必须携带 request 且 outcome 不得 success，internal error 可保留既有 request。resume 先把无活跃进程的 running 记为 crashed/failed，再按 request 路由或重试；S9 免预算强制并只复制 request reason。`--until` 固定写入 `config_snapshot.run.until`，覆盖 s6 done 到 planned-stop finalize 的崩溃窗口。 |
+| 0.5.8  | 2026-07-29 | 经项目负责人确认 Plan State 状态字段条件表：pending 与 blocked-by-dependency 均未开始 attempt；in-progress 重试入口清除旧错误；done 独占 commit/evidence；blocked 只在 total attempt limit 耗尽后成立。Schema 与 snapshot lint 必须同时锁定。 |
+| 0.5.9  | 2026-07-29 | 经项目负责人确认继续实现 Plan State 五类判别事件：attempt started/succeeded/exhausted、dependency blocked 与 reconciled commit。API 从完整 Plan/State 验证依赖阻塞，reconciliation 使用类型化 proof，并从磁盘当前状态确定性推导后原子写回。 |
+| 0.5.10 | 2026-07-29 | Task Evidence v1 锁定为 canonical 不可变闭合工件，build receipt 至少一项、build-only task 可无 test summary。Task commit 固定为 stage/tree → evidence → trailers commit 两阶段；只有联合验证 tree/trailers/evidence/来源 refs 后才能生成 reconciliation proof。 |
+| 0.5.11 | 2026-07-29 | Test Summary v2 锁定 trigger context、workspace/frozen hashes、非空唯一构建变体、允许 build-only 空 cases 与四态用例结果。需求矩阵只由 producer 按 error>fail>skipped>pass 重算，Summary canonical 不可变发布，是否 accepted 仍只由 round WAL/index 决定。 |
+| 0.5.12 | 2026-07-29 | 经负责人代码审查授权收口：O\-18 按 DEC\-22 关闭并把胜出 session/net ABI 回填 7.2/7.3/11.2；明确 S6 `files` 可为白名单非空子集且 git 只暂存实际变更；未被 index 接受的 WAL/事实不一致必须隔离后继续并可复用编号，已接受工件损坏保持 fail\-stop；Test Summary 最终路径只允许由 RoundStore WAL/index 协议发布；同步更新 12.3 仓库现状。 |

@@ -1,0 +1,99 @@
+{
+  "schema_version" : "1.0",
+  "asset": {
+    "id": "c99-posix-sample",
+    "version": "1.0.0",
+    "description": "Minimal protocol-neutral C99 and POSIX review fixture."
+  },
+  "source_ref": {
+    "path": "profiles/languages/c99-posix-sample.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "language": {
+    "id": "c",
+    "standard": "c99",
+    "extensions": []
+  },
+  "platform": {
+    "os": "linux",
+    "api_families": ["posix-sockets", "posix-select"]
+  },
+  "toolchain": {
+    "build_system": "gnu-make",
+    "compiler": "gcc",
+    "archiver": "ar",
+    "build_file_template": {
+      "path": "templates/languages/c99-posix/Makefile.j2",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "build_variants": [
+    {
+      "id": "release",
+      "description": "Warning-clean debug-friendly release build.",
+      "command": ["make"],
+      "compiler_flags": ["-std=c99", "-Wall", "-Wextra", "-Werror", "-O0", "-g"],
+      "sanitizers": [],
+      "required": true
+    },
+    {
+      "id": "san",
+      "description": "AddressSanitizer and UndefinedBehaviorSanitizer build.",
+      "command": ["make", "SAN=1"],
+      "compiler_flags": ["-std=c99", "-Wall", "-Wextra", "-Werror", "-O0", "-g"],
+      "sanitizers": ["address", "undefined"],
+      "required": true
+    }
+  ],
+  "file_types": {
+    "source_extensions": [".c"],
+    "header_extensions": [".h"],
+    "include_directories": ["include"]
+  },
+  "type_mappings": [
+    {
+      "id": "uint8-scalar",
+      "match": {
+        "spec_type_id": "uint8",
+        "shape": "scalar"
+      },
+      "representation": "uint8_t",
+      "mechanical_rule": "Represent an unsigned eight-bit scalar with stdint.h uint8_t."
+    },
+    {
+      "id": "uint16-scalar",
+      "match": {
+        "spec_type_id": "uint16",
+        "shape": "scalar"
+      },
+      "representation": "uint16_t",
+      "mechanical_rule": "Represent an unsigned sixteen-bit scalar with stdint.h uint16_t."
+    },
+    {
+      "id": "decoded-varint",
+      "match": {
+        "encoding_kind": "varint",
+        "shape": "scalar"
+      },
+      "representation": "uint32_t",
+      "mechanical_rule": "Store the decoded scalar value; perform variable-length encoding only in codec code."
+    }
+  ],
+  "runtime_constraints": {
+    "third_party_dependencies": "forbidden",
+    "threads": "forbidden",
+    "dynamic_allocation": "restricted",
+    "network_apis": ["socket", "select"],
+    "constraints": [
+      "Check external buffer lengths before reading.",
+      "Keep protocol codec functions free of I/O and global mutable state."
+    ]
+  },
+  "style": {
+    "indent_spaces": 4,
+    "max_function_lines": 80,
+    "max_file_lines": 400,
+    "warnings_as_errors": true,
+    "production_assertions": "forbidden"
+  }
+}

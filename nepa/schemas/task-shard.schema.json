@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/task-shard.schema.json",
+  "title": "NePA TaskShard v1.0",
+  "description": "TaskPlanner's local semantic draft. Final T-### ids, hashes, coverage, review and execution state are controller-owned.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "work_package_id": {"$ref": "#/$defs/id"},
+    "tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/task"}}
+  },
+  "required": ["schema_version", "work_package_id", "tasks"],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "req_id": {"type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$"},
+    "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "context_ref": {"type": "object", "properties": {"kind": {"enum": ["message", "type", "requirement", "interface_file"]}, "id": {"type": "string", "minLength": 1}}, "required": ["kind", "id"], "additionalProperties": false},
+    "responsibility": {"type": "object", "properties": {"req_id": {"$ref": "#/$defs/req_id"}, "role": {"enum": ["primary", "supporting"]}}, "required": ["req_id", "role"], "additionalProperties": false},
+    "acceptance": {"type": "object", "properties": {"outcome": {"type": "string", "minLength": 1}}, "required": ["outcome"], "additionalProperties": false},
+    "task": {
+      "type": "object",
+      "properties": {
+        "local_id": {"$ref": "#/$defs/id"}, "title": {"type": "string", "minLength": 1}, "goal": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["codec", "state", "logic", "transport", "app", "integration"]}, "instructions": {"type": "string", "minLength": 1},
+        "deliverable_files": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "context_refs": {"type": "array", "items": {"$ref": "#/$defs/context_ref"}},
+        "requirement_responsibilities": {"type": "array", "items": {"$ref": "#/$defs/responsibility"}},
+        "provides_contracts": {"$ref": "#/$defs/ids"}, "consumes_contracts": {"$ref": "#/$defs/ids"}, "depends_on": {"$ref": "#/$defs/ids"}, "acceptance": {"$ref": "#/$defs/acceptance"}
+      },
+      "required": ["local_id", "title", "goal", "kind", "instructions", "deliverable_files", "context_refs", "requirement_responsibilities", "provides_contracts", "consumes_contracts", "depends_on", "acceptance"],
+      "additionalProperties": false
+    }
+  }
+}

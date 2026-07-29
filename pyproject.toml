@@ -37,6 +37,9 @@ packages = ["nepa"]
 testpaths = ["tests"]
 markers = [
     "req(id): 标注该测试验证的需求条目（gold 测试集用，见设计文档 5.3）",
+    "gate(name): 声明 Test Manifest v2 最早执行门",
+    "contract(id): 声明 Test Manifest v2 所需外部 contract",
+    "build_variant(id): 声明 Test Manifest v2 所需构建变体",
     "integration: 需要真实外部服务（LLM API、docker）的测试，默认跳过",
 ]
 

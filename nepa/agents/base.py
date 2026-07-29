@@ -48,6 +48,19 @@ class AgentRunner:
         )
         self._on_usage = on_usage
 
+    def render_prompt(
+        self,
+        role_name: str,
+        payload: dict[str, Any],
+        output_schema: dict[str, Any],
+    ) -> str:
+        """渲染一次无状态 user prompt，供调用与协议中立审计共用。"""
+        template = self._env.get_template(f"{role_name}.md")
+        return template.render(
+            payload_json=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_schema_json=json.dumps(output_schema, ensure_ascii=False, indent=2),
+        )
+
     def invoke(
         self,
         role_name: str,
@@ -61,13 +74,10 @@ class AgentRunner:
     ) -> dict[str, Any]:
         """一次调用无会话历史；输入只由显式 payload 构成（P5）。"""
         role = self.registry.resolve(role_name, tier_override=tier_override)
-        template = self._env.get_template(f"{role_name}.md")
-        user = template.render(
-            payload_json=json.dumps(payload, ensure_ascii=False, indent=2),
-            output_schema_json=json.dumps(output_schema, ensure_ascii=False, indent=2),
-        )
+        user = self.render_prompt(role_name, payload, output_schema)
         req = LLMRequest(
             role=role_name,
+            tier=role.tier,
             system=(
                 "You are a stateless NePA agent. Use only the explicitly delimited input. "
                 "Do not rely on protocol knowledge that is absent from the input."

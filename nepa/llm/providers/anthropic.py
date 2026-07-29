@@ -14,6 +14,7 @@ import httpx
 
 from nepa.llm.client import (
     ProviderHTTPError,
+    ProviderResponseError,
     RawResult,
     StructuredProvider,
     request_with_retries,
@@ -82,16 +83,50 @@ class AnthropicProvider(StructuredProvider):
         if resp.status_code >= 400:
             raise ProviderHTTPError(resp.status_code, resp.text[:500])
 
-        data = resp.json()
-        text = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        )
-        usage = data.get("usage") or {}
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ProviderResponseError(
+                f"Anthropic provider returned non-JSON HTTP 200 body: {resp.text[:500]}"
+            ) from exc
+        try:
+            if not isinstance(data, dict):
+                raise TypeError("response root is not an object")
+            content = data["content"]
+            if not isinstance(content, list):
+                raise TypeError("content is not an array")
+            text_parts: list[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    raise TypeError("content item is not an object")
+                if block.get("type") == "text":
+                    block_text = block.get("text")
+                    if not isinstance(block_text, str):
+                        raise TypeError("text content item has no string text")
+                    text_parts.append(block_text)
+            text = "".join(text_parts)
+            usage = data.get("usage") or {}
+            if not isinstance(usage, dict):
+                raise TypeError("usage is not an object")
+            tokens_in = int(usage.get("input_tokens", 0))
+            tokens_out = int(usage.get("output_tokens", 0))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderResponseError(
+                f"Anthropic provider returned malformed HTTP 200 body: {exc!s}"
+            ) from exc
         return RawResult(
             text=text,
-            tokens_in=int(usage.get("input_tokens", 0)),
-            tokens_out=int(usage.get("output_tokens", 0)),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             model=str(data.get("model", self.model)),
+            # The Messages response does not attest that requested sampling
+            # values were applied. Preserve the honest unknown state.
+            parameter_support={
+                "temperature": "unknown",
+                "max_tokens": "unknown",
+            },
+            provider_metadata={
+                "finish_reason": data.get("stop_reason"),
+                "response_id": data.get("id"),
+            },
         )

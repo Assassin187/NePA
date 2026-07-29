@@ -1,0 +1,77 @@
+{
+  "schema_version" : "1.0",
+  "asset": {
+    "id": "sample-wire-gold",
+    "version": "1.0.0",
+    "description": "Minimal independent black-box test bundle review fixture."
+  },
+  "bundle_root": "golds/sample-wire",
+  "bundle_tree_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "manifest_ref": {
+    "path": "golds/sample-wire/tests_manifest.json",
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "schema_version": "2.0"
+  },
+  "runner": {
+    "id": "pytest-runner",
+    "kind": "pytest",
+    "entrypoint": "golds/sample-wire/tests",
+    "command_prefix": ["python", "-m", "pytest"],
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "oracle_refs": [
+    {
+      "id": "wire-oracle",
+      "kind": "oracle",
+      "ref": {
+        "path": "golds/sample-wire/tests/harness/oracle.py",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "purpose": "Judge wire values independently of generated code."
+    }
+  ],
+  "adapter_refs": [
+    {
+      "id": "generated-target-adapter",
+      "ref": {
+        "path": "golds/sample-wire/tests/harness/target.py",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "contract_ids": ["build-system", "codec-cli", "client-cli", "server-process"],
+      "purpose": "Bind tests only to public Target Profile contracts."
+    }
+  ],
+  "reference_target_refs": [
+    {
+      "id": "reference-adapter",
+      "kind": "reference_adapter",
+      "ref": {
+        "path": "golds/sample-wire/tests/harness/reference.py",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "purpose": "Validate applicable tests against an independent reference implementation."
+    }
+  ],
+  "default_build_variant_ids": ["san"],
+  "planning_visibility": {
+    "manifest_fields": [
+      "nodeid",
+      "description",
+      "req_ids",
+      "gate",
+      "required_contracts",
+      "build_variant_ids"
+    ],
+    "source_code_visible": false,
+    "runner_visible": false,
+    "oracle_visible": false,
+    "adapter_visible": false
+  },
+  "responsibilities": {
+    "black_box_only": true,
+    "imports_generated_internals": false,
+    "randomized_inputs": true,
+    "records_random_seed": true,
+    "reference_validated": true
+  }
+}

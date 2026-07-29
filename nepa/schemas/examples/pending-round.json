@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "round_id": 1,
+  "stage": "s6",
+  "trigger": "s6_task",
+  "producer_context": {
+    "task_id": "T-001",
+    "attempt": 1
+  },
+  "workspace_head": "0123456789abcdef0123456789abcdef01234567",
+  "workspace_tree": "1123456789abcdef0123456789abcdef01234567",
+  "parent_round_id": null,
+  "temp_dir": "test_results/.round_001.a1b2c3.tmp",
+  "final_dir": "test_results/round_001",
+  "summary_ref": {
+    "path": "test_results/round_001/summary.json",
+    "sha256": "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}

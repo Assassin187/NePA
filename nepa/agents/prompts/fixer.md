@@ -13,7 +13,7 @@ Return exactly one JSON object conforming to this schema:
 <output_schema>
 {{ output_schema_json }}
 </output_schema>
-Minimal example: {"files":[{"path":"src/x.c","content":"complete file"}],"notes":""}
+Minimal example: {"files":[{"path":"src/module.ext","content":"complete file"}],"notes":""}
 
 4. CHECKLIST
 1) Output complete files, not diffs.

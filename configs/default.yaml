@@ -19,7 +19,10 @@ roles:                            # 角色 → 档位（4.5、4.6）
   spec_extractor:     {tier: T1}
   spec_merger:        {tier: T1}
   spec_critic:        {tier: T1}  # DEC-1：暂同 provider；应当换 provider（4.6 规则 3）
-  planner:            {tier: T1}
+  architecture_planner: {tier: T1}
+  task_planner:         {tier: T1}
+  plan_critic:          {tier: T1}  # DEC-1：暂同 provider；应当换 provider（4.6 规则 3）
+  flat_plan_baseline:   {tier: T1}  # 仅 planning.strategy=flat 的 A9 实验
   coder:              {tier: T2}
   diagnoser:          {tier: T2, escalate_to: T1}
   fixer:              {tier: T2, escalate_to: T1}
@@ -28,12 +31,29 @@ roles:                            # 角色 → 档位（4.5、4.6）
 budgets:                          # 4.7
   wall_clock_hours: 4
   max_cost_usd: 20                # default.yaml 提供，实验前须按需显式覆盖（4.7）
+  plan_architecture_repairs: 1    # DEC-23：M1-4a N=20 后冻结；D1.3 仍须复核
+  plan_task_shard_repairs: 1
+  plan_critic_repairs: 2
+  plan_global_replans: 1          # DEC-23：进入 M1-4c 的暂定上限；D1.3 正式复核
   coder_context_max_tokens: 24000
   task_fix_attempts: 3
   repair_rounds: 3
 
+planning:
+  strategy: layered               # flat 仅允许显式消融，禁止自动 fallback
+  max_task_files: 4
+  context_safety_margin_ratio: 0.15
+
+run:
+  until: null
+
 stages:
   l3_interop: false               # M2 后启用（5.3）
+
+assets:
+  target_profile: mqtt-client-broker
+  language_profile: c99-posix
+  test_bundle: mqtt-3-1-1-min-gold
 
 sandbox:                          # 8.5
   image: nepa-sandbox:latest
@@ -43,3 +63,5 @@ sandbox:                          # 8.5
 pricing:                          # USD / 1M tokens，随官方价目表维护（8.4 计费）
   deepseek-chat:     {input: 0.27, output: 1.10}
   deepseek-reasoner: {input: 0.55, output: 2.19}
+  # 2026-07-29 bring-up 中 reasoner 端点实际回报的模型名；按同一请求档计费。
+  deepseek-v4-flash: {input: 0.55, output: 2.19}

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/test-bundle.schema.json",
+  "title": "NePA parsed Test Bundle v1.0",
+  "description": "Active contract for inputs/test_bundle.json. It binds the manifest and complete source tree while exposing only planning-safe metadata to S4 agents.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "asset": { "$ref": "#/$defs/asset_identity" },
+    "bundle_root": { "$ref": "#/$defs/safe_relative_path" },
+    "bundle_tree_sha256": { "$ref": "#/$defs/sha256" },
+    "manifest_ref": { "$ref": "#/$defs/manifest_ref" },
+    "runner": { "$ref": "#/$defs/runner" },
+    "oracle_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/component_ref" }
+    },
+    "adapter_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/adapter_ref" }
+    },
+    "reference_target_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component_ref" }
+    },
+    "default_build_variant_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/generic_id" }
+    },
+    "planning_visibility": { "$ref": "#/$defs/planning_visibility" },
+    "responsibilities": { "$ref": "#/$defs/responsibilities" }
+  },
+  "required": [
+    "schema_version",
+    "asset",
+    "bundle_root",
+    "bundle_tree_sha256",
+    "manifest_ref",
+    "runner",
+    "oracle_refs",
+    "adapter_refs",
+    "reference_target_refs",
+    "default_build_variant_ids",
+    "planning_visibility",
+    "responsibilities"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "generic_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "safe_relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "asset_identity": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "version": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "version", "description"],
+      "additionalProperties": false
+    },
+    "artifact_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "manifest_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "schema_version": { "const": "2.0" }
+      },
+      "required": ["path", "sha256", "schema_version"],
+      "additionalProperties": false
+    },
+    "runner": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["pytest"] },
+        "entrypoint": { "$ref": "#/$defs/safe_relative_path" },
+        "command_prefix": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["id", "kind", "entrypoint", "command_prefix", "sha256"],
+      "additionalProperties": false
+    },
+    "component_ref": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["oracle", "reference_adapter", "reference_target"] },
+        "ref": { "$ref": "#/$defs/artifact_ref" },
+        "purpose": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "kind", "ref", "purpose"],
+      "additionalProperties": false
+    },
+    "adapter_ref": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "ref": { "$ref": "#/$defs/artifact_ref" },
+        "contract_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        },
+        "purpose": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "ref", "contract_ids", "purpose"],
+      "additionalProperties": false
+    },
+    "planning_visibility": {
+      "type": "object",
+      "properties": {
+        "manifest_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "nodeid",
+              "description",
+              "req_ids",
+              "gate",
+              "required_contracts",
+              "build_variant_ids"
+            ]
+          }
+        },
+        "source_code_visible": { "const": false },
+        "runner_visible": { "const": false },
+        "oracle_visible": { "const": false },
+        "adapter_visible": { "const": false }
+      },
+      "required": [
+        "manifest_fields",
+        "source_code_visible",
+        "runner_visible",
+        "oracle_visible",
+        "adapter_visible"
+      ],
+      "additionalProperties": false
+    },
+    "responsibilities": {
+      "type": "object",
+      "properties": {
+        "black_box_only": { "const": true },
+        "imports_generated_internals": { "const": false },
+        "randomized_inputs": { "type": "boolean" },
+        "records_random_seed": { "type": "boolean" },
+        "reference_validated": { "type": "boolean" }
+      },
+      "required": [
+        "black_box_only",
+        "imports_generated_internals",
+        "randomized_inputs",
+        "records_random_seed",
+        "reference_validated"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

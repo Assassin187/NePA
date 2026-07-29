@@ -7,6 +7,7 @@ from pathlib import Path
 from nepa.agents.roles import ResolvedRole
 from nepa.config import NepaConfig
 from nepa.llm.cache import ResponseCache
+from nepa.llm.capabilities import CapabilityProbeResult, probe_parameter_capabilities
 from nepa.llm.client import LLMClient, Provider
 from nepa.llm.providers.anthropic import AnthropicProvider
 from nepa.llm.providers.openai_compat import OpenAICompatProvider
@@ -70,3 +71,13 @@ class LLMFactory:
             close = getattr(provider, "close", None)
             if callable(close):
                 close()
+
+    def probe_for(self, role: ResolvedRole) -> CapabilityProbeResult:
+        """对指定角色的 provider/model 执行关闭缓存的最小参数探测。"""
+        return probe_parameter_capabilities(
+            self.client_for(role),
+            provider=role.provider,
+            model=role.model,
+            temperature=role.temperature,
+            max_tokens=min(role.max_tokens, 16),
+        )

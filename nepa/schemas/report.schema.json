@@ -1,155 +1,639 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.dev/schemas/report.schema.json",
-  "title": "NePA report/report.json v1.0",
-  "description": "设计文档 5.4：证据报告六要素——结论、需求覆盖矩阵、测试终态、过程统计、假设与已知缺陷、复现信息。5.4 为散文描述，字段命名为合理设计（数据口径见 9.1.4/9.1.5）。",
+  "title": "NePA report/report.json v2.0",
+  "description": "设计文档 5.4：支持完整运行与 S4～S6 受控早退的条件化证据报告。",
   "type": "object",
   "properties": {
-    "schema_version": { "const": "1.0" },
-    "conclusion": {
-      "description": "要素 1：outcome 三值（9.1.2）与一句话摘要",
+    "schema_version": { "const": "2.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "entry": { "enum": ["spec-run", "doc-run"] },
+    "termination_kind": { "enum": ["completed", "controlled_exit"] },
+    "outcome": { "enum": ["success", "degraded", "failed"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "termination_reason": { "$ref": "#/$defs/reason" },
+    "frozen_inputs": { "$ref": "#/$defs/frozen_inputs" },
+    "artifact_availability": {
       "type": "object",
-      "properties": {
-        "outcome": { "enum": ["success", "degraded", "failed"] },
-        "summary": { "type": "string", "minLength": 1 }
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": { "$ref": "#/$defs/artifact_availability" }
       },
-      "required": ["outcome", "summary"],
       "additionalProperties": false
     },
-    "req_coverage": {
-      "description": "要素 2：每条 REQ 的规格覆盖、代码任务、测试结果三列状态",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "req_id": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" },
-          "level": { "enum": ["DEFINITION", "MUST", "MUST NOT", "SHOULD", "MAY"] },
-          "spec_status": {
-            "description": "规格覆盖列：是否有结构元素正向引用该 REQ；纯语义 REQ 可为 uncovered",
-            "enum": ["covered", "uncovered"]
-          },
-          "task_ids": {
-            "description": "代码任务列：经 context_refs 的直接或元素 req_ids 引用追溯到的计划任务",
-            "type": "array",
-            "items": { "type": "string", "pattern": "^T-[0-9]{3}$" }
-          },
-          "code_status": {
-            "description": "代码任务列聚合状态",
-            "enum": ["done", "partial", "blocked", "none"]
-          },
-          "test_status": {
-            "description": "测试结果列：关联测试终态轮全部 pass 才为 pass（9.1.4）",
-            "enum": ["pass", "fail", "not_run", "uncovered"]
-          }
-        },
-        "required": ["req_id", "level", "spec_status", "task_ids", "code_status", "test_status"],
-        "additionalProperties": false
-      }
-    },
-    "test_final": {
-      "description": "要素 3：通过/失败/跳过计数及失败清单",
-      "type": "object",
-      "properties": {
-        "passed": { "type": "integer", "minimum": 0 },
-        "failed": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "integer", "minimum": 0 },
-        "errors": { "type": "integer", "minimum": 0 },
-        "failures": {
-          "description": "失败用例 pytest nodeid 清单",
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        }
-      },
-      "required": ["passed", "failed", "skipped", "failures"],
-      "additionalProperties": false
-    },
+    "req_coverage": { "$ref": "#/$defs/coverage_envelope" },
+    "test_final": { "$ref": "#/$defs/test_final_envelope" },
     "process_stats": {
-      "description": "要素 4：各阶段耗时、各角色/模型 token 与成本、修复轮次与收敛曲线",
       "type": "object",
       "properties": {
-        "stage_duration_s": {
-          "type": "object",
-          "patternProperties": {
-            "^s[1-9]$": { "type": "number", "minimum": 0 }
-          },
-          "additionalProperties": false
-        },
-        "llm_usage": {
-          "description": "按角色 × 模型聚合（数据源 trace，9.1.5）",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "role": { "type": "string", "minLength": 1 },
-              "model": { "type": "string", "minLength": 1 },
-              "tokens_in": { "type": "integer", "minimum": 0 },
-              "tokens_out": { "type": "integer", "minimum": 0 },
-              "cost_usd": { "type": "number", "minimum": 0 }
-            },
-            "required": ["role", "model", "tokens_in", "tokens_out", "cost_usd"],
-            "additionalProperties": false
-          }
-        },
-        "repair": {
-          "description": "修复收敛（9.1.4：failures_by_round、converged、rounds_used）",
-          "type": "object",
-          "properties": {
-            "rounds_used": { "type": "integer", "minimum": 0 },
-            "failures_by_round": {
-              "type": "array",
-              "minItems": 1,
-              "items": { "type": "integer", "minimum": 0 }
-            },
-            "converged": { "type": "boolean" }
-          },
-          "required": ["rounds_used", "failures_by_round", "converged"],
-          "additionalProperties": false
-        }
+        "stage_duration_s": { "$ref": "#/$defs/stage_duration_envelope" },
+        "llm_usage": { "$ref": "#/$defs/llm_usage_envelope" },
+        "repair": { "$ref": "#/$defs/repair_envelope" }
       },
       "required": ["stage_duration_s", "llm_usage", "repair"],
       "additionalProperties": false
     },
-    "assumptions_and_defects": {
-      "description": "要素 5：假设与已知缺陷清单（3.4 歧义前置消解的出口；假设含 S6 任务 notes 汇总）",
+    "metrics": {
       "type": "object",
       "properties": {
-        "assumptions": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+        "build_ok": { "$ref": "#/$defs/boolean_envelope" },
+        "task_completion_rate": { "$ref": "#/$defs/ratio_envelope" },
+        "first_pass_rate": { "$ref": "#/$defs/ratio_envelope" },
+        "test_pass_rate": {
+          "type": "object",
+          "properties": {
+            "l0": { "$ref": "#/$defs/ratio_envelope" },
+            "l1": { "$ref": "#/$defs/ratio_envelope" },
+            "l2": { "$ref": "#/$defs/ratio_envelope" },
+            "l3": { "$ref": "#/$defs/ratio_envelope" }
+          },
+          "required": ["l0", "l1", "l2", "l3"],
+          "additionalProperties": false
         },
-        "known_defects": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        }
+        "req_pass_rate": {
+          "type": "object",
+          "properties": {
+            "all": { "$ref": "#/$defs/ratio_envelope" },
+            "must": { "$ref": "#/$defs/ratio_envelope" }
+          },
+          "required": ["all", "must"],
+          "additionalProperties": false
+        },
+        "cost": {
+          "type": "object",
+          "properties": {
+            "total_usd": { "$ref": "#/$defs/nonnegative_number_envelope" },
+            "by_stage": { "$ref": "#/$defs/cost_breakdown_envelope" },
+            "by_role": { "$ref": "#/$defs/cost_breakdown_envelope" },
+            "by_tier": { "$ref": "#/$defs/cost_breakdown_envelope" }
+          },
+          "required": ["total_usd", "by_stage", "by_role", "by_tier"],
+          "additionalProperties": false
+        },
+        "cost_per_req_passed": { "$ref": "#/$defs/nonnegative_number_envelope" },
+        "escalation_rate": { "$ref": "#/$defs/ratio_envelope" },
+        "validation_repair_rate": { "$ref": "#/$defs/ratio_envelope" },
+        "planning": { "$ref": "#/$defs/planning_envelope" }
       },
-      "required": ["assumptions", "known_defects"],
+      "required": [
+        "build_ok",
+        "task_completion_rate",
+        "first_pass_rate",
+        "test_pass_rate",
+        "req_pass_rate",
+        "cost",
+        "cost_per_req_passed",
+        "escalation_rate",
+        "validation_repair_rate",
+        "planning"
+      ],
       "additionalProperties": false
     },
+    "assumptions_and_defects": { "$ref": "#/$defs/assumptions_envelope" },
     "reproducibility": {
-      "description": "要素 6：配置快照哈希、git 提交号、模型版本字符串",
       "type": "object",
       "properties": {
-        "config_snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "git_commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-        "model_versions": {
-          "description": "provider 返回的完整模型版本字符串（9.2 复现控制 1）",
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
-        }
+        "config_snapshot_sha256": { "$ref": "#/$defs/sha256" },
+        "plan_sha256": { "$ref": "#/$defs/sha256_envelope" },
+        "delivery_blueprint_sha256": { "$ref": "#/$defs/sha256_envelope" },
+        "git_commit": { "$ref": "#/$defs/git_commit_envelope" },
+        "model_versions": { "$ref": "#/$defs/string_list_envelope" }
       },
-      "required": ["config_snapshot_sha256", "git_commit", "model_versions"],
+      "required": [
+        "config_snapshot_sha256",
+        "plan_sha256",
+        "delivery_blueprint_sha256",
+        "git_commit",
+        "model_versions"
+      ],
       "additionalProperties": false
     }
   },
   "required": [
     "schema_version",
-    "conclusion",
+    "run_id",
+    "entry",
+    "termination_kind",
+    "outcome",
+    "summary",
+    "termination_reason",
+    "frozen_inputs",
+    "artifact_availability",
     "req_coverage",
     "test_final",
     "process_stats",
+    "metrics",
     "assumptions_and_defects",
     "reproducibility"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "entry": { "const": "spec-run" } },
+        "required": ["entry"]
+      },
+      "then": {
+        "properties": {
+          "frozen_inputs": {
+            "required": ["spec"],
+            "properties": {
+              "doc": false,
+              "scope": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "entry": { "const": "doc-run" } },
+        "required": ["entry"]
+      },
+      "then": {
+        "properties": {
+          "frozen_inputs": {
+            "required": ["doc", "scope"],
+            "properties": {
+              "spec": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reason": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "detail": { "type": "string", "minLength": 1 }
+      },
+      "required": ["code", "detail"],
+      "additionalProperties": false
+    },
+    "unavailable_value": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["invalid", "unavailable", "not_run"] },
+        "value": { "type": "null" },
+        "reason": { "$ref": "#/$defs/reason" }
+      },
+      "required": ["status", "value", "reason"],
+      "additionalProperties": false
+    },
+    "source_file_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "asset_ref": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "version": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["id", "version", "path", "sha256"],
+      "additionalProperties": false
+    },
+    "frozen_inputs": {
+      "type": "object",
+      "properties": {
+        "spec": { "$ref": "#/$defs/source_file_ref" },
+        "doc": { "$ref": "#/$defs/source_file_ref" },
+        "scope": { "$ref": "#/$defs/source_file_ref" },
+        "target_profile": { "$ref": "#/$defs/asset_ref" },
+        "language_profile": { "$ref": "#/$defs/asset_ref" },
+        "test_bundle": { "$ref": "#/$defs/asset_ref" }
+      },
+      "required": ["target_profile", "language_profile", "test_bundle"],
+      "additionalProperties": false
+    },
+    "artifact_availability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "evidence": {
+              "type": "object",
+              "minProperties": 1
+            }
+          },
+          "required": ["status"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "enum": ["invalid", "unavailable", "not_run"] },
+            "evidence": {
+              "type": "object",
+              "minProperties": 1
+            },
+            "reason": { "$ref": "#/$defs/reason" }
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "coverage_item": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "string",
+          "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$"
+        },
+        "level": { "enum": ["DEFINITION", "MUST", "MUST NOT", "SHOULD", "MAY"] },
+        "spec_status": { "enum": ["covered", "uncovered"] },
+        "task_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^T-[0-9]{3}$"
+          }
+        },
+        "code_status": {
+          "enum": [
+            "done",
+            "partial",
+            "blocked",
+            "not_started",
+            "unavailable",
+            "none"
+          ]
+        },
+        "test_status": {
+          "enum": [
+            "pass",
+            "fail",
+            "error",
+            "skipped",
+            "disabled",
+            "not_run",
+            "uncovered",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "req_id",
+        "level",
+        "spec_status",
+        "task_ids",
+        "code_status",
+        "test_status"
+      ],
+      "additionalProperties": false
+    },
+    "coverage_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/coverage_item" }
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "test_final_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "object",
+              "properties": {
+                "passed": { "type": "integer", "minimum": 0 },
+                "failed": { "type": "integer", "minimum": 0 },
+                "errors": { "type": "integer", "minimum": 0 },
+                "skipped": { "type": "integer", "minimum": 0 },
+                "failures": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "error_cases": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "dynamic_skips": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "disabled": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "not_run": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              },
+              "required": [
+                "passed",
+                "failed",
+                "errors",
+                "skipped",
+                "failures",
+                "error_cases",
+                "dynamic_skips",
+                "disabled",
+                "not_run"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "stage_duration_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "object",
+              "patternProperties": {
+                "^s[1-9]$": { "type": "number", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "llm_usage_item": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string",
+          "pattern": "^s[1-9]$"
+        },
+        "role": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "tokens_in": { "type": "integer", "minimum": 0 },
+        "tokens_out": { "type": "integer", "minimum": 0 },
+        "cost_usd": { "type": "number", "minimum": 0 }
+      },
+      "required": ["stage", "role", "model", "tokens_in", "tokens_out", "cost_usd"],
+      "additionalProperties": false
+    },
+    "llm_usage_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/llm_usage_item" }
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "repair_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "object",
+              "properties": {
+                "rounds_used": { "type": "integer", "minimum": 0 },
+                "failures_by_round": {
+                  "type": "array",
+                  "items": { "type": "integer", "minimum": 0 }
+                },
+                "converged": { "type": "boolean" }
+              },
+              "required": ["rounds_used", "failures_by_round", "converged"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "boolean_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": { "type": "boolean" }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "ratio_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "nonnegative_number_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": { "type": "number", "minimum": 0 }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "cost_breakdown_item": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "tokens_in": { "type": "integer", "minimum": 0 },
+        "tokens_out": { "type": "integer", "minimum": 0 },
+        "cost_usd": { "type": "number", "minimum": 0 }
+      },
+      "required": ["key", "tokens_in", "tokens_out", "cost_usd"],
+      "additionalProperties": false
+    },
+    "cost_breakdown_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/cost_breakdown_item" }
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "planning_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "object",
+              "properties": {
+                "calls": { "type": "integer", "minimum": 0 },
+                "cost_usd": { "type": "number", "minimum": 0 },
+                "first_lint_pass": { "type": "boolean" },
+                "critic_issue_count": { "type": "integer", "minimum": 0 },
+                "repair_count": { "type": "integer", "minimum": 0 }
+              },
+              "required": [
+                "calls",
+                "cost_usd",
+                "first_lint_pass",
+                "critic_issue_count",
+                "repair_count"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "assumptions_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "object",
+              "properties": {
+                "assumptions": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "known_defects": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              },
+              "required": ["assumptions", "known_defects"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "sha256_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": { "$ref": "#/$defs/sha256" }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "git_commit_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,40}$"
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    },
+    "string_list_envelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "available" },
+            "value": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "required": ["status", "value"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/unavailable_value" }
+      ]
+    }
+  }
 }

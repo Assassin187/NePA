@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "asset": {
+    "id": "mqtt-3-1-1-min-gold",
+    "version": "2.0.0",
+    "description": "Independent black-box MQTT 3.1.1 minimum-scope gold tests."
+  },
+  "bundle_root": "golds/mqtt-3.1.1-min",
+  "manifest_ref": {"path": "golds/mqtt-3.1.1-min/tests_manifest.json"},
+  "runner": {
+    "id": "pytest-runner",
+    "kind": "pytest",
+    "entrypoint": "golds/mqtt-3.1.1-min/collect_manifest.py",
+    "command_prefix": ["python", "-m", "pytest"]
+  },
+  "oracle_refs": [
+    {
+      "id": "wire-oracle",
+      "kind": "oracle",
+      "ref": {"path": "golds/mqtt-3.1.1-min/tests/harness/mqtt.py"},
+      "purpose": "Construct and parse independent MQTT wire witnesses."
+    },
+    {
+      "id": "spec-oracle",
+      "kind": "oracle",
+      "ref": {"path": "golds/mqtt-3.1.1-min/tests/harness/spec_model.py"},
+      "purpose": "Load constants and packet identities from the frozen gold Spec."
+    }
+  ],
+  "adapter_refs": [
+    {
+      "id": "generated-process-adapter",
+      "ref": {"path": "golds/mqtt-3.1.1-min/tests/harness/target.py"},
+      "contract_ids": ["broker-process"],
+      "purpose": "Start and stop the generated broker only through its process contract."
+    },
+    {
+      "id": "generated-cli-adapter",
+      "ref": {"path": "golds/mqtt-3.1.1-min/tests/harness/cli_target.py"},
+      "contract_ids": ["client-cli", "codec-cli"],
+      "purpose": "Invoke generated client and codec commands through frozen CLI contracts."
+    }
+  ],
+  "reference_target_refs": [
+    {
+      "id": "reference-process-adapter",
+      "kind": "reference_adapter",
+      "ref": {"path": "golds/mqtt-3.1.1-min/tests/harness/target.py"},
+      "purpose": "Run the Mosquitto reference broker for independent bundle validation."
+    }
+  ],
+  "default_build_variant_ids": ["san"],
+  "planning_visibility": {
+    "manifest_fields": [
+      "nodeid",
+      "description",
+      "req_ids",
+      "gate",
+      "required_contracts",
+      "build_variant_ids"
+    ],
+    "source_code_visible": false,
+    "runner_visible": false,
+    "oracle_visible": false,
+    "adapter_visible": false
+  },
+  "responsibilities": {
+    "black_box_only": true,
+    "imports_generated_internals": false,
+    "randomized_inputs": true,
+    "records_random_seed": true,
+    "reference_validated": true
+  }
+}

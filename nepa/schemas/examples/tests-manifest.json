@@ -1,17 +1,23 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "tests": [
     {
       "nodeid": "l1_codec/test_varint.py::test_remaining_length_roundtrip",
+      "description": "Remaining Length varint round-trips.",
       "layer": "l1",
       "req_ids": ["REQ-FRAME-001"],
-      "description": "剩余长度 varint 编解码往返一致"
+      "gate": "task",
+      "required_contracts": ["codec-cli"],
+      "build_variant_ids": ["san"]
     },
     {
       "nodeid": "l2_behavior/test_connect.py::test_bad_protocol_level",
+      "description": "Unsupported protocol levels receive rc=1 and disconnect.",
       "layer": "l2",
       "req_ids": ["REQ-CONNECT-002"],
-      "description": "protocol_level != 4 时 broker 回 CONNACK rc=1 并断开连接"
+      "gate": "task",
+      "required_contracts": ["broker-process"],
+      "build_variant_ids": ["san"]
     }
   ]
 }

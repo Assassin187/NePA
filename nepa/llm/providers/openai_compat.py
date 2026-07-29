@@ -14,6 +14,7 @@ import httpx
 
 from nepa.llm.client import (
     ProviderHTTPError,
+    ProviderResponseError,
     RawResult,
     StructuredProvider,
     request_with_retries,
@@ -88,13 +89,51 @@ class OpenAICompatProvider(StructuredProvider):
         if resp.status_code >= 400:  # 4xx（非 429）不可重试，直接上报
             raise ProviderHTTPError(resp.status_code, resp.text[:500])
 
-        data = resp.json()
-        choice = data["choices"][0]
-        text = choice["message"].get("content") or ""
-        usage = data.get("usage") or {}
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ProviderResponseError(
+                f"OpenAI-compatible provider returned non-JSON HTTP 200 body: {resp.text[:500]}"
+            ) from exc
+        try:
+            if not isinstance(data, dict):
+                raise TypeError("response root is not an object")
+            choices = data["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise TypeError("choices must be a non-empty array")
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                raise TypeError("choices[0] is not an object")
+            message = choice["message"]
+            if not isinstance(message, dict):
+                raise TypeError("choices[0].message is not an object")
+            content = message.get("content")
+            if content is not None and not isinstance(content, str):
+                raise TypeError("choices[0].message.content is not a string or null")
+            text = content or ""
+            usage = data.get("usage") or {}
+            if not isinstance(usage, dict):
+                raise TypeError("usage is not an object")
+            tokens_in = int(usage.get("prompt_tokens", 0))
+            tokens_out = int(usage.get("completion_tokens", 0))
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            raise ProviderResponseError(
+                f"OpenAI-compatible provider returned malformed HTTP 200 body: {exc!s}"
+            ) from exc
         return RawResult(
             text=text,
-            tokens_in=int(usage.get("prompt_tokens", 0)),
-            tokens_out=int(usage.get("completion_tokens", 0)),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             model=str(data.get("model", self.model)),
+            # OpenAI-compatible chat responses generally echo neither sampling
+            # parameters nor evidence that they were applied. HTTP success is
+            # not such evidence, so both request parameters remain unknown.
+            parameter_support={
+                "temperature": "unknown",
+                "max_tokens": "unknown",
+            },
+            provider_metadata={
+                "finish_reason": choice.get("finish_reason"),
+                "response_id": data.get("id"),
+            },
         )

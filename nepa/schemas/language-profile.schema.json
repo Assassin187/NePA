@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/language-profile.schema.json",
+  "title": "NePA parsed Language Profile v1.0",
+  "description": "Active contract for inputs/language.json. It freezes language/platform rules, type lowering, toolchain, and build variants without protocol-specific identifiers.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "asset": { "$ref": "#/$defs/asset_identity" },
+    "source_ref": { "$ref": "#/$defs/artifact_ref" },
+    "language": { "$ref": "#/$defs/language" },
+    "platform": { "$ref": "#/$defs/platform" },
+    "toolchain": { "$ref": "#/$defs/toolchain" },
+    "build_variants": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/build_variant" }
+    },
+    "file_types": { "$ref": "#/$defs/file_types" },
+    "type_mappings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/type_mapping" }
+    },
+    "runtime_constraints": { "$ref": "#/$defs/runtime_constraints" },
+    "style": { "$ref": "#/$defs/style" }
+  },
+  "required": [
+    "schema_version",
+    "asset",
+    "source_ref",
+    "language",
+    "platform",
+    "toolchain",
+    "build_variants",
+    "file_types",
+    "type_mappings",
+    "runtime_constraints",
+    "style"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "generic_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "safe_relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "asset_identity": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "version": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "version", "description"],
+      "additionalProperties": false
+    },
+    "artifact_ref": {
+      "type": "object",
+      "properties": {
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "language": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "standard": { "type": "string", "minLength": 1 },
+        "extensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["id", "standard", "extensions"],
+      "additionalProperties": false
+    },
+    "platform": {
+      "type": "object",
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "api_families": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": ["os", "api_families"],
+      "additionalProperties": false
+    },
+    "toolchain": {
+      "type": "object",
+      "properties": {
+        "build_system": { "type": "string", "minLength": 1 },
+        "compiler": { "type": "string", "minLength": 1 },
+        "archiver": { "type": "string", "minLength": 1 },
+        "build_file_template": { "$ref": "#/$defs/artifact_ref" }
+      },
+      "required": ["build_system", "compiler", "build_file_template"],
+      "additionalProperties": false
+    },
+    "build_variant": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "description": { "type": "string", "minLength": 1 },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "compiler_flags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "sanitizers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "required": { "type": "boolean" }
+      },
+      "required": [
+        "id",
+        "description",
+        "command",
+        "compiler_flags",
+        "sanitizers",
+        "required"
+      ],
+      "additionalProperties": false
+    },
+    "file_types": {
+      "type": "object",
+      "properties": {
+        "source_extensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9]+$" }
+        },
+        "header_extensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9]+$" }
+        },
+        "include_directories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safe_relative_path" }
+        }
+      },
+      "required": ["source_extensions", "header_extensions", "include_directories"],
+      "additionalProperties": false
+    },
+    "mapping_match": {
+      "type": "object",
+      "properties": {
+        "spec_type_id": { "$ref": "#/$defs/generic_id" },
+        "encoding_kind": {
+          "enum": [
+            "varint",
+            "length_prefixed_string",
+            "length_prefixed_bytes",
+            "sequence",
+            "repeat",
+            "enum"
+          ]
+        },
+        "shape": { "enum": ["scalar", "bitfield", "array", "record"] }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "type_mapping": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "match": { "$ref": "#/$defs/mapping_match" },
+        "representation": { "type": "string", "minLength": 1 },
+        "mechanical_rule": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "match", "representation", "mechanical_rule"],
+      "additionalProperties": false
+    },
+    "runtime_constraints": {
+      "type": "object",
+      "properties": {
+        "third_party_dependencies": { "enum": ["forbidden", "allowed"] },
+        "threads": { "enum": ["forbidden", "allowed", "required"] },
+        "dynamic_allocation": { "enum": ["forbidden", "restricted", "allowed"] },
+        "network_apis": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": [
+        "third_party_dependencies",
+        "threads",
+        "dynamic_allocation",
+        "network_apis",
+        "constraints"
+      ],
+      "additionalProperties": false
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "indent_spaces": { "type": "integer", "minimum": 1 },
+        "max_function_lines": { "type": "integer", "minimum": 1 },
+        "max_file_lines": { "type": "integer", "minimum": 1 },
+        "warnings_as_errors": { "type": "boolean" },
+        "production_assertions": { "enum": ["forbidden", "allowed"] }
+      },
+      "required": [
+        "indent_spaces",
+        "max_function_lines",
+        "max_file_lines",
+        "warnings_as_errors",
+        "production_assertions"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 
+from nepa.canonical import canonical_json_bytes
 from nepa.llm.client import LLMRequest, LLMResponse
 
 __all__ = ["ResponseCache"]
@@ -34,8 +35,7 @@ class ResponseCache:
             "user": req.user,
             "json_schema": req.json_schema,
         }
-        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
     def _path(self, key: str) -> Path:
         return self._dir / f"{key}.json"

@@ -14,6 +14,7 @@ from typing import Annotated, Any
 import typer
 
 from nepa.speclib.lint import LintReport, plan_lint, spec_lint
+from nepa.status import StatusError, build_run_status, resolve_run_dir
 
 app = typer.Typer(help="NePA protocol generation tools.", no_args_is_help=True)
 lint_app = typer.Typer(help="Validate deterministic NePA artifacts.", no_args_is_help=True)
@@ -56,6 +57,57 @@ def _emit_report(report: LintReport) -> None:
     typer.echo(f"{len(report.errors)} error(s), {len(report.warnings)} warning(s)")
     if not report.ok:
         raise typer.Exit(code=1)
+
+
+@app.command("status")
+def run_status(
+    run: Annotated[str, typer.Argument(help="Run id or path to a run directory.")],
+    runs_root: Annotated[
+        Path,
+        typer.Option("--runs-root", help="Root used when RUN is a run id."),
+    ] = Path("runs"),
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Emit a stable machine-readable JSON snapshot."),
+    ] = False,
+) -> None:
+    """Rebuild run progress from persisted artifacts."""
+    try:
+        status = build_run_status(resolve_run_dir(run, runs_root=runs_root))
+    except StatusError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                status,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        return
+
+    terminal = status["termination_kind"] or "running"
+    current = status["current_stage"] or "-"
+    budget = status["budget_used"]
+    typer.echo(f"run: {status['run_id']} ({status['entry']})")
+    typer.echo(f"state: {terminal}; current_stage: {current}")
+    typer.echo(
+        "budget: "
+        f"{budget['wall_clock_s']:.3f}s, "
+        f"${budget['cost_usd']:.6f}, "
+        f"{budget['tokens_in']} in / {budget['tokens_out']} out"
+    )
+    progress = status["task_progress"]
+    if progress is not None:
+        counts = progress["counts"]
+        typer.echo(
+            "tasks: "
+            f"{counts['done']}/{progress['total']} done, "
+            f"{counts['blocked'] + counts['blocked_by_dependency']} blocked, "
+            f"{counts['in_progress']} in progress"
+        )
 
 
 @lint_app.command("spec")

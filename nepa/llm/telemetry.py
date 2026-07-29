@@ -80,6 +80,8 @@ class TraceWriter:
         attempt: int = 1,
         task_id: str | None = None,
         latency_ms: int = 0,
+        provider_call_index: int | None = None,
+        call_kind: str = "initial",
     ) -> dict[str, Any]:
         """写一行 trace（5.5）；就地更新 resp.cost_usd（缓存命中记 0，8.4 要点 4）。
 
@@ -116,10 +118,19 @@ class TraceWriter:
             "run_id": self._run_id,
             "stage": stage,
             "agent_role": req.role,
+            "tier": req.tier,
             "task_id": task_id,
             "attempt": attempt,
+            "provider_call_index": provider_call_index,
+            "call_kind": call_kind,
             "model": f"{provider_name}/{resp.model}",
-            "params": {"temperature": req.temperature, "max_tokens": req.max_tokens},
+            "params_requested": {
+                "temperature": req.temperature,
+                "max_tokens": req.max_tokens,
+            },
+            "parameter_support": dict(resp.parameter_support),
+            "provider_metadata": dict(resp.provider_metadata),
+            "finish_reason": resp.provider_metadata.get("finish_reason"),
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "prompt_path": f"{prefix}/prompts/{prompt_file.name}",
             "output_path": f"{prefix}/outputs/{output_file.name}",

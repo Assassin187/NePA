@@ -19,6 +19,12 @@ from harness.mqtt import (
 )
 from harness.spec_model import fixed_byte
 
+pytestmark = [
+    pytest.mark.gate("task"),
+    pytest.mark.contract("codec-cli"),
+    pytest.mark.build_variant("san"),
+]
+
 
 @pytest.mark.req("REQ-FRAME-001")
 def test_varint_boundaries() -> None:

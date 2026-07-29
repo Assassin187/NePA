@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [
+    pytest.mark.gate("s5"),
+    pytest.mark.contract("build-system"),
+    pytest.mark.build_variant("release"),
+    pytest.mark.build_variant("san"),
+]
+
 
 @pytest.mark.req("REQ-FRAME-001")
 def test_release_and_sanitizer_builds(target: str, workspace: Path | None) -> None:

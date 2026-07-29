@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
+
+from nepa.canonical import atomic_write_canonical_json
 
 ROOT = Path(__file__).resolve().parent
 
@@ -28,6 +31,17 @@ class Collector:
                 "unknown",
             )
             req_ids = sorted({str(mark.args[0]) for mark in item.iter_markers("req") if mark.args})
+            gates = {str(mark.args[0]) for mark in item.iter_markers("gate") if mark.args}
+            contracts = sorted(
+                {str(mark.args[0]) for mark in item.iter_markers("contract") if mark.args}
+            )
+            build_variants = sorted(
+                {str(mark.args[0]) for mark in item.iter_markers("build_variant") if mark.args}
+            )
+            if len(gates) != 1:
+                raise ValueError(f"{item.nodeid}: 必须显式声明且只能声明一个 gate")
+            if not contracts:
+                raise ValueError(f"{item.nodeid}: 必须显式声明 required contract")
             function = getattr(item, "function", None)
             doc = getattr(function, "__doc__", "") or ""
             description = doc.strip().splitlines()[0] if doc.strip() else item.name
@@ -37,6 +51,13 @@ class Collector:
                     "layer": layer,
                     "req_ids": req_ids,
                     "description": description,
+                    "gate": gates.pop(),
+                    "required_contracts": contracts,
+                    **(
+                        {"build_variant_ids": build_variants}
+                        if build_variants
+                        else {}
+                    ),
                 }
             )
 
@@ -61,11 +82,14 @@ def main() -> None:
         help="Destination JSON path.",
     )
     args = parser.parse_args()
-    payload = {"schema_version": "1.0", "tests": collect()}
-    args.output.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    payload = {"schema_version": "2.0", "tests": collect()}
+    schema = json.loads(
+        (ROOT.parent.parent / "nepa" / "schemas" / "tests-manifest.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
+    Draft202012Validator(schema).validate(payload)
+    atomic_write_canonical_json(args.output, payload)
     print(f"wrote {len(payload['tests'])} tests to {args.output}")
 
 

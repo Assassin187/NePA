@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -18,6 +19,21 @@ class GitError(RuntimeError):
 class GitResult:
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedTaskCommit:
+    allowed_paths: tuple[str, ...]
+    workspace_tree: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCommitMetadata:
+    commit_sha: str
+    workspace_tree: str
+    task_id: str
+    attempt: int
+    evidence_sha256: str
 
 
 class GitOps:
@@ -68,20 +84,21 @@ class GitOps:
                 index += 1
         return paths
 
-    def commit_task(
-        self,
-        task_id: str,
-        title: str,
-        deliverable_files: Sequence[str],
-    ) -> str:
-        """只提交任务 ``deliverable_files``；发现白名单外变更立即拒绝。"""
+    def _allowed_task_paths(self, deliverable_files: Sequence[str]) -> set[str]:
         allowed: set[str] = set()
         for relative in deliverable_files:
             target = resolve_workspace_path(self.workspace, relative)
             allowed.add(target.relative_to(self.workspace).as_posix())
         if not allowed:
             raise GitError("任务 deliverable_files 不能为空")
+        return allowed
 
+    def prepare_task_commit(
+        self,
+        deliverable_files: Sequence[str],
+    ) -> PreparedTaskCommit:
+        """白名单检查并 stage task 变更，返回供 evidence 绑定的 git tree。"""
+        allowed = self._allowed_task_paths(deliverable_files)
         changed = self._changed_paths()
         unexpected = sorted(changed - allowed)
         if unexpected:
@@ -89,9 +106,110 @@ class GitOps:
         if not changed:
             raise GitError("任务白名单内没有可提交的变更")
 
-        self._run(["add", "--all", "--", *sorted(allowed)])
-        self._run(["commit", "-q", "-m", f"{task_id}: {title}"])
-        return self.head()
+        # ``deliverable_files`` is a capability boundary, not a promise that every
+        # allowed path already exists. Passing the whole whitelist to ``git add``
+        # makes a legal subset delivery fail when an allowed path has never been
+        # created. Stage only the status-proven change set after the boundary check.
+        self._run(["add", "--all", "--", *sorted(changed)])
+        unstaged = self._run(["diff", "--name-only"]).stdout.splitlines()
+        if unstaged:
+            raise GitError("stage 后仍有未暂存变更: " + ", ".join(sorted(unstaged)))
+        staged = set(self._run(["diff", "--cached", "--name-only"]).stdout.splitlines())
+        if not staged or not staged <= allowed:
+            raise GitError("staged task 路径为空或越出 deliverable_files")
+        tree = self._run(["write-tree"]).stdout.strip()
+        return PreparedTaskCommit(tuple(sorted(allowed)), tree)
+
+    def commit_prepared_task(
+        self,
+        prepared: PreparedTaskCommit,
+        *,
+        task_id: str,
+        title: str,
+        attempt: int,
+        evidence_sha256: str,
+    ) -> str:
+        """提交已由 evidence 绑定的 staged tree，并写三项固定 trailer。"""
+        if not re.fullmatch(r"T-[0-9]{3,}", task_id):
+            raise GitError(f"非法 task id: {task_id!r}")
+        if attempt < 1:
+            raise GitError("attempt 必须至少为 1")
+        if not re.fullmatch(r"[0-9a-f]{64}", evidence_sha256):
+            raise GitError("evidence_sha256 必须为 64 位小写十六进制")
+        allowed = set(prepared.allowed_paths)
+        changed = self._changed_paths()
+        unexpected = sorted(changed - allowed)
+        if unexpected:
+            raise GitError("prepare 后出现白名单外变更: " + ", ".join(unexpected))
+        unstaged = self._run(["diff", "--name-only"]).stdout.splitlines()
+        if unstaged:
+            raise GitError("prepare 后出现未暂存变更: " + ", ".join(sorted(unstaged)))
+        current_tree = self._run(["write-tree"]).stdout.strip()
+        if current_tree != prepared.workspace_tree:
+            raise GitError("staged tree 在 evidence 发布后发生变化")
+        trailers = "\n".join(
+            (
+                f"NePA-Task: {task_id}",
+                f"NePA-Attempt: {attempt}",
+                f"NePA-Evidence-SHA256: {evidence_sha256}",
+            )
+        )
+        self._run(["commit", "-q", "-m", f"{task_id}: {title}", "-m", trailers])
+        commit_sha = self.head()
+        if self.commit_tree(commit_sha) != prepared.workspace_tree:
+            raise GitError("task commit tree 与 evidence 绑定 tree 不一致")
+        return commit_sha
+
+    def commit_tree(self, commit_sha: str = "HEAD") -> str:
+        return self._run(["show", "-s", "--format=%T", commit_sha]).stdout.strip()
+
+    def _trailer_value(self, commit_sha: str, key: str) -> str:
+        values = self._trailer_values(commit_sha, key)
+        if len(values) != 1:
+            raise GitError(f"commit {commit_sha} 必须恰有一个 {key} trailer")
+        return values[0]
+
+    def _trailer_values(self, commit_sha: str, key: str) -> list[str]:
+        raw = self._run(
+            ["show", "-s", f"--format=%(trailers:key={key},valueonly)", commit_sha]
+        ).stdout
+        return [line.strip() for line in raw.splitlines() if line.strip()]
+
+    def has_task_commit_metadata(self, commit_sha: str) -> bool:
+        """无 task trailers 返回 False；部分存在或重复均视为损坏。"""
+        keys = ("NePA-Task", "NePA-Attempt", "NePA-Evidence-SHA256")
+        counts = [len(self._trailer_values(commit_sha, key)) for key in keys]
+        if counts == [0, 0, 0]:
+            return False
+        if counts != [1, 1, 1]:
+            raise GitError(f"commit {commit_sha} 的 NePA task trailers 不完整或重复")
+        return True
+
+    def task_commit_metadata(self, commit_sha: str) -> TaskCommitMetadata:
+        """读取并严格解析 task commit 的 tree 与三项固定 trailers。"""
+        task_id = self._trailer_value(commit_sha, "NePA-Task")
+        attempt_raw = self._trailer_value(commit_sha, "NePA-Attempt")
+        evidence_sha256 = self._trailer_value(
+            commit_sha,
+            "NePA-Evidence-SHA256",
+        )
+        if not re.fullmatch(r"T-[0-9]{3,}", task_id):
+            raise GitError("NePA-Task trailer 非法")
+        try:
+            attempt = int(attempt_raw)
+        except ValueError as exc:
+            raise GitError("NePA-Attempt trailer 必须为整数") from exc
+        if attempt < 1:
+            raise GitError("NePA-Attempt trailer 必须至少为 1")
+        if not re.fullmatch(r"[0-9a-f]{64}", evidence_sha256):
+            raise GitError("NePA-Evidence-SHA256 trailer 非法")
+        return TaskCommitMetadata(
+            commit_sha=self._run(["rev-parse", commit_sha]).stdout.strip(),
+            workspace_tree=self.commit_tree(commit_sha),
+            task_id=task_id,
+            attempt=attempt,
+            evidence_sha256=evidence_sha256,
+        )
 
     def head(self) -> str:
         return self._run(["rev-parse", "HEAD"]).stdout.strip()

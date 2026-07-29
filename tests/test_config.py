@@ -45,13 +45,49 @@ class TestDefaults:
         cfg = NepaConfig()
         assert cfg.budgets.wall_clock_hours == 4.0
         assert cfg.budgets.max_cost_usd == 20.0
+        assert cfg.budgets.plan_architecture_repairs == 1
+        assert cfg.budgets.plan_task_shard_repairs == 1
+        assert cfg.budgets.plan_critic_repairs == 2
+        assert cfg.budgets.plan_global_replans == 1
         assert cfg.budgets.coder_context_max_tokens == 24000
         assert cfg.budgets.task_fix_attempts == 3
         assert cfg.budgets.repair_rounds == 3
+        assert cfg.planning.strategy == "layered"
+        assert cfg.planning.max_task_files == 4
+        assert cfg.planning.context_safety_margin_ratio == 0.15
+        assert cfg.run.until is None
+        assert cfg.assets.target_profile == "mqtt-client-broker"
+        assert cfg.assets.language_profile == "c99-posix"
+        assert cfg.assets.test_bundle == "mqtt-3-1-1-min-gold"
         assert cfg.stages.l3_interop is False
         assert cfg.sandbox.image == "nepa-sandbox:latest"
         assert cfg.sandbox.cpu == 2
         assert cfg.sandbox.mem_gb == 4
+
+    def test_asset_ids_follow_global_identifier_rule(self) -> None:
+        with pytest.raises(ValueError, match="test_bundle"):
+            NepaConfig.model_validate(
+                {
+                    "assets": {
+                        "target_profile": "target",
+                        "language_profile": "language",
+                        "test_bundle": "mqtt-3.1.1",
+                    }
+                }
+            )
+
+    @pytest.mark.parametrize(
+        "budgets",
+        [
+            {"wall_clock_hours": 0},
+            {"max_cost_usd": 0},
+            {"wall_clock_hours": -1},
+            {"max_cost_usd": -1},
+        ],
+    )
+    def test_global_budget_limits_must_be_positive(self, budgets: dict[str, float]) -> None:
+        with pytest.raises(ValueError):
+            NepaConfig.model_validate({"budgets": budgets})
 
 
 class TestLoadDefaultYaml:
@@ -63,9 +99,17 @@ class TestLoadDefaultYaml:
         assert cfg.tiers["T2"].temperature == 0.1
         assert cfg.roles["diagnoser"].escalate_to == "T1"
         assert cfg.roles["coder"].tier == "T2"
+        assert cfg.roles["architecture_planner"].tier == "T1"
+        assert cfg.roles["task_planner"].tier == "T1"
+        assert cfg.roles["plan_critic"].tier == "T1"
+        assert cfg.roles["flat_plan_baseline"].tier == "T1"
         assert cfg.budgets.max_cost_usd == 20
+        assert cfg.planning.strategy == "layered"
+        assert cfg.run.until is None
+        assert cfg.assets.test_bundle == "mqtt-3-1-1-min-gold"
         assert cfg.pricing["deepseek-chat"].input == 0.27
         assert cfg.pricing["deepseek-reasoner"].output == 2.19
+        assert cfg.pricing["deepseek-v4-flash"].output == 2.19
 
     def test_loads_repo_scope_yaml(self) -> None:
         scope = load_scope(SCOPE_YAML)
@@ -92,6 +136,11 @@ class TestMergeChain:
         )
         assert cfg.tiers["T1"].model == "x"
         assert cfg.tiers["T2"].model == "deepseek-chat"
+
+    def test_until_override_is_persistable(self) -> None:
+        cfg = load_config(DEFAULT_YAML, overrides={"run": {"until": "s6"}})
+        assert cfg.run.until == "s6"
+        assert cfg.config_snapshot()["run"]["until"] == "s6"
 
     def test_yaml_wins_over_defaults(self, tmp_path: Path) -> None:
         p = tmp_path / "c.yaml"
@@ -121,6 +170,14 @@ class TestValidation:
     def test_unknown_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
             NepaConfig.model_validate({"budgets": {"max_cost_us": 1}})
+
+    def test_unknown_planning_strategy_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            NepaConfig.model_validate({"planning": {"strategy": "automatic_fallback"}})
+
+    def test_unknown_until_stage_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            NepaConfig.model_validate({"run": {"until": "s7"}})
 
 
 class TestApiKeys:
@@ -175,7 +232,10 @@ class TestSnapshot:
             "tiers",
             "roles",
             "budgets",
+            "planning",
+            "run",
             "stages",
+            "assets",
             "sandbox",
             "pricing",
         }

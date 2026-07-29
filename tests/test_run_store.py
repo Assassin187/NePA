@@ -16,12 +16,50 @@ from nepa.run_store import (
     STAGE_NAMES,
     InvalidTransitionError,
     RunStore,
-    create_run,
 )
+from nepa.run_store import create_run as create_run_impl
 
 
 def _read_run_json(store: RunStore) -> dict[str, Any]:
     return json.loads(store.run_json_path.read_text(encoding="utf-8"))
+
+
+def _asset_ref(name: str) -> dict[str, str]:
+    paths = {
+        "target_profile": "inputs/target.json",
+        "language_profile": "inputs/language.json",
+        "test_bundle": "inputs/test_bundle.json",
+    }
+    return {
+        "id": name.replace("_", "-"),
+        "version": "1.0",
+        "path": paths[name],
+        "sha256": "ab" * 32,
+    }
+
+
+def _inputs(entry: str) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "target_profile": _asset_ref("target_profile"),
+        "language_profile": _asset_ref("language_profile"),
+        "test_bundle": _asset_ref("test_bundle"),
+    }
+    if entry == "spec-run":
+        value["spec"] = {"path": "spec.json", "sha256": "cd" * 32}
+    else:
+        value["doc"] = {"path": "source.pdf", "sha256": "de" * 32}
+        value["scope"] = {"path": "scope.yaml", "sha256": "ef" * 32}
+    return value
+
+
+def create_run(
+    runs_root: str | Path,
+    protocol: str,
+    entry: str,
+    **kwargs: Any,
+) -> RunStore:
+    kwargs.setdefault("inputs", _inputs(entry))
+    return create_run_impl(runs_root, protocol, entry, **kwargs)
 
 
 class TestCreateRun:
@@ -32,9 +70,13 @@ class TestCreateRun:
         for sub in (
             "spec",
             "plan",
+            "plan/_s4",
+            "inputs",
             "workspace",
             "test_results",
+            "test_results/task_evidence",
             "repair",
+            "repair/evidence",
             "report",
             "trace/prompts",
             "trace/outputs",
@@ -67,13 +109,21 @@ class TestCreateRun:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         data = _read_run_json(store)
         # 5.6.2 必填字段
-        assert data["schema_version"] == "1.0"
+        assert data["schema_version"] == "2.0"
         assert data["entry"] == "spec-run"
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", data["created_at"])
-        assert data["inputs"] == {}
+        assert data["inputs"] == _inputs("spec-run")
         assert data["config_snapshot"] == {}
+        assert data["config_snapshot_sha256"] == (
+            "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        )
         assert set(data["stages"]) == set(STAGE_NAMES)
-        assert all(s["status"] == "pending" for s in data["stages"].values())
+        assert [data["stages"][name]["status"] for name in ("s1", "s2", "s3")] == [
+            "skipped",
+            "skipped",
+            "skipped",
+        ]
+        assert all(data["stages"][name]["status"] == "pending" for name in STAGE_NAMES[3:])
         assert data["budget_used"] == {
             "wall_clock_s": 0.0,
             "cost_usd": 0.0,
@@ -81,6 +131,7 @@ class TestCreateRun:
             "tokens_out": 0,
         }
         # 终态字段未终结前不出现（5.6.2）
+        assert "termination_kind" not in data
         assert "outcome" not in data
         assert "exit_code" not in data
 
@@ -93,6 +144,23 @@ class TestCreateRun:
             create_run(tmp_path, "a/b", "spec-run")
         with pytest.raises(ValueError):
             create_run(tmp_path, "a_b", "spec-run")
+
+    def test_entry_binds_input_shape_and_doc_scope_is_required(self, tmp_path: Path) -> None:
+        doc_inputs = _inputs("doc-run")
+        doc_inputs.pop("scope")
+        with pytest.raises(ValueError, match="scope"):
+            create_run_impl(tmp_path, "sample", "doc-run", inputs=doc_inputs)
+
+        spec_inputs = _inputs("spec-run")
+        spec_inputs["doc"] = {"path": "source.pdf", "sha256": "ab" * 32}
+        with pytest.raises(ValueError, match="doc"):
+            create_run_impl(tmp_path, "sample", "spec-run", inputs=spec_inputs)
+
+    def test_frozen_asset_paths_are_fixed(self, tmp_path: Path) -> None:
+        inputs = _inputs("spec-run")
+        inputs["target_profile"]["path"] = "profiles/target.json"
+        with pytest.raises(ValueError, match="inputs.target_profile.path"):
+            create_run_impl(tmp_path, "sample", "spec-run", inputs=inputs)
 
 
 class TestAtomicWrite:
@@ -135,15 +203,22 @@ class TestStageStateMachine:
     def test_happy_path(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         store.set_stage_status("s4", "running")
-        store.set_stage_status("s4", "done")
+        output_refs = {
+            "plan": {
+                "path": "plan/plan.json",
+                "sha256": "ab" * 32,
+            }
+        }
+        store.set_stage_status("s4", "done", output_refs=output_refs)
         data = _read_run_json(store)
         st = data["stages"]["s4"]
         assert st["status"] == "done"
         assert st["started_at"] is not None and st["ended_at"] is not None
+        assert st["output_refs"] == output_refs
 
     def test_pending_to_skipped(self, tmp_path: Path) -> None:
-        store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.set_stage_status("s1", "skipped")  # spec-run 跳过 S1（4.1）
+        store = create_run(tmp_path, "mqtt-min", "doc-run")
+        store.set_stage_status("s1", "skipped")
         assert store.meta.stages["s1"].status == "skipped"
 
     def test_failed_then_retry(self, tmp_path: Path) -> None:
@@ -192,6 +267,38 @@ class TestStageStateMachine:
         with pytest.raises(ValueError, match="error"):
             store.set_stage_status("s4", "running", error="x")
 
+    def test_output_refs_only_with_done(self, tmp_path: Path) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        with pytest.raises(ValueError, match="output_refs"):
+            store.set_stage_status("s4", "running", output_refs={"x": "y"})
+        store.set_stage_status("s4", "running")
+        with pytest.raises(ValueError, match="output_refs"):
+            store.set_stage_status("s4", "done", output_refs={})
+
+    def test_first_incomplete_stage_respects_entry_and_terminal_states(
+        self, tmp_path: Path
+    ) -> None:
+        spec_store = create_run(tmp_path, "sample", "spec-run")
+        assert spec_store.first_incomplete_stage() == "s4"
+        spec_store.set_stage_status("s4", "running")
+        spec_store.set_stage_status("s4", "done")
+        assert spec_store.first_incomplete_stage() == "s5"
+
+        doc_store = create_run(tmp_path, "sample", "doc-run")
+        assert doc_store.first_incomplete_stage() == "s1"
+
+    def test_begin_stage_is_idempotent_for_resume_and_completed_stage(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "sample", "spec-run")
+        assert store.begin_stage("s4") is True
+        started_at = store.meta.stages["s4"].started_at
+        assert store.begin_stage("s4") is True
+        assert store.meta.stages["s4"].started_at == started_at
+
+        store.set_stage_status("s4", "done")
+        assert store.begin_stage("s4") is False
+
 
 class TestBudgetAndFinalize:
     def test_budget_accumulates_and_persists(self, tmp_path: Path) -> None:
@@ -215,21 +322,95 @@ class TestBudgetAndFinalize:
         assert _read_run_json(store)["flags"] == {"degraded_segmentation": True}
 
     @pytest.mark.parametrize(
-        ("outcome", "code"), [("success", 0), ("degraded", 10), ("failed", 20)]
+        ("kind", "outcome", "code"),
+        [
+            ("completed", "success", 0),
+            ("controlled_exit", "degraded", 10),
+            ("controlled_exit", "failed", 20),
+        ],
     )
-    def test_finalize_writes_terminal_fields(self, tmp_path: Path, outcome: str, code: int) -> None:
+    def test_finalize_writes_terminal_fields(
+        self,
+        tmp_path: Path,
+        kind: str,
+        outcome: str,
+        code: int,
+    ) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
-        store.finalize(outcome, code)  # type: ignore[arg-type]
+        if kind == "controlled_exit":
+            store.request_controlled_exit("s4", "CONTROLLED_TEST_EXIT", "test exit")
+        store.finalize(kind, code, outcome=outcome)  # type: ignore[arg-type]
         data = _read_run_json(store)
+        assert data["termination_kind"] == kind
         assert data["outcome"] == outcome  # 9.1.2
         assert data["exit_code"] == code  # 8.7
+
+    @pytest.mark.parametrize(("kind", "code"), [("planned_stop", 0), ("internal_error", 1)])
+    def test_non_outcome_terminal_kinds(self, tmp_path: Path, kind: str, code: int) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.finalize(kind, code)  # type: ignore[arg-type]
+
+        data = _read_run_json(store)
+        assert data["termination_kind"] == kind
+        assert data["exit_code"] == code
+        assert "outcome" not in data
+
+    def test_internal_error_may_retain_controlled_exit_request(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.request_controlled_exit("s4", "PLAN_NOT_SEALED", "No valid Plan.")
+        store.finalize("internal_error", 1)
+
+        reloaded = RunStore.load(store.run_dir)
+        assert reloaded.meta.termination_kind == "internal_error"
+        assert reloaded.meta.termination_request is not None
+        assert reloaded.meta.termination_request.reason.code == "PLAN_NOT_SEALED"
+
+    def test_controlled_exit_requires_request_and_rejects_success(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        with pytest.raises(ValueError, match="termination_request"):
+            store.finalize("controlled_exit", 20, outcome="failed")
+
+        store.request_controlled_exit("s4", "PLAN_NOT_SEALED", "No valid Plan.")
+        with pytest.raises(ValueError, match="degraded/failed"):
+            store.finalize("controlled_exit", 0, outcome="success")
+
+    def test_completed_and_planned_stop_forbid_request(self, tmp_path: Path) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.request_controlled_exit("s4", "PLAN_NOT_SEALED", "No valid Plan.")
+        with pytest.raises(ValueError, match="termination_request"):
+            store.finalize("completed", 20, outcome="failed")
+        with pytest.raises(ValueError, match="termination_request"):
+            store.finalize("planned_stop", 0)
 
     def test_finalize_rejects_mismatched_exit_code(self, tmp_path: Path) -> None:
         store = create_run(tmp_path, "mqtt-min", "spec-run")
         with pytest.raises(ValueError, match="退出码"):
-            store.finalize("success", 10)
+            store.finalize("completed", 10, outcome="success")
         with pytest.raises(ValueError):
             store.finalize("oops", 0)  # type: ignore[arg-type]
+
+    def test_finalize_is_one_way(self, tmp_path: Path) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.finalize("planned_stop", 0)
+        with pytest.raises(InvalidTransitionError):
+            store.finalize("planned_stop", 0)
+
+    def test_config_snapshot_hash_recomputed_and_verified_on_load(self, tmp_path: Path) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.set_config_snapshot({"budgets": {"max_cost_usd": 20.0}})
+        persisted = _read_run_json(store)
+        assert persisted["config_snapshot_sha256"] == (
+            "74a8dca717f67d45810242639e31e6bf9310d66f03337f99b15ef3dc06e6a808"
+        )
+
+        persisted["config_snapshot"]["budgets"]["max_cost_usd"] = 99
+        store.run_json_path.write_text(json.dumps(persisted), encoding="utf-8")
+        with pytest.raises(ValueError, match="config_snapshot_sha256"):
+            RunStore.load(store.run_dir)
 
 
 class TestLoadRoundTrip:
@@ -238,7 +419,7 @@ class TestLoadRoundTrip:
             tmp_path,
             "mqtt-min",
             "doc-run",
-            inputs={"doc_path": "a.pdf", "sha256": "ab" * 32},
+            inputs=_inputs("doc-run"),
             config_snapshot={"budgets": {"max_cost_usd": 5}},
         )
         store.set_stage_status("s1", "running")
@@ -248,12 +429,88 @@ class TestLoadRoundTrip:
         reloaded = RunStore.load(store.run_dir)
         assert reloaded.run_id == store.run_id
         assert reloaded.meta.entry == "doc-run"
-        assert reloaded.meta.inputs["doc_path"] == "a.pdf"
+        assert reloaded.meta.inputs.model_dump()["doc"]["path"] == "source.pdf"
         assert reloaded.meta.stages["s1"].status == "done"
         assert reloaded.meta.budget_used.tokens_in == 7
         # 恢复后状态机继续生效（4.8）
         with pytest.raises(InvalidTransitionError):
             reloaded.set_stage_status("s1", "running")
+
+
+class TestTerminationRequestAndRecovery:
+    def test_running_stage_and_request_are_written_as_one_failed_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.set_stage_status("s4", "running")
+        saves = 0
+        original = store.save
+
+        def spy() -> None:
+            nonlocal saves
+            saves += 1
+            original()
+
+        monkeypatch.setattr(store, "save", spy)
+        request = store.request_controlled_exit(
+            "s4",
+            "PLAN_NOT_SEALED",
+            "S4 exhausted its repair budget.",
+        )
+
+        assert saves == 1
+        assert request.stage == "s4"
+        assert store.meta.stages["s4"].status == "failed"
+        assert store.meta.stages["s4"].error == "S4 exhausted its repair budget."
+        RunStore.load(store.run_dir)
+
+    def test_pending_boundary_request_is_legal_but_s9_is_not(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        request = store.request_controlled_exit(
+            "s5",
+            "GLOBAL_BUDGET_EXHAUSTED",
+            "Budget exhausted before S5.",
+        )
+        assert request.stage == "s5"
+        assert store.meta.stages["s5"].status == "pending"
+        with pytest.raises((KeyError, ValueError)):
+            store.request_controlled_exit(  # type: ignore[arg-type]
+                "s9",
+                "INVALID",
+                "S9 is not budget gated.",
+            )
+
+    def test_request_stage_status_lint_rejects_done_running_and_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.request_controlled_exit("s4", "PLAN_NOT_SEALED", "No valid Plan.")
+        raw = _read_run_json(store)
+        for status in ("done", "running", "skipped"):
+            damaged = json.loads(json.dumps(raw))
+            damaged["stages"]["s4"] = {"status": status}
+            store.run_json_path.write_text(json.dumps(damaged), encoding="utf-8")
+            with pytest.raises(ValueError, match="failed 或 pending"):
+                RunStore.load(store.run_dir)
+
+    def test_orphaned_running_stages_are_failed_atomically_without_request(
+        self, tmp_path: Path
+    ) -> None:
+        store = create_run(tmp_path, "mqtt-min", "spec-run")
+        store.set_stage_status("s4", "running")
+        store.set_stage_status("s9", "running")
+
+        recovered = store.recover_orphaned_running_stages()
+
+        assert recovered == ("s4", "s9")
+        assert store.meta.termination_request is None
+        for stage in recovered:
+            state = store.meta.stages[stage]
+            assert state.status == "failed"
+            assert state.error == "process crashed mid-stage"
+        RunStore.load(store.run_dir)
 
 
 def test_persisted_run_store_output_validates_against_schema(tmp_path: Path) -> None:
@@ -262,7 +519,7 @@ def test_persisted_run_store_output_validates_against_schema(tmp_path: Path) -> 
         tmp_path,
         "mqtt-min",
         "spec-run",
-        inputs={"spec_path": "spec.json", "spec_sha256": "ab" * 32},
+        inputs=_inputs("spec-run"),
         config_snapshot={"budgets": {"max_cost_usd": 20}},
     )
     schema_path = Path(__file__).resolve().parent.parent / "nepa" / "schemas" / "run.schema.json"
