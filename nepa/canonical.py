@@ -42,6 +42,24 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def _fsync_dir(directory: Path) -> None:
+    """持久化改名本身（6.4.7 步骤 2 要求 fsync 文件与目录）。
+
+    目录 fsync 在部分平台/文件系统上不被支持，此时改名的持久性由文件系统
+    语义保证，不应让发布失败。
+    """
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def atomic_write_canonical_json(path: str | Path, value: Any) -> None:
     """把 NePA 自产 JSON 工件以 canonical 字节原子发布。"""
     target = Path(path)
@@ -58,6 +76,7 @@ def atomic_write_canonical_json(path: str | Path, value: Any) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp_name, target)
+        _fsync_dir(target.parent)
     except BaseException:
         try:
             os.unlink(tmp_name)

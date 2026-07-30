@@ -1,4 +1,5 @@
 CC ?= gcc
+AR ?= ar
 CFLAGS := -std=c99 -Wall -Wextra -Werror -O0 -g -Iinclude
 LDFLAGS :=
 ifeq ($(SAN),1)
@@ -6,11 +7,28 @@ CFLAGS += -fsanitize=address,undefined
 LDFLAGS += -fsanitize=address,undefined
 endif
 
-SOURCES := {{ source_files | join(" ") }}
-TARGETS := {{ target_names | join(" ") }}
+TARGETS := {% for artifact in build_artifacts %}{{ artifact.path }}{% if not loop.last %} {% endif %}{% endfor %}
 
 .PHONY: all clean
 all: $(TARGETS)
 
+{% for artifact in build_artifacts %}
+{% for source in artifact.sources %}
+{{ source.object_path }}: {{ source.path }}
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+{% endfor %}
+{{ artifact.path }}: {% for source in artifact.sources %}{{ source.object_path }}{% if not loop.last %} {% endif %}{% endfor %}
+	@mkdir -p $(dir $@)
+{% if artifact.kind == "executable" %}
+	$(CC) $^ -o $@ $(LDFLAGS)
+{% elif artifact.kind == "static_library" %}
+	$(AR) rcs $@ $^
+{% elif artifact.kind == "shared_library" %}
+	$(CC) -shared $^ -o $@ $(LDFLAGS)
+{% endif %}
+
+{% endfor %}
 clean:
 	rm -rf build

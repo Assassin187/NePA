@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "input_refs": {
     "spec": {
       "path": "spec/spec.json",
@@ -18,36 +18,122 @@
       "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
     }
   },
-  "modules": [
+  "delivery_blueprint_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "architecture": {
+    "decisions": [
+      {
+        "id": "codec-owns-wire-format",
+        "topic": "Wire format ownership",
+        "statement": "Only the codec module translates between structured messages and wire bytes.",
+        "context_refs": [{ "kind": "message", "id": "connect" }]
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "bounded-input-storage",
+        "statement": "Use the injected resource limit for bounded input storage.",
+        "rationale": "The delivery constraint provides an explicit maximum and exhaustion policy.",
+        "context_refs": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "build-system",
+        "kind": "external",
+        "purpose": "Build every required variant.",
+        "owner": "s5",
+        "interface_files": ["Makefile"],
+        "ready_gate": "s5"
+      },
+      {
+        "id": "codec-cli",
+        "kind": "external",
+        "purpose": "Expose message encoding and decoding to black-box tests.",
+        "owner": "codec",
+        "interface_files": ["include/proto/codec.h", "apps/codec_cli.c"],
+        "ready_gate": "task",
+        "provider_task_id": "T-001"
+      }
+    ],
+    "modules": [
+      {
+        "id": "codec",
+        "name": "Codec",
+        "purpose": "Translate between structured messages and wire bytes.",
+        "responsibilities": ["Implement the selected message framing and field encodings."],
+        "non_goals": ["Do not perform network I/O."],
+        "owns_files": ["src/codec/codec_connect.c", "apps/codec_cli.c"],
+        "provides_contracts": ["codec-cli"],
+        "consumes_contracts": []
+      }
+    ]
+  },
+  "work_packages": [
     {
-      "id": "codec",
-      "name": "报文编解码",
-      "purpose": "实现 MQTT 报文的编码与解码",
-      "owns_files": ["src/mqtt_codec.c"]
+      "id": "wp-codec",
+      "title": "Message codec",
+      "goal": "Encode and decode the selected message through the public codec boundary.",
+      "module": "codec",
+      "kind": "codec",
+      "context_refs": [
+        { "kind": "message", "id": "connect" },
+        { "kind": "requirement", "id": "REQ-FRAME-001" }
+      ],
+      "requirement_responsibilities": [{ "req_id": "REQ-FRAME-001", "role": "primary" }],
+      "allowed_files": ["src/codec/codec_connect.c", "apps/codec_cli.c"],
+      "provides_contracts": ["codec-cli"],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The selected message round-trips through the public codec contract."
+      }
     }
   ],
   "tasks": [
     {
       "id": "T-001",
-      "title": "实现 CONNECT 报文编解码",
-      "goal": "CONNECT 报文编解码通过 L1 往返与畸形输入测试",
+      "work_package": "wp-codec",
+      "title": "Implement message codec and its public CLI",
+      "goal": "The selected message round-trips through the public codec entrypoint.",
       "kind": "codec",
-      "module": "codec",
-      "instructions": "按 spec 中 connect 消息定义实现 encode/decode；remaining_length 是文档明示的派生字段，必须由编码器计算；非法 protocol_name 的行为按关联 requirement 处理。",
-      "deliverable_files": ["src/mqtt_codec.c"],
+      "instructions": "Implement encoding and decoding for the assigned message and expose it through the public command-line entrypoint. Derived length fields must be computed, not trusted from input.",
+      "deliverable_files": ["src/codec/codec_connect.c", "apps/codec_cli.c"],
       "context_refs": [
         { "kind": "message", "id": "connect" },
-        { "kind": "type", "id": "mqtt_varint" },
-        { "kind": "interface_file", "id": "include/mqtt/mqtt_codec.h" }
+        { "kind": "requirement", "id": "REQ-FRAME-001" },
+        { "kind": "interface_file", "id": "include/proto/codec.h" }
       ],
+      "requirement_responsibilities": [{ "req_id": "REQ-FRAME-001", "role": "primary" }],
+      "provides_contracts": ["codec-cli"],
+      "consumes_contracts": [],
       "depends_on": [],
       "acceptance": {
-        "build": true,
-        "tests": ["l1_codec/test_connect_codec.py::test_roundtrip"]
-      },
-      "status": "pending",
-      "attempts": 0,
-      "notes": ""
+        "build_variant_ids": ["san"],
+        "tests": ["tests/test_sample.py::test_codec"]
+      }
     }
-  ]
+  ],
+  "coverage": {
+    "requirements": [
+      {
+        "req_id": "REQ-FRAME-001",
+        "primary_work_package_id": "wp-codec",
+        "primary_task_id": "T-001",
+        "supporting_task_ids": [],
+        "test_nodeids": ["tests/test_sample.py::test_codec"]
+      }
+    ],
+    "tests": [
+      {
+        "nodeid": "tests/test_sample.py::test_codec",
+        "gate": "task",
+        "enabled": true,
+        "task_id": "T-001"
+      }
+    ]
+  },
+  "review": {
+    "verdict": "pass",
+    "unresolved_minor_issues": []
+  }
 }

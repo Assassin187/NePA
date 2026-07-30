@@ -13,14 +13,15 @@ Return exactly one JSON object conforming to this schema:
 <output_schema>
 {{ output_schema_json }}
 </output_schema>
-Minimal example: {"files":[{"path":"src/module.ext","content":"complete file"}],"notes":""}
+Minimal example: {"micro_plan":["Apply the diagnosed correction."],"files":[{"path":"src/module.ext","content":"complete file"}],"notes":""}
 
 4. CHECKLIST
 1) Output complete files, not diffs.
-2) Use only task.deliverable_files.
-3) Preserve the fixed interfaces and follow every supplied coding rule.
-4) Fix the diagnosed root cause without weakening validation.
-5) Return only the JSON object.
+2) Keep micro_plan within this task and the supplied diagnosis.
+3) Use only task.deliverable_files.
+4) Preserve the fixed interfaces and follow every supplied coding rule.
+5) Fix the diagnosed root cause without weakening validation.
+6) Return only the JSON object.
 
 5. PROHIBITED EXAMPLE
 Do not change tests or add a special case for a concrete randomized test value.

@@ -19,6 +19,7 @@ class GitError(RuntimeError):
 class GitResult:
     stdout: str
     stderr: str
+    returncode: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,7 @@ class GitOps:
         )
         if check and proc.returncode != 0:
             raise GitError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
-        return GitResult(proc.stdout, proc.stderr)
+        return GitResult(proc.stdout, proc.stderr, proc.returncode)
 
     def init_and_commit(self, message: str = "scaffold: deterministic project skeleton") -> str:
         self._run(["init", "-q"])
@@ -217,8 +218,23 @@ class GitOps:
     def has_commit(self) -> bool:
         return bool(self._run(["rev-parse", "--verify", "HEAD"], check=False).stdout.strip())
 
+    def commit_count(self) -> int:
+        raw = self._run(["rev-list", "--count", "HEAD"]).stdout.strip()
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise GitError(f"无法解析 commit 数量: {raw!r}") from exc
+
     def is_clean(self) -> bool:
         return not self._run(["status", "--porcelain"]).stdout.strip()
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """6.6：判断 ancestor 是否为 descendant 的祖先（同一 commit 也算）。"""
+        result = self._run(
+            ["merge-base", "--is-ancestor", ancestor, descendant],
+            check=False,
+        )
+        return result.returncode == 0
 
     def restore_files(self, relative_paths: Sequence[str]) -> None:
         """恢复失败 attempt，仅触碰任务白名单文件（6.6.1）。"""

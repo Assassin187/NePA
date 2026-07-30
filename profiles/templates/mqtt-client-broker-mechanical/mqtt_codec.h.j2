@@ -1,0 +1,31 @@
+#ifndef {{ include_guard }}
+#define {{ include_guard }}
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "{{ types_include }}"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+{% for message in messages %}
+int {{ symbol_prefix }}encode_{{ message.id }}(
+    const {{ message.type_name }} *input,
+    uint8_t *buffer,
+    size_t capacity,
+    size_t *output_length
+);
+int {{ symbol_prefix }}decode_{{ message.id }}(
+    const uint8_t *buffer,
+    size_t length,
+    {{ message.type_name }} *output
+);
+
+{% endfor %}
+#ifdef __cplusplus
+}
+#endif
+
+#endif

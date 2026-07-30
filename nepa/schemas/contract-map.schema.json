@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/contract-map.schema.json",
+  "title": "NePA S5 Contract Map v1.0",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "delivery_blueprint_sha256": { "$ref": "#/$defs/sha256" },
+    "contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contract" }
+    }
+  },
+  "required": ["schema_version", "delivery_blueprint_sha256", "contracts"],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "nullable_task": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^T-[0-9]{3,}$" }
+      ]
+    },
+    "entrypoint": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["build", "executable", "cli", "network", "library"] },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "kind", "description"],
+      "additionalProperties": false
+    },
+    "contract": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["external", "internal"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "ready_gate": { "enum": ["s5", "task"] },
+        "provider_task_id": { "$ref": "#/$defs/nullable_task" },
+        "interface_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "entrypoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/entrypoint" }
+        },
+        "build_artifact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "owner",
+        "ready_gate",
+        "provider_task_id",
+        "interface_files",
+        "entrypoints",
+        "build_artifact_ids"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

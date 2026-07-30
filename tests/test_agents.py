@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from nepa.agents.base import AgentRunner, ClientFactory
+from nepa.agents.base import AgentRunner, ClientFactory, TruncatedOutputError
 from nepa.agents.contracts import architecture_draft_schema
 from nepa.agents.prompt_lint import (
     COMMON_CODE_ROLES,
@@ -38,6 +39,7 @@ class _Client:
         self.response = response
         self.fail = fail
         self.last_request: LLMRequest | None = None
+        self.last_trace_extra: dict[str, Any] | None = None
 
     def complete(
         self,
@@ -46,8 +48,10 @@ class _Client:
         stage: str = "",
         task_id: str | None = None,
         attempt: int = 1,
+        trace_extra: Mapping[str, Any] | None = None,
     ) -> LLMResponse:
         self.last_request = req
+        self.last_trace_extra = dict(trace_extra) if trace_extra is not None else None
         del stage, task_id, attempt
         if self.fail:
             raise StructuredOutputError(["invalid output"], self.response)
@@ -112,6 +116,41 @@ def test_failed_structured_invocation_still_counts_usage_once() -> None:
         )
 
     assert usage == [response]
+
+
+def test_truncated_output_is_rejected_even_when_schema_valid() -> None:
+    """6.4.6：截断输出即使碰巧过 Schema 也不可信，必须直接失败。"""
+    response = LLMResponse(
+        text='{"ok":true}',
+        parsed={"ok": True},
+        validation="pass",
+        provider_metadata={"finish_reason": "length"},
+    )
+    usage: list[LLMResponse] = []
+
+    with pytest.raises(TruncatedOutputError) as excinfo:
+        _runner(response, usage, fail=False).invoke(
+            "coder", {"task": "x"}, _SCHEMA, stage="S5"
+        )
+
+    assert excinfo.value.finish_reason == "length"
+    assert usage == [response]  # 截断调用同样消耗预算
+
+
+def test_trace_extra_reaches_the_client() -> None:
+    response = LLMResponse(text='{"ok":true}', parsed={"ok": True}, validation="pass")
+    client = _Client(response)
+    runner = AgentRunner(cast(RoleRegistry, _Registry()), cast(ClientFactory, _Factory(client)))
+
+    runner.invoke(
+        "coder",
+        {"task": "x"},
+        _SCHEMA,
+        stage="S4",
+        trace_extra={"compiler_phase": "ARCHITECT"},
+    )
+
+    assert client.last_trace_extra == {"compiler_phase": "ARCHITECT"}
 
 
 def test_common_code_prompt_sources_are_protocol_neutral() -> None:

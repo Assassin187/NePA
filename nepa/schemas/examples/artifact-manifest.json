@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "delivery_blueprint_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "files": [
+    {
+      "id": "file-001",
+      "rule_id": "build-file",
+      "path": "Makefile",
+      "kind": "build",
+      "created_by_stage": "s5",
+      "mutability": "s5_frozen",
+      "owner_task_id": null,
+      "producer": "language_template"
+    }
+  ],
+  "build_artifacts": [
+    {
+      "id": "sample-cli",
+      "deliverable_id": "sample",
+      "kind": "executable",
+      "path": "build/sample",
+      "link_source_set_id": "sample-sources",
+      "source_paths": ["apps/sample.c"],
+      "build_variant_ids": ["release"]
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：0.5.12\
+> 设计版本：0.5.14\
 > 最后更新：2026\-07\-29\
-> 修订说明：v0.5.12 关闭 O\-18 并回填胜出 ABI，明确 round WAL 不一致的隔离继续语义、Test Summary 单一发布路径及 S6 子集交付；同时收口仓库现状。修订历史见 12.4。
+> 修订说明：v0.5.14 经正式 D1.3 联调复核，在 ARCH\_VALIDATE 前置落实 5.2.3 的测试 contract/REQ 工作包闭包可行性门，并要求重做 N=20 后替代 DEC\-23 冻结。修订历史见 12.4。
 
 ## 0\. 阅读指南
 
@@ -236,11 +236,11 @@ flowchart TD
 | 输入 | 唯一职责 |
 | ---- | -------- |
 | Spec IR | 可直接提取的协议事实：角色、传输、类型、报文与原子需求 |
-| Target Profile | 交付形态、命名、目录/专属脚手架模板引用、逻辑入口与外部契约；模板可声明结构和内部接口槽位，但不得承载协议行为 |
+| Target Profile | 交付形态、命名、目录/专属脚手架模板引用、逻辑入口与外部契约；以 deliverable→build artifact→link source set 三段声明构建图，并以独立机械生成契约声明 Spec→冻结文件的模板与输入域；模板不得承载协议行为 |
 | Language Profile | 类型降级、语言/平台约束、工具链与构建变体 |
 | Test Bundle | 独立测试、runner、判定 oracle 与参考实现适配器 |
 
-四类资产在运行开始时解析并冻结，标识与摘要写入 `run.json`；Target Profile 引用的专属模板也必须以 id/version/hash 冻结。后续阶段**禁止**按协议名称、`protocol_name` 等身份字符串选择分支，只能消费 Spec IR 中的协议事实、已解析资产或 Profile 显式引用的模板；模板选择按冻结引用完成，通用代码不得写协议名分支。默认组合为 MQTT 3.1.1 最小 Spec、client\+broker Target、C99/POSIX Language 与现有 MQTT gold Test Bundle；该组合必须保持第 7 章已裁决的布局、ABI、构建及 CLI 契约不变，尚未裁决的内部接口受 O\-18 阻塞门约束。
+四类资产在运行开始时解析并冻结，标识与摘要写入 `run.json`；Target Profile 引用的专属模板也必须以 id/version/hash 冻结。Target Profile v2 的 `deliverables`、`build_artifacts`、`link_source_sets` 与 `file_rules` 使用彼此独立的 id 命名空间：build artifact 以 `deliverable_id` 绑定恰一个交付物并以 `link_source_set_id` 绑定恰一个链接源集，链接源集只引用 file rule id；禁止依赖同名或文件名启发式暗接。`mechanical_generation_contracts` 是独立于模板树复制的确定性生成契约，声明模板、允许读取的输入域及其完整输出 rule 集。后续阶段**禁止**按协议名称、`protocol_name` 等身份字符串选择分支，只能消费 Spec IR 中的协议事实、已解析资产或 Profile 显式引用的模板；模板选择按冻结引用完成，通用代码不得写协议名分支。默认组合为 MQTT 3.1.1 最小 Spec、client\+broker Target、C99/POSIX Language 与现有 MQTT gold Test Bundle；该组合必须保持第 7 章已裁决的布局、ABI、构建及 CLI 契约不变。
 
 ### 4\.3 核心数据工件
 
@@ -960,7 +960,13 @@ Report v2 的完整条件化 Schema 在 M1\-1 一次定义并支持上述全部�
 
 #### 5\.6.5 解析后交付契约
 
-`artifact_manifest.json` 至少记录每个生成物的逻辑 id、路径、种类、`created_by_stage`、`mutability ∈ {s5_frozen, s6_owned}`、`owner_task_id`（仅 `s6_owned` 必填）、构建变体与 `delivery_blueprint_sha256`。S5 可以创建可构建的 `.c`/内部头文件存根，再由唯一 S6 task 实现；因此"初始创建者"与"最终修改所有者"必须分开，禁止继续用单一 `source_task` 混淆。构建文件、机械派生类型与 Target Profile 冻结的外部 ABI 默认属于 `s5_frozen`，S6/S8 均不得修改。
+Target Profile 活动版本为 `"2.0"`。相对 v1 的破坏性迁移为：新增必填 `build_artifacts[]`、`link_source_sets[]`、`mechanical_generation_contracts[]`；`producer=mechanical_spec` 的 file rule 由禁止 `template_id` 改为必须同时声明 `template_id/template_path`；各数组 id 只在自身命名空间唯一。v1 资产不能由消费者隐式补默认值，必须显式迁移并重新解析/冻结。
+
+构建图固定为三段：每个 deliverable 必须被至少一个 build artifact 引用；每个 build artifact 必须引用恰一个 deliverable、唯一输出 `path` 和恰一个 link source set；每个 link source set 以非空 `file_rule_ids` 声明链接源集。Delivery Compiler 展开规则后，build artifact 的入口源必须是恰一个 `kind=app` 槽，其他引用必须展开为 `kind=source` 槽；所有 app 槽必须被恰一个 artifact 使用，source 槽可以被多个 artifact 共享，build/documentation/header 槽禁止进入链接源集。build artifact id、deliverable id、link source set id 与 file rule id 是独立命名空间，跨段只能通过显式引用连接。
+
+独立机械生成契约至少声明 `id/template_id/input_kinds/output_rule_ids`，可带只含字符串常量的 `template_context`；具体模板文件由每个 mechanical file rule 的 `template_path` 声明。`input_kinds` 只允许从 `{spec_types, spec_messages, target_naming, language_type_mappings, target_resource_limits}` 选择；每个 `producer=mechanical_spec` rule 必须被恰一个机械契约输出，每个机械契约的全部输出也必须是此类 `s5_frozen` rule，且 rule 的 template 引用与契约一致。机械模板只消费声明的输入域和冻结 `template_context`，禁止读取 Plan、测试实现、环境或协议身份字符串。
+
+`artifact_manifest.json` 至少记录每个文件生成物的逻辑 id、路径、种类、`created_by_stage`、`mutability ∈ {s5_frozen, s6_owned}`、`owner_task_id`（仅 `s6_owned` 必填）、构建变体与 `delivery_blueprint_sha256`；另记录每个 build artifact 的 deliverable、输出路径和已展开链接源集。S5 可以创建可构建的 `.c`/内部头文件存根，再由唯一 S6 task 实现；因此"初始创建者"与"最终修改所有者"必须分开，禁止继续用单一 `source_task` 混淆。构建文件、机械派生类型与 Target Profile 冻结的外部 ABI 默认属于 `s5_frozen`，S6/S8 均不得修改。
 
 `contract_map.json` 覆盖两类映射：(a) Target Profile 的外部 contract 到 Test Bundle adapter 可使用的公开入口；(b) Plan 声明的 internal contract 到内部接口文件/符号，供 S6 构造上下文。S4 前只冻结 **external** contract id；internal id 在 sealed Plan 中定义，S5 只按 Blueprint 物化，二者都不得在 S5 首次发明或改名。映射条目必须与 Plan 的 `owner/ready_gate/provider_task_id/interface_files` 一致。
 
@@ -1080,11 +1086,13 @@ compile_delivery_blueprint(
 ) -> DeliveryBlueprint
 ```
 
-第一步在规划前给出 `s5_frozen` 文件、允许的 `s6_owned` 路径/槽位、外部 contract namespace、构建变体和测试前置条件；第二步在任务链接后把静态规划决定解析为精确文件、创建者、唯一修改 owner 与 contract 映射期望。Blueprint 的 semantic projection 明确定义为 `constraints + architecture + work_packages + tasks`；它不含 Plan 顶层的 `delivery_blueprint_sha256`、`coverage`、`review` 或任何运行状态。两函数与 full lint 共用同一个 canonical serializer，均禁止读取时间、随机数、网络、workspace 或环境探测，禁止按协议名称分支；相同 canonical 输入必须逐字节得到相同 canonical 输出。
+第一步在规划前给出 `s5_frozen` 文件、允许的 `s6_owned` 路径/槽位、外部 contract namespace、构建变体、测试前置条件、三段构建图和机械生成契约；第二步在任务链接后把静态规划决定解析为精确文件、创建者、唯一修改 owner、已展开 build artifact/link source set 与 contract 映射期望。Blueprint 的 semantic projection 明确定义为 `constraints + architecture + work_packages + tasks`；它不含 Plan 顶层的 `delivery_blueprint_sha256`、`coverage`、`review` 或任何运行状态。两函数与 full lint 共用同一个 canonical serializer，均禁止读取时间、随机数、网络、workspace 或环境探测，禁止按协议名称分支；相同 canonical 输入必须逐字节得到相同 canonical 输出。
+
+S4\-G1 与 stage full lint 必须共同强制 5.6.5 的闭合门：三段引用全部存在且集合闭合、每个 app 槽唯一进入一个 artifact、artifact 输出路径唯一、链接源只来自 app/source rule、每个 mechanical rule 与机械契约一一归属、模板引用一致且输入域受白名单约束。任何缺失、重复、悬空引用或跨命名空间同名推断都以机械错误拒绝；不得交给 LLM 猜测修复。
 
 Target Profile 专属模板声明的内部接口槽位只是 Delivery Constraint，不会绕过 S4 直接成为 Plan contract。ArchitecturePlanner 必须为每个必需槽位声明匹配的 internal contract、owner/provider 和 interface file，Linker/full lint 检查一一对应；模板不得附带协议状态转移或行为规则。这样默认实例可以冻结必要 ABI，同时通用 Plan Compiler 仍不包含协议名硬编码。
 
-S4 只预演并保存 blueprint，不写 workspace；其最终哈希进入 `plan.delivery_blueprint_sha256`。S5 从正式 Plan 与同一四项冻结输入重新计算，任何副作用前必须逐项一致。`s5_frozen` 包括构建文件、机械派生类型和 Target Profile 冻结的外部 ABI；`s6_owned` 可由 S5 创建可构建存根，但只能由 Plan 指定的唯一任务最终修改，内部接口头可以属于此类。该双轴语义避免把"S5 初始创建"误写成"S5 永久拥有所有文件"。
+S4 只预演并保存 blueprint，不写 workspace；其最终哈希进入 `plan.delivery_blueprint_sha256`。S5 从正式 Plan 与同一四项冻结输入重新计算，任何副作用前必须逐项一致。`s5_frozen` 包括构建文件、机械派生类型和 Target Profile 冻结的外部 ABI；`s6_owned` 可由 S5 创建可构建存根，但只能由 Plan 指定的唯一任务最终修改，内部接口头可以属于此类。构建目标名、入口源和共享源完全来自 Blueprint 中已展开的三段构建图，机械文件完全来自独立机械契约；S5 禁止从文件后缀/文件名反推任何一项。
 
 #### 6\.4.2 内部状态机
 
@@ -1131,7 +1139,7 @@ ArchitecturePlanner 只输出：
 - requirement 到工作包的显式 primary/supporting responsibility 分配；
 - 工作包目标、允许文件范围、contract 与工作包依赖骨架。
 
-它**禁止**输出最终 `T-###`、任务 instructions、input hash、coverage、运行状态、S5 文件内容或全量 coder prompt。控制器执行 `ARCH_VALIDATE`：模块/contract id 唯一、外部 contract 合法、ready gate/owner 条件成立、task\-ready contract 预留单一 provider、工作包 contract 集合和依赖一致、工作包 DAG 无环、文件槽位符合 Delivery Constraints、每条非 DEFINITION requirement 恰有一个 primary 工作包。失败只允许一次定点架构修复。
+它**禁止**输出最终 `T-###`、任务 instructions、input hash、coverage、运行状态、S5 文件内容或全量 coder prompt。控制器执行 `ARCH_VALIDATE`：模块/contract id 唯一、外部 contract 合法、ready gate/owner 条件成立、task\-ready contract 预留单一 provider、工作包 contract 集合和依赖一致、工作包 DAG 无环、文件槽位符合 Delivery Constraints、每条非 DEFINITION requirement 恰有一个 primary 工作包；此外必须在工作包层对每个 `gate=task` 测试做 5.2.3 的 readiness 可行性投影：全部 task\-ready `required_contracts` 的 provider 工作包，以及全部 `req_ids` 的 primary/supporting 工作包，必须同时位于至少一个工作包的祖先闭包（含自身）中。该门只证明存在可细化的工作包级汇合点，最终 task 级最早 gate 仍由 Linker 唯一计算；失败使用 `ARCH_TEST_READINESS_UNCLOSED`，禁止拖到全部 shard 展开后才发现。其余 ARCH\_VALIDATE 子门编号保持不变，本门归入责任/coverage 子门 `arch_10`。失败只允许一次定点架构修复。
 
 随后每个工作包用一个全新、无历史的 TaskPlanner 调用展开。输入仅含：冻结架构中与该包相关的决定和 non\-goals、该包完整 Spec 切片及责任分配、直接相邻 contract 摘要、允许文件、相关测试元数据及预算。输出用局部语义 id，声明任务目标、instructions、文件、context refs、requirement responsibilities、contract、局部依赖、边界情况和验收意图；不得生成全局 id、hash 或状态。每项工作包责任必须落到至少一个本地任务，primary 责任恰落到一个本地 primary task，任务不得认领包外责任。每个 shard 先独立 Schema/范围/预算校验；该工作包在整个 S4 中因局部语义问题（含 Critic 回路）最多重做一次，结构化输出的一次 Schema 修复按 8.4 另计。
 
@@ -1157,7 +1165,7 @@ Linker 完全由确定性代码完成：
 | ---- | ---- |
 | `S4-G0 INPUTS` | 四资产 Schema/hash、manifest/tree hash 一致；Spec lint 0 error |
 | `S4-G1 CONSTRAINTS` | 路径安全、contract/build variant id 唯一且测试引用存在 |
-| `S4-G2 ARCH` | 模块/contract/工作包引用合法；集合等式与 ready gate 成立；工作包 DAG 无环；需求责任完整 |
+| `S4-G2 ARCH` | 模块/contract/工作包引用合法；集合等式与 ready gate 成立；工作包 DAG 无环；需求责任完整；每个 task 测试存在 contract provider + 全部 REQ primary/supporting 工作包的共同下游闭包 |
 | `S4-G3 SHARDS` | 每工作包恰一合法 shard；责任细化完整；任务 ≤ 4 文件且不写 `s5_frozen` |
 | `S4-G4 LINK` | task DAG 无环且稳定排序可重放；文件完整分区；contract consumer 有 provider ancestor |
 | `S4-G5 COVERAGE` | coverage 可重算且完全一致；测试的 contract/REQ gate readiness 成立；每任务至少有有效 build gate |
@@ -1230,12 +1238,14 @@ S4 是全链最大的经验不确定点。完整 Plan Compiler 实现前，必�
 - `arch_raw_first_pass_rate`：原始响应同时 Schema 合法且通过全部 `ARCH_VALIDATE` 子门的比例；
 - `arch_semantic_first_pass_rate`：首次 Schema 合法候选在任何语义修复前通过全部子门的比例；
 - `arch_pass_with_one_repair_rate`；
-- 各子门单独通过率与失败共现矩阵：唯一性/引用、外部 contract 合法性、owner/ready/provider、contract 集合等式与依赖、工作包 DAG、文件槽位、每条非 DEFINITION requirement 恰一个 primary、上下文/输出预算与截断；
+- 各子门单独通过率与失败共现矩阵：唯一性/引用、外部 contract 合法性、owner/ready/provider、contract 集合等式与依赖、工作包 DAG、文件槽位、每条非 DEFINITION requirement 恰一个 primary、task 测试的工作包级 contract/REQ readiness 共同闭包、上下文/输出预算与截断；
 - 每 trial 与聚合的调用数、token、成本、延迟、`finish_reason`、结构修复和语义修复消耗。
 
 所有 headline rate 的分母固定为该批全部 N 个 trial：Schema 二次失败或未产出语义候选按失败计入，禁止只在“成功解析的样本”上计算通过率；逐子门条件统计可以另列，但必须同时给出无条件 k/N。
 
 M1\-4a 的通过条件是 N \= 20 批次完整、报告可重算，并由项目负责人根据报告明确记录所选 prompt/Schema/validator 哈希、`plan_architecture_repairs` 默认值，以及进入 M1\-4c 的 `plan_global_replans` 暂定政策上限；本节不预设一个脱离实测的通过率阈值，也不把未运行 Critic 的 spike 当成全局重规划预算证据。M1\-4b 的确定性资产工作可以并行推进，但 M1\-4c 不得在该决策前冻结或进入完整控制器联调。D1.3 仍以完整 S4～S6 连续运行测量真实联合稳定性，并复核所有 S4 正式默认预算，不能用该 spike 替代。
+
+若 D1.3 正式联调发现旧 spike 未覆盖、但已由 5.2/6.4 定义的发布前硬门，负责人可以批准重开 M1\-4a：先把该门前置到生产 `ARCH_VALIDATE` 并同步 ArchitecturePlanner 硬约束，再按上述同一协议新建完整 N\=20 批次。旧批次保留为历史证据但立即失去活动冻结资格；新批次及负责人签字必须先于后续正式成功样本，禁止把失败 run 当作调参后成功配置的同分布样本。2026\-07\-29 的 DEC\-26 已按此路径替代 DEC\-23。
 
 ### 6\.5 S5 项目脚手架
 
@@ -1252,9 +1262,9 @@ M1\-4a 的通过条件是 N \= 20 批次完整、报告可重算，并由项目�
 1. 先做无副作用的 basic/input/seal gate：核对 `run.json.stages.s4.output_refs`、正式 Plan SHA\-256、config snapshot hash、四项 `input_refs`、Test Bundle 双摘要及 Plan 中不存在 scaffold task。
 2. 用 6.4.1 的相同纯函数重算 Delivery Constraints/Blueprint；其 canonical hash 必须与 `plan.delivery_blueprint_sha256` 和 S4 seal receipt 一致，否则以 `DELIVERY_BLUEPRINT_DRIFT` 受控失败，不进入 LLM 修复。
 3. 把重算出的 constraints/blueprint 传给 stage full `plan_lint`；只有 full lint 0 error 后才允许第一个 workspace 副作用。
-4. S5 作为 scaffold **唯一生产阶段**，按 blueprint 物化所有目录、构建文件、`s5_frozen` 机械文件和 `s6_owned` 可构建存根。协议事实只从 Spec IR 读取，禁止重新决定 Plan 的架构、owner 或 contract。
-5. 确定性生成带 blueprint hash 的 `artifact_manifest.json` 与 `contract_map.json`：前者区分 `created_by_stage` 与 `owner_task_id`，后者物化全部 external/internal contract；所有 Test Manifest `required_contracts` 必须解析到公开入口。
-6. 默认资产组合通过冻结 Target Profile 引用的专属模板机械复现第 7.2/7.3 已裁决的 MQTT 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；通用 S5 代码不得按 MQTT 名称分支。7.3 规则 9 的 session/broker 内部 ABI 已按 DEC\-22 冻结，S5 必须逐值核对模板、Target Profile resource limits 与 Blueprint contract；`s5_frozen` 与 `s6_owned` 分类仍必须与 Plan 完全一致。
+4. S5 作为 scaffold **唯一生产阶段**，按 blueprint 物化所有目录、构建文件、`s5_frozen` 机械文件和 `s6_owned` 可构建存根。构建文件只消费 Blueprint 已展开的 build artifact/link source set，机械文件只消费对应机械契约白名单中的输入域；协议事实只从 Spec IR 读取，禁止重新决定 Plan 的架构、owner、contract 或以文件名推断链接关系。
+5. 确定性生成带 blueprint hash 的 `artifact_manifest.json` 与 `contract_map.json`：前者区分 `created_by_stage` 与 `owner_task_id`，并逐项记录 deliverable→artifact→expanded link sources；后者物化全部 external/internal contract；所有 Test Manifest `required_contracts` 必须解析到公开入口，外部 executable/CLI/network 入口必须解析到已声明 build artifact。
+6. 默认资产组合通过冻结 Target Profile 引用的专属布局模板与独立机械模板复现第 7.2/7.3 已裁决的 MQTT 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；通用 S5 代码不得按 MQTT 名称分支。7.3 规则 3/4 的公开类型与 codec ABI 来自机械生成契约，规则 9 的 session/broker 内部 ABI 来自 Target 布局模板；S5 必须逐值核对模板、Target Profile resource limits 与 Blueprint contract，且 `s5_frozen`/`s6_owned` 分类必须与 Plan 完全一致。
 7. `git init`、首提交；在沙箱执行 Language Profile 默认构建，并运行所有启用的 `gate=s5` 测试，生成并按 5.4 登记 trigger=`s5_scaffold` 的 Test Summary v2。
 8. 重读并校验全部输出，最后原子把 S5 标为 done，同时在 `run.json.stages.s5.output_refs` 封存 artifact manifest、contract map、S5 summary 的 `{path, sha256}` 及 workspace 首提交 SHA。
 
@@ -1450,8 +1460,7 @@ workspace/
 ├── src/
 │   ├── codec/                # 每报文一个文件：codec_connect.c、codec_publish.c …
 │   ├── session/              # per-connection 状态与共享 broker 订阅/转发 core
-│   ├── net/                  # socket 封装、select 事件循环
-│   └── util/                 # 定长缓冲区、日志
+│   └── net/                  # socket 封装、select 事件循环
 └── apps/
     ├── mqtt_broker_main.c    # broker 可执行
     ├── mqtt_client_cli.c     # 客户端命令行（pub/sub 子命令）
@@ -1466,7 +1475,8 @@ workspace/
 
 - 通用 Coder prompt 只保存与协议无关的执行、白名单、验证和输出规则，模板源码中禁止出现任何 `mqtt_*` 标识符；
 - C99/POSIX 语言、工具链、类型降级、内存和风格约束来自 Language Profile；
-- 协议类型/报文标识符来自 Spec IR；MQTT 的文件/接口命名规则和专属脚手架槽位来自冻结 Target Profile 及其模板引用；
+- 协议类型/报文标识符来自 Spec IR；MQTT 的文件/接口命名规则、deliverable→build artifact→link source set 构建图和专属脚手架槽位来自冻结 Target Profile v2；
+- `mqtt_types.h`/`mqtt_codec.h` 的公开机械 ABI 来自 Target Profile v2 的独立机械生成契约及其冻结模板，只能消费契约声明的 Spec/Profile 输入域；session/net 内部 ABI 仍来自布局模板；
 - Coder 每次只通过任务上下文中的 Spec 切片、`contract_map`、接口文件与解析后 Profile 看到本次运行的具体名称。切换 Target Profile 时不得修改通用 prompt 或增加协议名判断分支。
 
 实现必须由 prompt/profile/template lint 验证这一来源边界；以下编号规则由控制器按来源选择后注入，并由编译选项与评审机制执行：
@@ -1962,7 +1972,7 @@ flowchart LR
 
 | id    | 标准                                                         | 判定方式                                     |
 | ----- | ------------------------------------------------------------ | -------------------------------------------- |
-| D1.0  | M1\-4a 的 Architecture bring\-up 在冻结 gold 输入上完成 N\=20 独立 trial、关闭跨 trial 缓存；`spike_report.json` 可从逐 trial 记录重算 Schema/架构联合与逐门首次通过率、一次修复提升、失败共现、成本/延迟/截断和参数能力状态；负责人已签字冻结 prompt/Schema/validator 哈希、架构修复默认值及全局重规划暂定上限，M1\-4c 的冻结与联调晚于该决策 | spike report 重算脚本 \+ 负责人签字 |
+| D1.0  | M1\-4a 的**活动 Architecture 基线**在冻结 gold 输入上完成 N\=20 独立 trial、关闭跨 trial 缓存；`spike_report.json` 可从逐 trial 记录重算 Schema/架构联合与逐门首次通过率、一次修复提升、失败共现、成本/延迟/截断和参数能力状态；负责人已签字冻结 prompt/Schema/validator 哈希、架构修复默认值及全局重规划暂定上限，M1\-4c 的正式成功联调晚于该决策。若 D1.3 触发 6.4.8 重开，旧签字立即被新批次替代，不得继续满足本门 | spike report 重算脚本 \+ 负责人签字 |
 | D1.1  | `nepa run --spec ... --until s6` 正常结束；run.json 中 S4～S6 均 done、`termination_kind=planned_stop`、`exit_code=0` 且无 outcome/report；Plan v3/Plan State 合法并与 S4～S6 receipts 绑定；workspace 通过全部构建变体（默认 `make` 与 `make SAN=1`） | 运行 \+ snapshot/execution lint \+ 构建脚本 |
 | D1.2  | `task_completion_rate = 100%`，Plan State 无 blocked/incomplete（默认，可推翻） | plan \+ plan\_state                          |
 | D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立；这是 S4～S6 全联合链稳定性与 M1\-4a 所选预算的正式复核，不能由架构 spike 替代 | 脚本化执行并核对 run.json、Plan、Plan State（M2\-6 后改用 `nepa eval runs`） |
@@ -2201,7 +2211,7 @@ O\-18 状态为 **closed / non\-blocking**。DEC\-22、Target Profile resource l
 
 ### 12\.3 仓库现状与本文档的对应关系
 
-截至 2026\-07\-29，v0.5.12 设计修订后，NePA 仓库文件与本文档的关系如下。M1 资产正在分批迁移，未完成项不得视为活动实现：
+截至 2026\-07\-29，v0.5.13 设计修订后，NePA 仓库文件与本文档的关系如下。M1 资产正在分批迁移，未完成项不得视为活动实现：
 
 | 现有文件/目录                                      | 性质                                       | 当前处置                                                     |
 | -------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
@@ -2210,7 +2220,7 @@ O\-18 状态为 **closed / non\-blocking**。DEC\-22、Target Profile resource l
 | `nepa/agents/prompts/planner.md` 与规划 prompts    | v0.4 Planner 基线及 v0.5 分层角色提示词    | ArchitecturePlanner、TaskPlanner、PlanCritic 已有活动 prompt/Schema；旧 `planner.md` 不作为生产 S4，A9 FlatPlanBaseline 与完整 S4 controller 仍待实现 |
 | `nepa/agents/prompts/coder.md`                     | v0.5 通用 Coder 提示词                     | 已移除语言/协议职责硬编码，并与 Diagnoser/Fixer 一同接入源码扫描和非 MQTT fixture 渲染门；默认 MQTT fixture 的来源追溯审计仍待正式运行工件链 |
 | `nepa/architecture.py`、`nepa/delivery.py`、`nepa/plan_state.py` 与 `nepa/speclib/lint.py` | 架构/交付/Plan 确定性工具 | 生产 `ARCH_VALIDATE`、Delivery Constraints/Blueprint、Plan State snapshot/迁移及 v2 basic plan lint 已存在；Plan v3 Linker、blueprint full lint、coverage/contract readiness 与 execution lint 待 M1\-4b |
-| `profiles/`                                        | 默认 Target/Language/Test Bundle 源资产、解析描述与模板 | 三资产可重复解析并绑定源字节/manifest/tree 摘要；O\-18 session/net 模板及资源上限已冻结，完整 S5 materialization/receipt 尚待闭环 |
+| `profiles/`                                        | 默认 Target/Language/Test Bundle 源资产、解析描述与模板 | 三资产可重复解析并绑定源字节/manifest/tree 摘要；Target Profile 正迁移 v2 三段构建图和独立机械契约，O\-18 session/net 模板及资源上限已冻结，完整 S5 materialization/receipt 尚待闭环 |
 | `golds/mqtt-3.1.1-min/spec/spec.json`              | Spec IR v3.0 活动 gold 规格                 | 由 v2.0 按 5.1.7 迁移；范围由独立 scope 配置冻结             |
 | `golds/mqtt-3.1.1-min/tests/`                      | 活动 gold harness 与 L0/L1/L2 测试         | M0\-6 交付；只通过 7.4 外部契约接触生成物                    |
 | `golds/mqtt-3.1.1-min/tests_manifest.json`         | v2 gold 测试清单活动实现                    | 22 个用例已带 gate/required contracts/build variants，由 collector canonical 重建；Test Bundle 解析描述已封存 manifest/tree 双摘要并通过 gold lint |
@@ -2251,3 +2261,5 @@ O\-18 状态为 **closed / non\-blocking**。DEC\-22、Target Profile resource l
 | 0.5.10 | 2026-07-29 | Task Evidence v1 锁定为 canonical 不可变闭合工件，build receipt 至少一项、build-only task 可无 test summary。Task commit 固定为 stage/tree → evidence → trailers commit 两阶段；只有联合验证 tree/trailers/evidence/来源 refs 后才能生成 reconciliation proof。 |
 | 0.5.11 | 2026-07-29 | Test Summary v2 锁定 trigger context、workspace/frozen hashes、非空唯一构建变体、允许 build-only 空 cases 与四态用例结果。需求矩阵只由 producer 按 error>fail>skipped>pass 重算，Summary canonical 不可变发布，是否 accepted 仍只由 round WAL/index 决定。 |
 | 0.5.12 | 2026-07-29 | 经负责人代码审查授权收口：O\-18 按 DEC\-22 关闭并把胜出 session/net ABI 回填 7.2/7.3/11.2；明确 S6 `files` 可为白名单非空子集且 git 只暂存实际变更；未被 index 接受的 WAL/事实不一致必须隔离后继续并可复用编号，已接受工件损坏保持 fail\-stop；Test Summary 最终路径只允许由 RoundStore WAL/index 协议发布；同步更新 12.3 仓库现状。 |
+| 0.5.13 | 2026-07-29 | 经负责人确认 Target Profile 以 major 版本迁移到 v2：新增必填 deliverable→build artifact→link source set 三段构建声明，`mechanical_spec` 解禁并强制模板引用，新增独立机械生成契约；S4\-G1/full lint 增加闭合门，S5/Makefile 只消费显式构建图。默认布局删除无 file rule/责任的 `src/util/`，并把原 `broker-app` file rule 更名以与 deliverable 命名空间区分。 |
+| 0.5.14 | 2026-07-29 | 经负责人批准 DEC\-26：三次正式 gold S4 联调证明 DEC\-23 的 Architecture spike 未覆盖 5.2.3 的 contract provider \+ 全部 REQ primary/supporting readiness 闭包。生产 ARCH\_VALIDATE 在 `arch_10` 前置工作包级共同下游闭包门 `ARCH_TEST_READINESS_UNCLOSED`，ArchitecturePlanner 同步硬约束；旧 N\=20 仅保留历史证据，必须按 6.4.8 重做 N\=20 并重新冻结 prompt/validator 哈希与预算后，才恢复 D1.0 及正式 D1.3 联调。 |

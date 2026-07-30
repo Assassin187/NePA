@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.dev/schemas/s4-state.schema.json",
+  "title": "NePA S4 checkpoint state v1.0",
+  "description": "设计 5.6.6：plan/_s4 的可恢复内部状态。下游禁止把它当事实源，只有正式 Plan 的 review 对外。每个检查点工件自带 schema_version；其直接父输入 SHA-256 与 Schema 校验结论在这里登记，父哈希变化即使下游检查点失效。",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "phase": {
+      "enum": [
+        "PREPARE",
+        "DELIVERY_CONSTRAINTS",
+        "SELECT_STRATEGY",
+        "ARCHITECT",
+        "ARCH_VALIDATE",
+        "EXPAND_WORK_PACKAGES",
+        "SHARD_VALIDATE",
+        "FLAT_DRAFT",
+        "FLAT_VALIDATE",
+        "LINK_AND_RESOLVE_BLUEPRINT",
+        "PLAN_LINT_AND_SIMULATE",
+        "PLAN_CRITIC",
+        "REEXPAND_WORK_PACKAGE",
+        "REPLAN_ARCHITECTURE",
+        "REPLAN_FLAT_DRAFT",
+        "SEAL_AND_PUBLISH"
+      ]
+    },
+    "status": { "enum": ["running", "sealed", "failed"] },
+    "strategy": { "enum": ["layered", "flat"] },
+    "input_refs": {
+      "description": "6.4.3：本次 S4 绑定的四项冻结输入；任何变化使全部检查点失效",
+      "type": "object",
+      "properties": {
+        "spec": { "$ref": "#/$defs/artifact_ref" },
+        "target_profile": { "$ref": "#/$defs/artifact_ref" },
+        "language_profile": { "$ref": "#/$defs/artifact_ref" },
+        "test_bundle": { "$ref": "#/$defs/artifact_ref" }
+      },
+      "required": ["spec", "target_profile", "language_profile", "test_bundle"],
+      "additionalProperties": false
+    },
+    "planning_fingerprint": { "$ref": "#/$defs/planning_fingerprint" },
+    "attempts": {
+      "type": "object",
+      "properties": {
+        "architecture": { "$ref": "#/$defs/count" },
+        "work_packages": { "$ref": "#/$defs/counts_by_id" }
+      },
+      "required": ["architecture", "work_packages"],
+      "additionalProperties": false
+    },
+    "repairs": {
+      "description": "6.4.6 语义修复配额消耗；基础设施重试与 8.4 的一次 Schema 修复不计入",
+      "type": "object",
+      "properties": {
+        "architecture": { "$ref": "#/$defs/count" },
+        "work_packages": { "$ref": "#/$defs/counts_by_id" },
+        "plan_critic": { "$ref": "#/$defs/count" },
+        "plan_global_replans": { "$ref": "#/$defs/count" }
+      },
+      "required": ["architecture", "work_packages", "plan_critic", "plan_global_replans"],
+      "additionalProperties": false
+    },
+    "critic_rounds": { "$ref": "#/$defs/count" },
+    "seen_issue_signatures": {
+      "description": "6.4.6：同一 signature 再次出现即判定不收敛，控制器停止振荡",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/issue_signature" }
+    },
+    "checkpoints": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9_]+(?:/[a-z0-9][a-z0-9_-]*)?\\.json$" },
+      "additionalProperties": { "$ref": "#/$defs/checkpoint" }
+    },
+    "seal": {
+      "description": "6.4.7 发布现场：是否直接复用盘上逐字节一致的正式 Plan",
+      "type": "object",
+      "properties": {
+        "reused_existing_plan": { "type": "boolean" },
+        "plan_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["reused_existing_plan", "plan_sha256"],
+      "additionalProperties": false
+    },
+    "failure": { "$ref": "#/$defs/reason" }
+  },
+  "required": [
+    "schema_version",
+    "phase",
+    "status",
+    "strategy",
+    "input_refs",
+    "planning_fingerprint",
+    "attempts",
+    "repairs",
+    "critic_rounds",
+    "seen_issue_signatures",
+    "checkpoints"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "artifact_ref": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["path", "sha256"],
+      "additionalProperties": false
+    },
+    "counts_by_id": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/count" }
+    },
+    "sha256_by_role": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/$defs/sha256" }
+    },
+    "planning_fingerprint": {
+      "description": "6.4.3/6.4.8：planning 配置与角色提示词/Schema/校验器哈希；任一变化使既有候选不可复用",
+      "type": "object",
+      "properties": {
+        "config_snapshot_sha256": { "$ref": "#/$defs/sha256" },
+        "context_limit_tokens": { "type": "integer", "minimum": 1 },
+        "safety_margin_tokens": { "$ref": "#/$defs/count" },
+        "prompt_sha256": { "$ref": "#/$defs/sha256_by_role" },
+        "schema_sha256": { "$ref": "#/$defs/sha256_by_role" },
+        "validator_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": [
+        "config_snapshot_sha256",
+        "context_limit_tokens",
+        "safety_margin_tokens",
+        "prompt_sha256",
+        "schema_sha256",
+        "validator_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "issue_signature": {
+      "type": "string",
+      "pattern": "^(?:blocker|major|minor)\\|(?:architecture|work_package|task|mechanical)\\|[^|]+\\|[A-Z][A-Z0-9_]*$"
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "schema_version": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "parent_sha256": { "$ref": "#/$defs/sha256" },
+        "valid": { "type": "boolean" }
+      },
+      "required": ["schema_version", "sha256", "parent_sha256", "valid"],
+      "additionalProperties": false
+    },
+    "reason": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "detail": { "type": "string", "minLength": 1 }
+      },
+      "required": ["code", "detail"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -82,10 +82,13 @@ class TraceWriter:
         latency_ms: int = 0,
         provider_call_index: int | None = None,
         call_kind: str = "initial",
+        extra: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """写一行 trace（5.5）；就地更新 resp.cost_usd（缓存命中记 0，8.4 要点 4）。
 
         无结构化输出要求的调用 validation 记 null（5.5 的取值仅约束有校验的调用）。
+        ``extra`` 承载阶段特有的附加字段（如 S4 的 ``compiler_phase``），只允许
+        新增键：与 5.5 公共字段撞名会掩盖证据，直接报错而不是静默覆盖。
         """
         self._seq += 1
         seq = f"{self._seq:06d}"
@@ -141,6 +144,10 @@ class TraceWriter:
             "cached": resp.cached,
             "validation": resp.validation,
         }
+        for key, value in dict(extra or {}).items():
+            if key in line:
+                raise ValueError(f"trace extra 不得覆盖 5.5 公共字段: {key!r}")
+            line[key] = value
         with self._path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
         return line

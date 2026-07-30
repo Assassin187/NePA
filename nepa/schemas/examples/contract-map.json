@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "delivery_blueprint_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "contracts": [
+    {
+      "id": "sample-cli",
+      "kind": "external",
+      "owner": "sample",
+      "ready_gate": "task",
+      "provider_task_id": "T-001",
+      "interface_files": ["apps/sample.c"],
+      "entrypoints": [
+        {
+          "id": "sample-command",
+          "kind": "cli",
+          "description": "Run the sample command."
+        }
+      ],
+      "build_artifact_ids": ["sample-cli"]
+    }
+  ]
+}

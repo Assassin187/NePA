@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
@@ -539,6 +539,7 @@ class TraceSink(Protocol):
         latency_ms: int = 0,
         provider_call_index: int | None = None,
         call_kind: str = "initial",
+        extra: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -572,6 +573,7 @@ class LLMClient:
         stage: str,
         task_id: str | None,
         attempt: int,
+        extra: Mapping[str, Any] | None = None,
     ) -> None:
         """逐真实 provider 调用落 trace，并把单次成本汇总回逻辑响应。"""
         if self._trace is None:
@@ -591,6 +593,7 @@ class LLMClient:
                     latency_ms=call.latency_ms,
                     provider_call_index=call.provider_call_index,
                     call_kind=call.call_kind,
+                    extra=extra,
                 )
                 total_cost += float(line.get("cost_usd", 0.0))
             resp.cost_usd = round(total_cost, 8)
@@ -608,6 +611,7 @@ class LLMClient:
             latency_ms=resp.latency_ms,
             provider_call_index=None,
             call_kind="cache_replay" if resp.cached else "initial",
+            extra=extra,
         )
 
     def complete(
@@ -618,6 +622,7 @@ class LLMClient:
         task_id: str | None = None,
         attempt: int = 1,
         use_cache: bool = True,
+        trace_extra: Mapping[str, Any] | None = None,
     ) -> LLMResponse:
         key: str | None = None
         resp: LLMResponse | None = None
@@ -639,11 +644,19 @@ class LLMClient:
                         stage=stage,
                         task_id=task_id,
                         attempt=attempt,
+                        extra=trace_extra,
                     )
                 raise
             resp.latency_ms = int((time.perf_counter() - t0) * 1000)
             if use_cache and self._cache is not None and key is not None:
                 self._cache.put(key, resp)
 
-        self._record_trace(req, resp, stage=stage, task_id=task_id, attempt=attempt)
+        self._record_trace(
+            req,
+            resp,
+            stage=stage,
+            task_id=task_id,
+            attempt=attempt,
+            extra=trace_extra,
+        )
         return resp

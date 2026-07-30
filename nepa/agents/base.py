@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -20,6 +20,22 @@ from nepa.llm.client import (
 
 class ClientFactory(Protocol):
     def client_for(self, role: ResolvedRole) -> LLMClient: ...
+
+
+class TruncatedOutputError(RuntimeError):
+    """provider 报告输出被截断（5.5 finish_reason，6.4.6 直接失败）。
+
+    截断的结构化输出即使碰巧通过 Schema 也不可信，不允许当作正常候选继续。
+    """
+
+    def __init__(self, role: str, finish_reason: str) -> None:
+        super().__init__(f"{role} 输出被截断: finish_reason={finish_reason}")
+        self.role = role
+        self.finish_reason = finish_reason
+
+
+# provider 报告的截断类 finish_reason（8.4 两个内置 provider 的取值）。
+_TRUNCATION_REASONS: frozenset[str] = frozenset({"length", "max_tokens", "model_length"})
 
 
 class AgentRunner:
@@ -71,8 +87,13 @@ class AgentRunner:
         attempt: int = 1,
         task_id: str | None = None,
         tier_override: str | None = None,
+        trace_extra: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """一次调用无会话历史；输入只由显式 payload 构成（P5）。"""
+        """一次调用无会话历史；输入只由显式 payload 构成（P5）。
+
+        ``trace_extra`` 透传给 trace 行，供 S4 记录 ``compiler_phase`` 等阶段
+        证据（5.5）。截断输出直接抛 ``TruncatedOutputError``（6.4.6）。
+        """
         role = self.registry.resolve(role_name, tier_override=tier_override)
         user = self.render_prompt(role_name, payload, output_schema)
         req = LLMRequest(
@@ -93,6 +114,7 @@ class AgentRunner:
                 stage=stage,
                 task_id=task_id,
                 attempt=attempt,
+                trace_extra=trace_extra,
             )
         except StructuredOutputError as exc:
             # 结构化修复仍失败时 response 已包含两次模型调用的合计 token；
@@ -102,6 +124,9 @@ class AgentRunner:
             raise
         if self._on_usage is not None:
             self._on_usage(response)
+        finish_reason = str(response.provider_metadata.get("finish_reason") or "")
+        if finish_reason in _TRUNCATION_REASONS:
+            raise TruncatedOutputError(role_name, finish_reason)
         if response.parsed is None:
             raise RuntimeError(f"{role_name} did not return a parsed structured response")
         return response.parsed

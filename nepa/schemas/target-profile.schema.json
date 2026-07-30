@@ -1,17 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.dev/schemas/target-profile.schema.json",
-  "title": "NePA parsed Target Profile v1.0",
-  "description": "Active contract for inputs/target.json. It describes delivery shape, naming, template references, file slots, external contracts, and bounded resources. It MUST NOT contain protocol behavior.",
+  "title": "NePA parsed Target Profile v2.0",
+  "description": "Active contract for inputs/target.json. It describes delivery shape, an explicit deliverable-to-artifact-to-link-source build graph, mechanical generation contracts, naming, templates, file slots, external contracts, and bounded resources. It MUST NOT contain protocol behavior.",
   "type": "object",
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "const": "2.0" },
     "asset": { "$ref": "#/$defs/asset_identity" },
     "source_ref": { "$ref": "#/$defs/artifact_ref" },
     "deliverables": {
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/deliverable" }
+    },
+    "build_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/build_artifact" }
+    },
+    "link_source_sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/link_source_set" }
+    },
+    "mechanical_generation_contracts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mechanical_generation_contract" }
     },
     "naming": { "$ref": "#/$defs/naming" },
     "templates": {
@@ -47,6 +61,9 @@
     "asset",
     "source_ref",
     "deliverables",
+    "build_artifacts",
+    "link_source_sets",
+    "mechanical_generation_contracts",
     "naming",
     "templates",
     "file_rules",
@@ -108,6 +125,65 @@
       "required": ["id", "kind", "protocol_role", "purpose", "entry_contract_ids"],
       "additionalProperties": false
     },
+    "build_artifact": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "deliverable_id": { "$ref": "#/$defs/generic_id" },
+        "kind": { "enum": ["executable", "static_library", "shared_library"] },
+        "path": { "$ref": "#/$defs/safe_relative_path" },
+        "link_source_set_id": { "$ref": "#/$defs/generic_id" }
+      },
+      "required": ["id", "deliverable_id", "kind", "path", "link_source_set_id"],
+      "additionalProperties": false
+    },
+    "link_source_set": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "file_rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        }
+      },
+      "required": ["id", "file_rule_ids"],
+      "additionalProperties": false
+    },
+    "mechanical_generation_contract": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/generic_id" },
+        "template_id": { "$ref": "#/$defs/generic_id" },
+        "input_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "spec_types",
+              "spec_messages",
+              "target_naming",
+              "language_type_mappings",
+              "target_resource_limits"
+            ]
+          }
+        },
+        "output_rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generic_id" }
+        },
+        "template_context": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["id", "template_id", "input_kinds", "output_rule_ids"],
+      "additionalProperties": false
+    },
     "naming": {
       "type": "object",
       "properties": {
@@ -163,7 +239,8 @@
         "producer": {
           "enum": ["target_template", "language_template", "mechanical_spec", "stub"]
         },
-        "template_id": { "$ref": "#/$defs/generic_id" }
+        "template_id": { "$ref": "#/$defs/generic_id" },
+        "template_path": { "$ref": "#/$defs/safe_relative_path" }
       },
       "required": [
         "id",
@@ -177,11 +254,21 @@
       "allOf": [
         {
           "if": {
-            "properties": { "producer": { "const": "target_template" } },
+            "properties": {
+              "producer": { "enum": ["target_template", "mechanical_spec"] }
+            },
             "required": ["producer"]
           },
           "then": { "required": ["template_id"] },
           "else": { "not": { "required": ["template_id"] } }
+        },
+        {
+          "if": {
+            "properties": { "producer": { "const": "mechanical_spec" } },
+            "required": ["producer"]
+          },
+          "then": { "required": ["template_path"] },
+          "else": { "not": { "required": ["template_path"] } }
         }
       ]
     },

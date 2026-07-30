@@ -34,6 +34,22 @@ def _normalize_identifier(value: str, target: dict[str, Any]) -> str:
     return normalized
 
 
+def _unique_by_id(
+    items: list[dict[str, Any]],
+    *,
+    namespace: str,
+) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in items:
+        item_id = item.get("id")
+        if not isinstance(item_id, str):
+            raise DeliveryCompileError(f"{namespace} entry is missing id")
+        if item_id in indexed:
+            raise DeliveryCompileError(f"duplicate {namespace} id: {item_id}")
+        indexed[item_id] = item
+    return indexed
+
+
 def _expansion_ids(
     source: str,
     *,
@@ -63,9 +79,11 @@ def compile_delivery_constraints(
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
     """展开 file_rules，并冻结 contract/build/test/resource namespace。"""
+    rules = _items(target, "file_rules")
+    rules_by_id = _unique_by_id(rules, namespace="file_rule")
     slots: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
-    for rule in _items(target, "file_rules"):
+    for rule in rules:
         expansion_source = rule["expansion_source"]
         values = _expansion_ids(expansion_source, spec=spec, target=target)
         template = rule["path_template"]
@@ -97,7 +115,138 @@ def compile_delivery_constraints(
                 slot["source_id"] = expansion_id
             if "template_id" in rule:
                 slot["template_id"] = rule["template_id"]
+            if "template_path" in rule:
+                slot["template_path"] = rule["template_path"]
             slots.append(slot)
+
+    deliverables = _unique_by_id(_items(target, "deliverables"), namespace="deliverable")
+    source_sets = _unique_by_id(
+        _items(target, "link_source_sets"),
+        namespace="link_source_set",
+    )
+    artifacts = _unique_by_id(
+        _items(target, "build_artifacts"),
+        namespace="build_artifact",
+    )
+    templates = _unique_by_id(_items(target, "templates"), namespace="template")
+    slots_by_rule: dict[str, list[dict[str, Any]]] = {
+        rule_id: [] for rule_id in rules_by_id
+    }
+    for slot in slots:
+        slots_by_rule[str(slot["rule_id"])].append(slot)
+
+    compiled_artifacts: list[dict[str, Any]] = []
+    artifact_paths: set[str] = set()
+    used_deliverables: set[str] = set()
+    app_slot_users: dict[str, list[str]] = {}
+    for artifact_id, artifact in sorted(artifacts.items()):
+        deliverable_id = artifact.get("deliverable_id")
+        source_set_id = artifact.get("link_source_set_id")
+        output_path = artifact.get("path")
+        if deliverable_id not in deliverables:
+            raise DeliveryCompileError(
+                f"{artifact_id}: unknown deliverable {deliverable_id!r}"
+            )
+        if source_set_id not in source_sets:
+            raise DeliveryCompileError(
+                f"{artifact_id}: unknown link_source_set {source_set_id!r}"
+            )
+        if not isinstance(output_path, str) or output_path in artifact_paths:
+            raise DeliveryCompileError(
+                f"{artifact_id}: duplicate or invalid build artifact path {output_path!r}"
+            )
+        artifact_paths.add(output_path)
+        used_deliverables.add(str(deliverable_id))
+        source_set = source_sets[str(source_set_id)]
+        rule_ids = source_set.get("file_rule_ids", [])
+        expanded: list[dict[str, Any]] = []
+        for rule_id in rule_ids:
+            if rule_id not in rules_by_id:
+                raise DeliveryCompileError(
+                    f"{source_set_id}: unknown file_rule {rule_id!r}"
+                )
+            expanded.extend(slots_by_rule[str(rule_id)])
+        invalid = sorted(
+            str(item["path"]) for item in expanded if item.get("kind") not in {"app", "source"}
+        )
+        if invalid:
+            raise DeliveryCompileError(
+                f"{source_set_id}: link source set contains non-source slots {invalid}"
+            )
+        app_paths = sorted(
+            str(item["path"]) for item in expanded if item.get("kind") == "app"
+        )
+        if len(app_paths) != 1:
+            raise DeliveryCompileError(
+                f"{source_set_id}: link source set must expand exactly one app slot"
+            )
+        app_slot_users.setdefault(app_paths[0], []).append(artifact_id)
+        compiled_artifacts.append(
+            {
+                "id": artifact_id,
+                "deliverable_id": deliverable_id,
+                "kind": artifact["kind"],
+                "path": output_path,
+                "link_source_set_id": source_set_id,
+                "source_rule_ids": list(rule_ids),
+                "source_paths": sorted(str(item["path"]) for item in expanded),
+            }
+        )
+    missing_deliverables = sorted(set(deliverables) - used_deliverables)
+    if missing_deliverables:
+        raise DeliveryCompileError(
+            f"deliverables without build artifacts: {missing_deliverables}"
+        )
+    all_app_paths = {
+        str(slot["path"]) for slot in slots if slot.get("kind") == "app"
+    }
+    if set(app_slot_users) != all_app_paths or any(
+        len(users) != 1 for users in app_slot_users.values()
+    ):
+        raise DeliveryCompileError(
+            "every app slot must belong to exactly one build artifact"
+        )
+
+    mechanical_contracts = _unique_by_id(
+        _items(target, "mechanical_generation_contracts"),
+        namespace="mechanical_generation_contract",
+    )
+    mechanical_rule_users: dict[str, list[str]] = {}
+    for contract_id, contract in sorted(mechanical_contracts.items()):
+        template_id = contract.get("template_id")
+        if template_id not in templates:
+            raise DeliveryCompileError(
+                f"{contract_id}: unknown mechanical template {template_id!r}"
+            )
+        for rule_id in contract.get("output_rule_ids", []):
+            mechanical_rule = rules_by_id.get(str(rule_id))
+            if mechanical_rule is None:
+                raise DeliveryCompileError(
+                    f"{contract_id}: unknown mechanical output rule {rule_id!r}"
+                )
+            if (
+                mechanical_rule.get("producer") != "mechanical_spec"
+                or mechanical_rule.get("mutability") != "s5_frozen"
+            ):
+                raise DeliveryCompileError(
+                    f"{contract_id}: output rule {rule_id!r} must be mechanical_spec/s5_frozen"
+                )
+            if mechanical_rule.get("template_id") != template_id:
+                raise DeliveryCompileError(
+                    f"{contract_id}: output rule {rule_id!r} template mismatch"
+                )
+            mechanical_rule_users.setdefault(str(rule_id), []).append(contract_id)
+    mechanical_rules = {
+        rule_id
+        for rule_id, rule in rules_by_id.items()
+        if rule.get("producer") == "mechanical_spec"
+    }
+    if set(mechanical_rule_users) != mechanical_rules or any(
+        len(users) != 1 for users in mechanical_rule_users.values()
+    ):
+        raise DeliveryCompileError(
+            "every mechanical_spec rule must belong to exactly one mechanical contract"
+        )
 
     contracts = deepcopy(target["external_contracts"])
     variants = deepcopy(language["build_variants"])
@@ -131,6 +280,10 @@ def compile_delivery_constraints(
     result = {
         "schema_version": "1.0",
         "file_slots": sorted(slots, key=lambda item: item["path"]),
+        "build_artifacts": compiled_artifacts,
+        "mechanical_generation_contracts": [
+            deepcopy(mechanical_contracts[key]) for key in sorted(mechanical_contracts)
+        ],
         "external_contracts": contracts,
         "internal_interface_slots": deepcopy(target["internal_interface_slots"]),
         "resource_limits": deepcopy(target["resource_limits"]),
@@ -204,6 +357,10 @@ def compile_delivery_blueprint(
     result = {
         "schema_version": "1.0",
         "files": sorted(files, key=lambda item: item["path"]),
+        "build_artifacts": deepcopy(constraints.get("build_artifacts", [])),
+        "mechanical_generation_contracts": deepcopy(
+            constraints.get("mechanical_generation_contracts", [])
+        ),
         "contracts": contract_map,
     }
     result["content_sha256"] = canonical_sha256(result)

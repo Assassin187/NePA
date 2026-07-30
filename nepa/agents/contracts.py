@@ -39,9 +39,26 @@ def plan_critic_schema() -> dict[str, Any]:
     """活动 PlanCritic 结构化 issue-list 输出契约。"""
     return _load_schema("plan-critic.schema.json")
 
+
+@cache
+def flat_plan_draft_schema() -> dict[str, Any]:
+    """A9 消融专用 FlatPlanBaseline 的单次完整语义草稿契约（6.4）。"""
+    return _load_schema("flat-plan-draft.schema.json")
+
+
+@cache
+def s4_state_schema() -> dict[str, Any]:
+    """S4 内部检查点状态契约（5.6.6）；下游不得作为事实源消费。"""
+    return _load_schema("s4-state.schema.json")
+
 CODER_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "micro_plan": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1},
+        },
         "files": {
             "type": "array",
             "minItems": 1,
@@ -57,7 +74,7 @@ CODER_OUTPUT_SCHEMA: dict[str, Any] = {
         },
         "notes": {"type": "string"},
     },
-    "required": ["files", "notes"],
+    "required": ["micro_plan", "files", "notes"],
     "additionalProperties": False,
 }
 

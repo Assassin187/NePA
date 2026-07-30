@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0",
+  "phase": "PLAN_CRITIC",
+  "status": "running",
+  "strategy": "layered",
+  "input_refs": {
+    "spec": {
+      "path": "spec/spec.json",
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    "target_profile": {
+      "path": "inputs/target.json",
+      "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    },
+    "language_profile": {
+      "path": "inputs/language.json",
+      "sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+    },
+    "test_bundle": {
+      "path": "inputs/test_bundle.json",
+      "sha256": "0101010101010101010101010101010101010101010101010101010101010101"
+    }
+  },
+  "planning_fingerprint": {
+    "config_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "context_limit_tokens": 64000,
+    "safety_margin_tokens": 9600,
+    "prompt_sha256": {
+      "architecture_planner": "2222222222222222222222222222222222222222222222222222222222222222",
+      "plan_critic": "3333333333333333333333333333333333333333333333333333333333333333",
+      "task_planner": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "schema_sha256": {
+      "architecture_draft": "5555555555555555555555555555555555555555555555555555555555555555",
+      "plan_critic": "6666666666666666666666666666666666666666666666666666666666666666",
+      "task_shard": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "validator_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "attempts": {
+    "architecture": 1,
+    "work_packages": {
+      "wp-codec": 1,
+      "wp-client": 1
+    }
+  },
+  "repairs": {
+    "architecture": 0,
+    "work_packages": {
+      "wp-codec": 0,
+      "wp-client": 0
+    },
+    "plan_critic": 0,
+    "plan_global_replans": 0
+  },
+  "critic_rounds": 1,
+  "seen_issue_signatures": ["minor|task|T-001|MISSING_ERROR_PATH"],
+  "checkpoints": {
+    "architecture_candidate.json": {
+      "schema_version": "1.0",
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "parent_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    "task_shards/wp-codec.json": {
+      "schema_version": "1.0",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "parent_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "valid": true
+    }
+  }
+}

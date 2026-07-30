@@ -1,24 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nepa.dev/schemas/plan.schema.json",
-  "title": "NePA plan.json v3.0",
-  "description": "设计文档 5.2：S4 原子发布的不可变静态合同。执行状态属于 plan_state.json；本工件禁止 status/attempts/notes 与 scaffold task。集合等式、DAG、coverage 可重算性与文件完整分区由 plan_lint 检查。",
+  "$id": "https://nepa.dev/schemas/flat-plan-draft.schema.json",
+  "title": "NePA FlatPlanDraft v1.0",
+  "description": "A9 消融专用 FlatPlanBaseline 的单次结构化输出（设计 6.4）。字段与 layered 的 ArchitectureDraft/TaskShard 完全同形，只是在一次调用内给出全部语义；tasks 自带 work_package_id 供控制器确定性拆入同一 PlanDraftIR。禁止最终 T-###、input hash、blueprint hash、coverage、review 与运行状态。",
   "type": "object",
   "properties": {
-    "schema_version": { "const": "3.0" },
-    "input_refs": {
-      "description": "5.2：S4 控制器注入的四项冻结输入引用；只保存路径与内容哈希",
-      "type": "object",
-      "properties": {
-        "spec": { "$ref": "#/$defs/artifact_ref" },
-        "target_profile": { "$ref": "#/$defs/artifact_ref" },
-        "language_profile": { "$ref": "#/$defs/artifact_ref" },
-        "test_bundle": { "$ref": "#/$defs/artifact_ref" }
-      },
-      "required": ["spec", "target_profile", "language_profile", "test_bundle"],
-      "additionalProperties": false
-    },
-    "delivery_blueprint_sha256": { "$ref": "#/$defs/sha256" },
+    "schema_version": { "const": "1.0" },
     "architecture": { "$ref": "#/$defs/architecture" },
     "work_packages": {
       "type": "array",
@@ -29,50 +16,23 @@
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/task" }
-    },
-    "coverage": { "$ref": "#/$defs/coverage" },
-    "review": { "$ref": "#/$defs/review" }
+    }
   },
-  "required": [
-    "schema_version",
-    "input_refs",
-    "delivery_blueprint_sha256",
-    "architecture",
-    "work_packages",
-    "tasks",
-    "coverage",
-    "review"
-  ],
+  "required": ["schema_version", "architecture", "work_packages", "tasks"],
   "additionalProperties": false,
   "$defs": {
     "generic_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
     "module_owner": { "type": "string", "pattern": "^(?!s5$)[a-z0-9][a-z0-9_-]*$" },
     "req_id": { "type": "string", "pattern": "^REQ-[A-Z0-9]+-[0-9]{3}$" },
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "task_id": { "type": "string", "pattern": "^T-[0-9]{3,}$" },
     "safe_relative_path": {
       "type": "string",
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
     },
-    "artifact_ref": {
-      "type": "object",
-      "properties": {
-        "path": { "type": "string", "minLength": 1 },
-        "sha256": { "$ref": "#/$defs/sha256" }
-      },
-      "required": ["path", "sha256"],
-      "additionalProperties": false
-    },
     "id_set": {
       "type": "array",
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/generic_id" }
-    },
-    "task_id_set": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/task_id" }
     },
     "file_set": {
       "type": "array",
@@ -89,8 +49,11 @@
       "required": ["kind", "id"],
       "additionalProperties": false
     },
-    "context_refs": { "type": "array", "items": { "$ref": "#/$defs/context_ref" } },
-    "responsibility": {
+    "context_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/context_ref" }
+    },
+    "requirement_responsibility": {
       "type": "object",
       "properties": {
         "req_id": { "$ref": "#/$defs/req_id" },
@@ -99,12 +62,11 @@
       "required": ["req_id", "role"],
       "additionalProperties": false
     },
-    "responsibilities": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/responsibility" }
-    },
-    "work_kind": {
-      "enum": ["codec", "state", "logic", "transport", "app", "integration"]
+    "acceptance": {
+      "type": "object",
+      "properties": { "outcome": { "type": "string", "minLength": 1 } },
+      "required": ["outcome"],
+      "additionalProperties": false
     },
     "decision": {
       "type": "object",
@@ -129,7 +91,6 @@
       "additionalProperties": false
     },
     "s5_contract": {
-      "description": "5.2.1：ready_gate=s5 的 contract 必须由 S5 拥有且不得带 provider_task_id",
       "type": "object",
       "properties": {
         "id": { "$ref": "#/$defs/generic_id" },
@@ -143,7 +104,6 @@
       "additionalProperties": false
     },
     "task_contract": {
-      "description": "5.2.1：task-ready contract 由一个模块拥有，并由该模块内恰一个 provider task 提供",
       "type": "object",
       "properties": {
         "id": { "$ref": "#/$defs/generic_id" },
@@ -152,7 +112,7 @@
         "owner": { "$ref": "#/$defs/module_owner" },
         "interface_files": { "$ref": "#/$defs/file_set" },
         "ready_gate": { "const": "task" },
-        "provider_task_id": { "$ref": "#/$defs/task_id" }
+        "provider_work_package_id": { "$ref": "#/$defs/generic_id" }
       },
       "required": [
         "id",
@@ -161,7 +121,7 @@
         "owner",
         "interface_files",
         "ready_gate",
-        "provider_task_id"
+        "provider_work_package_id"
       ],
       "additionalProperties": false
     },
@@ -222,19 +182,17 @@
         "title": { "type": "string", "minLength": 1 },
         "goal": { "type": "string", "minLength": 1 },
         "module": { "$ref": "#/$defs/generic_id" },
-        "kind": { "$ref": "#/$defs/work_kind" },
+        "kind": { "enum": ["codec", "state", "logic", "transport", "app", "integration"] },
         "context_refs": { "$ref": "#/$defs/context_refs" },
-        "requirement_responsibilities": { "$ref": "#/$defs/responsibilities" },
+        "requirement_responsibilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement_responsibility" }
+        },
         "allowed_files": { "$ref": "#/$defs/file_set" },
         "provides_contracts": { "$ref": "#/$defs/id_set" },
         "consumes_contracts": { "$ref": "#/$defs/id_set" },
         "depends_on": { "$ref": "#/$defs/id_set" },
-        "acceptance": {
-          "type": "object",
-          "properties": { "outcome": { "type": "string", "minLength": 1 } },
-          "required": ["outcome"],
-          "additionalProperties": false
-        }
+        "acceptance": { "$ref": "#/$defs/acceptance" }
       },
       "required": [
         "id",
@@ -255,14 +213,13 @@
     "task": {
       "type": "object",
       "properties": {
-        "id": { "$ref": "#/$defs/task_id" },
-        "work_package": { "$ref": "#/$defs/generic_id" },
+        "work_package_id": { "$ref": "#/$defs/generic_id" },
+        "local_id": { "$ref": "#/$defs/generic_id" },
         "title": { "type": "string", "minLength": 1 },
         "goal": { "type": "string", "minLength": 1 },
-        "kind": { "$ref": "#/$defs/work_kind" },
+        "kind": { "enum": ["codec", "state", "logic", "transport", "app", "integration"] },
         "instructions": { "type": "string", "minLength": 1 },
         "deliverable_files": {
-          "description": "5.2.2：本任务唯一可创建/修改的 s6_owned 白名单，非空且 ≤ 4",
           "type": "array",
           "minItems": 1,
           "maxItems": 4,
@@ -270,33 +227,18 @@
           "items": { "$ref": "#/$defs/safe_relative_path" }
         },
         "context_refs": { "$ref": "#/$defs/context_refs" },
-        "requirement_responsibilities": { "$ref": "#/$defs/responsibilities" },
+        "requirement_responsibilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement_responsibility" }
+        },
         "provides_contracts": { "$ref": "#/$defs/id_set" },
         "consumes_contracts": { "$ref": "#/$defs/id_set" },
-        "depends_on": { "$ref": "#/$defs/task_id_set" },
-        "acceptance": {
-          "description": "5.2.2：至少一个构建变体；tests 可为空（build-only task）",
-          "type": "object",
-          "properties": {
-            "build_variant_ids": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": { "$ref": "#/$defs/generic_id" }
-            },
-            "tests": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": { "type": "string", "minLength": 1 }
-            }
-          },
-          "required": ["build_variant_ids", "tests"],
-          "additionalProperties": false
-        }
+        "depends_on": { "$ref": "#/$defs/id_set" },
+        "acceptance": { "$ref": "#/$defs/acceptance" }
       },
       "required": [
-        "id",
-        "work_package",
+        "work_package_id",
+        "local_id",
         "title",
         "goal",
         "kind",
@@ -309,93 +251,6 @@
         "depends_on",
         "acceptance"
       ],
-      "additionalProperties": false
-    },
-    "coverage": {
-      "description": "5.2.3：由 Linker 确定性生成，禁止 Agent 填写",
-      "type": "object",
-      "properties": {
-        "requirements": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/coverage_requirement" }
-        },
-        "tests": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/coverage_test" }
-        }
-      },
-      "required": ["requirements", "tests"],
-      "additionalProperties": false
-    },
-    "coverage_requirement": {
-      "type": "object",
-      "properties": {
-        "req_id": { "$ref": "#/$defs/req_id" },
-        "primary_work_package_id": {
-          "oneOf": [{ "$ref": "#/$defs/generic_id" }, { "type": "null" }]
-        },
-        "primary_task_id": {
-          "oneOf": [{ "$ref": "#/$defs/task_id" }, { "type": "null" }]
-        },
-        "supporting_task_ids": { "$ref": "#/$defs/task_id_set" },
-        "test_nodeids": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
-        }
-      },
-      "required": [
-        "req_id",
-        "primary_work_package_id",
-        "primary_task_id",
-        "supporting_task_ids",
-        "test_nodeids"
-      ],
-      "additionalProperties": false
-    },
-    "coverage_test": {
-      "type": "object",
-      "properties": {
-        "nodeid": { "type": "string", "minLength": 1 },
-        "gate": { "enum": ["s5", "task", "s7_only"] },
-        "enabled": { "type": "boolean" },
-        "task_id": { "oneOf": [{ "$ref": "#/$defs/task_id" }, { "type": "null" }] }
-      },
-      "required": ["nodeid", "gate", "enabled", "task_id"],
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": { "properties": { "gate": { "const": "task" } }, "required": ["gate"] },
-          "then": { "properties": { "task_id": { "$ref": "#/$defs/task_id" } } },
-          "else": { "properties": { "task_id": { "type": "null" } } }
-        }
-      ]
-    },
-    "review": {
-      "description": "5.2.1：正式发布的评审结论；完整轮次历史只留在 _s4/reviews/",
-      "type": "object",
-      "properties": {
-        "verdict": { "const": "pass" },
-        "unresolved_minor_issues": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/minor_issue" }
-        }
-      },
-      "required": ["verdict", "unresolved_minor_issues"],
-      "additionalProperties": false
-    },
-    "minor_issue": {
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "pattern": "^PI-[0-9]{3}$" },
-        "scope": { "enum": ["architecture", "work_package", "task", "mechanical"] },
-        "target_id": { "type": "string", "minLength": 1 },
-        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
-        "description": { "type": "string", "minLength": 1 }
-      },
-      "required": ["id", "scope", "target_id", "code", "description"],
       "additionalProperties": false
     }
   }

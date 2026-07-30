@@ -548,6 +548,44 @@ class TestTelemetry:
         assert "Answer the question." in prompt_file.read_text(encoding="utf-8")
         assert json.loads(output_file.read_text(encoding="utf-8")) == {"answer": "42"}
 
+    def test_stage_specific_trace_extra_is_recorded(self, tmp_path: Path) -> None:
+        """5.5：S4 调用额外记录 compiler_phase/work_package_id/父哈希/修复预算。"""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=openai_body('{"answer": "42"}'))
+
+        trace_dir = tmp_path / "trace"
+        writer = TraceWriter(trace_dir, run_id="r", pricing={})
+        client = LLMClient(make_provider(handler), provider_name="testprov", trace=writer)
+        client.complete(
+            make_request(json_schema=SCHEMA),
+            stage="S4",
+            trace_extra={
+                "compiler_phase": "EXPAND_WORK_PACKAGES",
+                "work_package_id": "wp-codec",
+                "parent_artifact_sha256": "ab" * 32,
+                "repair_budget_used": {"architecture": 1},
+            },
+        )
+
+        rec = json.loads((trace_dir / "llm_calls.ndjson").read_text(encoding="utf-8"))
+        assert rec["compiler_phase"] == "EXPAND_WORK_PACKAGES"
+        assert rec["work_package_id"] == "wp-codec"
+        assert rec["parent_artifact_sha256"] == "ab" * 32
+        assert rec["repair_budget_used"] == {"architecture": 1}
+
+    def test_trace_extra_cannot_shadow_a_common_field(self, tmp_path: Path) -> None:
+        writer = TraceWriter(tmp_path / "trace", run_id="r", pricing={})
+
+        with pytest.raises(ValueError, match="stage"):
+            writer.record(
+                req=make_request(json_schema=None),
+                resp=LLMResponse(text="ok"),
+                provider_name="testprov",
+                stage="S4",
+                extra={"stage": "S6"},
+            )
+
     def test_cached_call_traced_with_zero_cost(self, tmp_path: Path) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=openai_body('{"answer": "x"}', tin=100, tout=50))

@@ -1,0 +1,413 @@
+{
+  "schema_version": "1.0",
+  "architecture": {
+    "decisions": [
+      {
+        "id": "separate-core-transport",
+        "topic": "Protocol and transport separation",
+        "statement": "Keep deterministic message processing separate from connection lifecycle handling.",
+        "context_refs": [
+          {
+            "kind": "interface_file",
+            "id": "include/proto/core_transport.h"
+          }
+        ]
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "bounded-input-storage",
+        "statement": "Use the Target Profile resource limit for bounded connection storage.",
+        "rationale": "The injected delivery constraint provides an explicit maximum and exhaustion policy.",
+        "context_refs": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "build-system",
+        "kind": "external",
+        "purpose": "Build every required variant.",
+        "owner": "s5",
+        "interface_files": [
+          "Makefile"
+        ],
+        "ready_gate": "s5"
+      },
+      {
+        "id": "codec-cli",
+        "kind": "external",
+        "purpose": "Expose message encoding and decoding to black-box tests.",
+        "owner": "codec",
+        "interface_files": [
+          "include/proto/codec.h",
+          "apps/codec_cli.c"
+        ],
+        "ready_gate": "task",
+        "provider_work_package_id": "wp-codec"
+      },
+      {
+        "id": "client-cli",
+        "kind": "external",
+        "purpose": "Expose the selected client command-line delivery.",
+        "owner": "client",
+        "interface_files": [
+          "apps/client_app.c"
+        ],
+        "ready_gate": "task",
+        "provider_work_package_id": "wp-client"
+      },
+      {
+        "id": "core-transport",
+        "kind": "internal",
+        "purpose": "Connect protocol processing to transport lifecycle events.",
+        "owner": "transport",
+        "interface_files": [
+          "include/proto/core_transport.h"
+        ],
+        "ready_gate": "task",
+        "provider_work_package_id": "wp-transport"
+      },
+      {
+        "id": "server-process",
+        "kind": "external",
+        "purpose": "Expose the foreground server process.",
+        "owner": "server",
+        "interface_files": [
+          "apps/server_app.c"
+        ],
+        "ready_gate": "task",
+        "provider_work_package_id": "wp-server"
+      }
+    ],
+    "modules": [
+      {
+        "id": "codec",
+        "name": "Codec",
+        "purpose": "Translate between structured messages and wire bytes.",
+        "responsibilities": [
+          "Implement the selected message framing and field encodings."
+        ],
+        "non_goals": [
+          "Do not perform network I/O."
+        ],
+        "owns_files": [
+          "src/codec/codec_connect.c",
+          "apps/codec_cli.c"
+        ],
+        "provides_contracts": [
+          "codec-cli"
+        ],
+        "consumes_contracts": []
+      },
+      {
+        "id": "client",
+        "name": "Client application",
+        "purpose": "Expose the selected client delivery through its public command contract.",
+        "responsibilities": [
+          "Compose the public codec with the selected client operation."
+        ],
+        "non_goals": [
+          "Do not implement server-side connection lifecycle."
+        ],
+        "owns_files": [
+          "apps/client_app.c"
+        ],
+        "provides_contracts": [
+          "client-cli"
+        ],
+        "consumes_contracts": [
+          "codec-cli"
+        ]
+      },
+      {
+        "id": "transport",
+        "name": "Transport",
+        "purpose": "Manage bounded connection lifecycle and byte movement.",
+        "responsibilities": [
+          "Provide the required connection event boundary."
+        ],
+        "non_goals": [
+          "Do not define protocol state transitions."
+        ],
+        "owns_files": [
+          "include/proto/core_transport.h",
+          "src/net.c"
+        ],
+        "provides_contracts": [
+          "core-transport"
+        ],
+        "consumes_contracts": []
+      },
+      {
+        "id": "server",
+        "name": "Server application",
+        "purpose": "Compose protocol processing and transport into the selected server delivery.",
+        "responsibilities": [
+          "Expose the frozen server process contract."
+        ],
+        "non_goals": [],
+        "owns_files": [
+          "apps/server_app.c"
+        ],
+        "provides_contracts": [
+          "server-process"
+        ],
+        "consumes_contracts": [
+          "codec-cli",
+          "core-transport"
+        ]
+      }
+    ]
+  },
+  "work_packages": [
+    {
+      "id": "wp-codec",
+      "title": "Message codec",
+      "goal": "Encode and decode the selected message through the public codec boundary.",
+      "module": "codec",
+      "kind": "codec",
+      "context_refs": [
+        {
+          "kind": "message",
+          "id": "connect"
+        },
+        {
+          "kind": "requirement",
+          "id": "REQ-FRAME-001"
+        }
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-FRAME-001",
+          "role": "primary"
+        }
+      ],
+      "allowed_files": [
+        "src/codec/codec_connect.c",
+        "apps/codec_cli.c"
+      ],
+      "provides_contracts": [
+        "codec-cli"
+      ],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The selected message round-trips through the public codec contract."
+      }
+    },
+    {
+      "id": "wp-client",
+      "title": "Client application",
+      "goal": "Expose the selected client operation through the public command boundary.",
+      "module": "client",
+      "kind": "app",
+      "context_refs": [
+        {
+          "kind": "requirement",
+          "id": "REQ-PUBLISH-001"
+        }
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-PUBLISH-001",
+          "role": "primary"
+        }
+      ],
+      "allowed_files": [
+        "apps/client_app.c"
+      ],
+      "provides_contracts": [
+        "client-cli"
+      ],
+      "consumes_contracts": [
+        "codec-cli"
+      ],
+      "depends_on": [
+        "wp-codec"
+      ],
+      "acceptance": {
+        "outcome": "The client completes one selected operation through its external CLI contract."
+      }
+    },
+    {
+      "id": "wp-transport",
+      "title": "Connection transport",
+      "goal": "Provide bounded connection lifecycle handling through the internal interface slot.",
+      "module": "transport",
+      "kind": "transport",
+      "context_refs": [
+        {
+          "kind": "interface_file",
+          "id": "include/proto/core_transport.h"
+        }
+      ],
+      "requirement_responsibilities": [],
+      "allowed_files": [
+        "include/proto/core_transport.h",
+        "src/net.c"
+      ],
+      "provides_contracts": [
+        "core-transport"
+      ],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The transport module provides the frozen lifecycle interface without protocol behavior."
+      }
+    },
+    {
+      "id": "wp-server",
+      "title": "Server composition",
+      "goal": "Compose codec and transport contracts into the public server process.",
+      "module": "server",
+      "kind": "app",
+      "context_refs": [
+        {
+          "kind": "requirement",
+          "id": "REQ-CONNECT-001"
+        }
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-CONNECT-001",
+          "role": "primary"
+        }
+      ],
+      "allowed_files": [
+        "apps/server_app.c"
+      ],
+      "provides_contracts": [
+        "server-process"
+      ],
+      "consumes_contracts": [
+        "codec-cli",
+        "core-transport"
+      ],
+      "depends_on": [
+        "wp-codec",
+        "wp-transport"
+      ],
+      "acceptance": {
+        "outcome": "The server starts through the external process contract and accepts one selected connection flow."
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "work_package_id": "wp-codec",
+      "local_id": "codec",
+      "title": "Message codec",
+      "goal": "Round-trip the selected message through the public codec.",
+      "kind": "codec",
+      "instructions": "Implement encode/decode and expose the codec CLI.",
+      "deliverable_files": [
+        "src/codec/codec_connect.c",
+        "apps/codec_cli.c"
+      ],
+      "context_refs": [
+        {
+          "kind": "message",
+          "id": "connect"
+        }
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-FRAME-001",
+          "role": "primary"
+        }
+      ],
+      "provides_contracts": [
+        "codec-cli"
+      ],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The codec CLI round-trips the message."
+      }
+    },
+    {
+      "work_package_id": "wp-client",
+      "local_id": "app",
+      "title": "Client application",
+      "goal": "Publish one message through the client CLI.",
+      "kind": "app",
+      "instructions": "Compose the codec CLI into one client operation.",
+      "deliverable_files": [
+        "apps/client_app.c"
+      ],
+      "context_refs": [],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-PUBLISH-001",
+          "role": "primary"
+        }
+      ],
+      "provides_contracts": [
+        "client-cli"
+      ],
+      "consumes_contracts": [
+        "codec-cli"
+      ],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The client publishes one message."
+      }
+    },
+    {
+      "work_package_id": "wp-transport",
+      "local_id": "transport",
+      "title": "Connection transport",
+      "goal": "Provide bounded connection lifecycle handling.",
+      "kind": "transport",
+      "instructions": "Implement the internal transport interface and byte movement.",
+      "deliverable_files": [
+        "include/proto/core_transport.h",
+        "src/net.c"
+      ],
+      "context_refs": [
+        {
+          "kind": "interface_file",
+          "id": "include/proto/core_transport.h"
+        }
+      ],
+      "requirement_responsibilities": [],
+      "provides_contracts": [
+        "core-transport"
+      ],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The transport exposes the frozen interface."
+      }
+    },
+    {
+      "work_package_id": "wp-server",
+      "local_id": "app",
+      "title": "Server composition",
+      "goal": "Accept one connection through the server process.",
+      "kind": "app",
+      "instructions": "Compose codec and transport into the server process.",
+      "deliverable_files": [
+        "apps/server_app.c"
+      ],
+      "context_refs": [],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-CONNECT-001",
+          "role": "primary"
+        }
+      ],
+      "provides_contracts": [
+        "server-process"
+      ],
+      "consumes_contracts": [
+        "codec-cli",
+        "core-transport"
+      ],
+      "depends_on": [],
+      "acceptance": {
+        "outcome": "The server accepts one connection."
+      }
+    }
+  ]
+}

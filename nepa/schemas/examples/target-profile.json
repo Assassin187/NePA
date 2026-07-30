@@ -1,5 +1,5 @@
 {
-  "schema_version" : "1.0",
+  "schema_version" : "2.0",
   "asset": {
     "id": "sample-client-server",
     "version": "1.0.0",
@@ -32,6 +32,48 @@
       "entry_contract_ids": ["server-process"]
     }
   ],
+  "build_artifacts": [
+    {
+      "id": "codec-cli-binary",
+      "deliverable_id": "codec-tool",
+      "kind": "executable",
+      "path": "build/codec_cli",
+      "link_source_set_id": "codec-cli-sources"
+    },
+    {
+      "id": "client-binary",
+      "deliverable_id": "client_app",
+      "kind": "executable",
+      "path": "build/client_app",
+      "link_source_set_id": "client-sources"
+    },
+    {
+      "id": "server-binary",
+      "deliverable_id": "server_app",
+      "kind": "executable",
+      "path": "build/server_app",
+      "link_source_set_id": "server-sources"
+    }
+  ],
+  "link_source_sets": [
+    {
+      "id": "codec-cli-sources",
+      "file_rule_ids": ["codec-cli-entry-source", "message-codecs"]
+    },
+    {
+      "id": "client-sources",
+      "file_rule_ids": ["client-entry-source", "message-codecs"]
+    },
+    {
+      "id": "server-sources",
+      "file_rule_ids": [
+        "server-entry-source",
+        "message-codecs",
+        "network-source"
+      ]
+    }
+  ],
+  "mechanical_generation_contracts": [],
   "naming": {
     "identifier_case": "snake",
     "file_case": "snake",
@@ -99,7 +141,7 @@
       "producer": "stub"
     },
     {
-      "id": "codec-cli-app",
+      "id": "codec-cli-entry-source",
       "path_template": "apps/codec_cli.c",
       "expansion_source": "none",
       "kind": "app",
@@ -107,7 +149,7 @@
       "producer": "stub"
     },
     {
-      "id": "client-app",
+      "id": "client-entry-source",
       "path_template": "apps/client_app.c",
       "expansion_source": "none",
       "kind": "app",
@@ -115,7 +157,7 @@
       "producer": "stub"
     },
     {
-      "id": "server-app",
+      "id": "server-entry-source",
       "path_template": "apps/server_app.c",
       "expansion_source": "none",
       "kind": "app",

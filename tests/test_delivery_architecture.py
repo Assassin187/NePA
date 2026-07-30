@@ -127,6 +127,62 @@ def test_delivery_constraints_reject_duplicate_expanded_slot() -> None:
         )
 
 
+def test_delivery_constraints_compile_explicit_three_segment_build_graph() -> None:
+    _, constraints, _ = _compiled()
+    artifacts = {item["id"]: item for item in constraints["build_artifacts"]}
+
+    assert artifacts["codec-cli-binary"] == {
+        "id": "codec-cli-binary",
+        "deliverable_id": "codec-tool",
+        "kind": "executable",
+        "path": "build/codec_cli",
+        "link_source_set_id": "codec-cli-sources",
+        "source_rule_ids": ["codec-cli-entry-source", "message-codecs"],
+        "source_paths": ["apps/codec_cli.c", "src/codec/codec_connect.c"],
+    }
+
+
+def test_delivery_constraints_reject_dangling_build_graph_reference() -> None:
+    target = _example("target-profile.json")
+    target["link_source_sets"][0]["file_rule_ids"].append("missing-rule")
+    with pytest.raises(DeliveryCompileError, match="unknown file_rule"):
+        compile_delivery_constraints(
+            _spec(),
+            target,
+            _example("language-profile.json"),
+            _example("test-bundle.json"),
+            _manifest(),
+        )
+
+
+def test_delivery_constraints_require_every_app_slot_exactly_once() -> None:
+    target = _example("target-profile.json")
+    target["link_source_sets"][1]["file_rule_ids"][0] = "message-codecs"
+    with pytest.raises(DeliveryCompileError, match="exactly one app slot"):
+        compile_delivery_constraints(
+            _spec(),
+            target,
+            _example("language-profile.json"),
+            _example("test-bundle.json"),
+            _manifest(),
+        )
+
+
+def test_delivery_constraints_require_mechanical_rule_contract_ownership() -> None:
+    target = _example("target-profile.json")
+    target["file_rules"][2]["producer"] = "mechanical_spec"
+    target["file_rules"][2]["template_id"] = "sample-layout"
+    target["file_rules"][2]["template_path"] = "codec.h.j2"
+    with pytest.raises(DeliveryCompileError, match="every mechanical_spec rule"):
+        compile_delivery_constraints(
+            _spec(),
+            target,
+            _example("language-profile.json"),
+            _example("test-bundle.json"),
+            _manifest(),
+        )
+
+
 def test_planning_index_strips_quotes_and_locks_visibility_and_budget() -> None:
     _, _, index = _compiled()
     assert "quote" not in json.dumps(index)
@@ -208,6 +264,36 @@ def test_arch_validate_rejects_preflight_overflow() -> None:
         planning_index=index,
     )
     assert "ARCH_CONTEXT_TOO_LARGE" in {issue.code for issue in report.issues}
+
+
+def test_arch_validate_requires_a_common_test_readiness_closure() -> None:
+    target, constraints, index = _compiled()
+    draft = _example("architecture-draft.json")
+    by_id = {item["id"]: item for item in draft["work_packages"]}
+    for package_id in ("wp-client", "wp-transport"):
+        by_id[package_id]["requirement_responsibilities"].append(
+            {"req_id": "REQ-FRAME-001", "role": "supporting"}
+        )
+
+    report = arch_validate(
+        draft,
+        spec=_spec(),
+        target=target,
+        constraints=constraints,
+        planning_index=index,
+    )
+
+    assert "ARCH_TEST_READINESS_UNCLOSED" in {
+        issue.code for issue in report.issues
+    }
+    readiness = next(
+        issue
+        for issue in report.issues
+        if issue.code == "ARCH_TEST_READINESS_UNCLOSED"
+    )
+    assert readiness.gate == "arch_10"
+    assert "wp-client" in readiness.message
+    assert "wp-transport" in readiness.message
 
 
 def test_delivery_blueprint_is_deterministic_and_requires_exact_s6_ownership() -> None:

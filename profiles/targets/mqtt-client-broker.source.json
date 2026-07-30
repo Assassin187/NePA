@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "asset": {
     "id": "mqtt-client-broker",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "description": "MQTT 3.1.1 client, CLI tools, and bounded single-thread broker delivery."
   },
   "deliverables": [
@@ -28,6 +28,70 @@
       "entry_contract_ids": ["broker-process"]
     }
   ],
+  "build_artifacts": [
+    {
+      "id": "mqtt-codec-cli",
+      "deliverable_id": "codec-tool",
+      "kind": "executable",
+      "path": "build/mqtt_codec_cli",
+      "link_source_set_id": "codec-cli-sources"
+    },
+    {
+      "id": "mqtt-client-cli",
+      "deliverable_id": "client-cli-app",
+      "kind": "executable",
+      "path": "build/mqtt_client_cli",
+      "link_source_set_id": "client-cli-sources"
+    },
+    {
+      "id": "mqtt-broker",
+      "deliverable_id": "broker-app",
+      "kind": "executable",
+      "path": "build/mqtt_broker",
+      "link_source_set_id": "broker-sources"
+    }
+  ],
+  "link_source_sets": [
+    {
+      "id": "codec-cli-sources",
+      "file_rule_ids": ["codec-entry-source", "message-codecs"]
+    },
+    {
+      "id": "client-cli-sources",
+      "file_rule_ids": [
+        "client-entry-source",
+        "message-codecs",
+        "session-source",
+        "net-source"
+      ]
+    },
+    {
+      "id": "broker-sources",
+      "file_rule_ids": [
+        "broker-entry-source",
+        "message-codecs",
+        "session-source",
+        "net-source"
+      ]
+    }
+  ],
+  "mechanical_generation_contracts": [
+    {
+      "id": "mqtt-public-codec-abi",
+      "template_id": "mqtt-client-broker-mechanical",
+      "input_kinds": [
+        "spec_types",
+        "spec_messages",
+        "target_naming",
+        "language_type_mappings",
+        "target_resource_limits"
+      ],
+      "output_rule_ids": ["types-header", "codec-header"],
+      "template_context": {
+        "types_include": "mqtt/mqtt_types.h"
+      }
+    }
+  ],
   "naming": {
     "identifier_case": "snake",
     "file_case": "snake",
@@ -40,6 +104,11 @@
       "id": "mqtt-client-broker-layout",
       "version": "1.0.0",
       "path": "profiles/templates/mqtt-client-broker"
+    },
+    {
+      "id": "mqtt-client-broker-mechanical",
+      "version": "1.0.0",
+      "path": "profiles/templates/mqtt-client-broker-mechanical"
     }
   ],
   "file_rules": [
@@ -66,7 +135,9 @@
       "expansion_source": "none",
       "kind": "public_header",
       "mutability": "s5_frozen",
-      "producer": "mechanical_spec"
+      "producer": "mechanical_spec",
+      "template_id": "mqtt-client-broker-mechanical",
+      "template_path": "mqtt_types.h.j2"
     },
     {
       "id": "codec-header",
@@ -74,7 +145,9 @@
       "expansion_source": "none",
       "kind": "public_header",
       "mutability": "s5_frozen",
-      "producer": "mechanical_spec"
+      "producer": "mechanical_spec",
+      "template_id": "mqtt-client-broker-mechanical",
+      "template_path": "mqtt_codec.h.j2"
     },
     {
       "id": "session-header",
@@ -119,7 +192,7 @@
       "producer": "stub"
     },
     {
-      "id": "broker-app",
+      "id": "broker-entry-source",
       "path_template": "apps/mqtt_broker_main.c",
       "expansion_source": "none",
       "kind": "app",
@@ -127,7 +200,7 @@
       "producer": "stub"
     },
     {
-      "id": "client-app",
+      "id": "client-entry-source",
       "path_template": "apps/mqtt_client_cli.c",
       "expansion_source": "none",
       "kind": "app",
@@ -135,7 +208,7 @@
       "producer": "stub"
     },
     {
-      "id": "codec-app",
+      "id": "codec-entry-source",
       "path_template": "apps/mqtt_codec_cli.c",
       "expansion_source": "none",
       "kind": "app",

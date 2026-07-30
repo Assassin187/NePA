@@ -21,7 +21,11 @@ EXAMPLE_DIR: Path = SCHEMA_DIR / "examples"
 # schema 文件名 -> 示例文件名（任务 A1 要求的 10 个工件 schema）
 PAIRS: dict[str, str] = {
     "architecture-draft.schema.json": "architecture-draft.json",
+    "artifact-manifest.schema.json": "artifact-manifest.json",
+    "contract-map.schema.json": "contract-map.json",
+    "flat-plan-draft.schema.json": "flat-plan-draft.json",
     "plan-critic.schema.json": "plan-critic.json",
+    "s4-state.schema.json": "s4-state.json",
     "language-profile.schema.json": "language-profile.json",
     "specs-requirements.schema.json": "specs-requirements.json",
     "plan.schema.json": "plan.json",
@@ -274,16 +278,38 @@ def test_plan_missing_required_input_refs_fails() -> None:
         _validator("plan.schema.json").validate(bad)
 
 
-def test_plan_illegal_status_enum_fails() -> None:
-    """task.status 非法枚举值（5.2：含 blocked_by_dependency 的五值枚举）必须校验失败。"""
+def test_plan_illegal_task_kind_enum_fails() -> None:
+    """task.kind 非法枚举值（5.2.2：v3 六值分类，已删除 scaffold）必须校验失败。"""
     bad = _plan_example()
-    bad["tasks"][0]["status"] = "cancelled"
+    bad["tasks"][0]["kind"] = "scaffold"
     with pytest.raises(ValidationError):
         _validator("plan.schema.json").validate(bad)
 
 
-def test_plan_status_blocked_by_dependency_is_legal() -> None:
-    """blocked_by_dependency 是合法状态（5.2 / 6.6.1）。"""
+def test_plan_execution_state_field_fails() -> None:
+    """Plan v3 不得携带执行状态字段（5.2.5：status/attempts/notes 已移入 Plan State）。"""
+    bad = _plan_example()
+    bad["tasks"][0]["status"] = "pending"
+    with pytest.raises(ValidationError):
+        _validator("plan.schema.json").validate(bad)
+
+
+def test_plan_s5_contract_with_provider_task_fails() -> None:
+    """ready_gate=s5 的 contract 带 provider_task_id（5.2.1）必须校验失败。"""
+    bad = _plan_example()
+    contract = next(
+        item for item in bad["architecture"]["contracts"] if item["ready_gate"] == "s5"
+    )
+    contract["provider_task_id"] = "T-001"
+    with pytest.raises(ValidationError):
+        _validator("plan.schema.json").validate(bad)
+
+
+def test_plan_build_only_task_with_empty_tests_is_legal() -> None:
+    """build-only 任务允许空 tests，但不得空 build_variant_ids（5.2.2）。"""
     good = _plan_example()
-    good["tasks"][0]["status"] = "blocked_by_dependency"
+    good["tasks"][0]["acceptance"]["tests"] = []
+    for row in good["coverage"]["tests"]:
+        row["gate"] = "s7_only"
+        row["task_id"] = None
     _validator("plan.schema.json").validate(good)

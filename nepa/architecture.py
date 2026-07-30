@@ -63,6 +63,26 @@ def _acyclic(nodes: set[str], edges: dict[str, set[str]]) -> bool:
     return visited == len(nodes)
 
 
+def _dependency_closure(
+    nodes: set[str],
+    edges: dict[str, set[str]],
+) -> dict[str, set[str]]:
+    """Return each work package's ancestor closure, including itself."""
+    closure = {node: {node} for node in nodes}
+    for _ in range(len(nodes)):
+        changed = False
+        for node in sorted(nodes):
+            expanded = set(closure[node])
+            for dependency in edges.get(node, set()) & nodes:
+                expanded |= closure[dependency]
+            if expanded != closure[node]:
+                closure[node] = expanded
+                changed = True
+        if not changed:
+            break
+    return closure
+
+
 def arch_validate(
     draft: dict[str, Any],
     *,
@@ -250,25 +270,68 @@ def arch_validate(
             )
 
     requirements = {item["id"]: item for item in spec["requirements"]}
+    responsibility_packages: dict[str, set[str]] = {}
     for req_id, requirement in requirements.items():
-        responsibilities = [
-            responsibility
+        assigned = [
+            (package["id"], responsibility)
             for package in packages
             for responsibility in package["requirement_responsibilities"]
             if responsibility["req_id"] == req_id
         ]
-        if requirement["level"] != "DEFINITION" and sum(
+        responsibilities = [responsibility for _, responsibility in assigned]
+        responsibility_packages[req_id] = {
+            package_id for package_id, _ in assigned
+        }
+        primary_count = sum(
             item["role"] == "primary" for item in responsibilities
-        ) != 1:
+        )
+        if requirement["level"] != "DEFINITION" and primary_count != 1:
             add(
                 "arch_10",
                 "ARCH_REQ_PRIMARY",
                 req_id,
-                "non-definition requirement must have exactly one primary package",
+                "non-definition requirement must have exactly one primary package; "
+                f"actual={primary_count}, assignments="
+                f"{[(package_id, item['role']) for package_id, item in assigned]}",
             )
-        pairs = [(item["req_id"], item["role"]) for item in responsibilities]
-        if len(pairs) != len(set(pairs)):
-            add("arch_10", "ARCH_REQ_DUPLICATE", req_id, "duplicate responsibility")
+    package_closure = _dependency_closure(package_ids, edges)
+    for test in planning_index.get("tests", []):
+        if test.get("gate") != "task":
+            continue
+        needed: set[str] = set()
+        complete = True
+        for contract_id in test.get("required_contracts", []):
+            contract = contract_by_id.get(contract_id)
+            if contract is None or contract.get("ready_gate") != "task":
+                continue
+            provider = contract.get("provider_work_package_id")
+            if not isinstance(provider, str) or provider not in package_ids:
+                complete = False
+                continue
+            needed.add(provider)
+        for req_id in test.get("req_ids", []):
+            owners = responsibility_packages.get(str(req_id), set())
+            if not owners:
+                complete = False
+                continue
+            needed |= owners
+        if not complete:
+            continue
+        common_downstream = sorted(
+            package_id
+            for package_id, ancestors in package_closure.items()
+            if needed <= ancestors
+        )
+        if not common_downstream:
+            add(
+                "arch_10",
+                "ARCH_TEST_READINESS_UNCLOSED",
+                str(test.get("nodeid")),
+                "no work-package ancestor closure contains all required contract "
+                f"providers and requirement implementers: {sorted(needed)}; "
+                f"required_contracts={test.get('required_contracts', [])}; "
+                f"req_ids={test.get('req_ids', [])}",
+            )
 
     message_ids = {item["id"] for item in spec.get("messages", [])}
     type_ids = {item["id"] for item in spec.get("types", [])}

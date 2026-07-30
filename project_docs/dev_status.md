@@ -12,15 +12,15 @@
 | gcc / make | ✅ gcc 12.3 / make 4.3 | 宿主机可用（正式构建走沙箱） |
 | Docker | ✅ 29.3.0 | `ljf` 已加入 docker 组；`nepa-sandbox@sha256:3795cf4e272e1353b0437779511b3433a950e93a4bee3e7a1a2c094992d1de37` 已构建、自验并登记 |
 | mosquitto broker | ✅ 2.0.11 | 可执行文件及客户端工具可用；D0.2 在隔离沙箱中逐轮启动临时 broker，不依赖 systemd 常驻服务 |
-| DeepSeek API | ✅ 当前会话已设置 `DS_API` | 本次状态核对未发起真实 provider 调用；实际能力状态仍按 DEC-12 的显式证据标准记账 |
+| DeepSeek API | ✅ 当前会话已设置 `DS_API` | 已执行三次正式 gold spec-run S4 联调；实际能力状态仍按 DEC-12 的显式证据标准逐 raw call 记账 |
 
 ## 里程碑总览
 
 | 里程碑 | 状态 | 说明 |
 | --- | --- | --- |
-| 文档 v0.5.12 | ✅ 完成 | 关闭 O-18 并回填胜出 ABI；收口 round WAL 隔离继续、Test Summary 单一发布路径、S6 子集交付与仓库现状 |
+| 文档 v0.5.14 | ✅ 完成 | DEC-26 以前置 coverage-readiness ARCH_VALIDATE 门重开 M1-4a N=20，并替代 DEC-23 活动冻结 |
 | M0 gold 资产与校验工具 | ✅ 完成 | D0.1～D0.6 全部通过；2026-07-28 修补 Gold 证据后重新完成 D0.2 |
-| M1 spec-run 到可构建 | 🔨 进行中 | 基础 Agent/LLM/工具契约已开始实现；S4～S6 端到端闭环尚未完成 |
+| M1 spec-run 到可构建 | ⏳ 决策阻塞 | S4～S6 controller、run/resume CLI 与确定性交付链已实现；DEC-26 重开后的 N=20 已完成但一次语义修复仅 15/20 通过，等待负责人依据报告重新冻结预算或授权继续调优 |
 | M2 一致性验证与修复 | ⬜ 未开始 | |
 | M3 文档到规格 | ⬜ 未开始 | |
 | M4 端到端闭环 | ⬜ 未开始 | |
@@ -35,7 +35,7 @@
 | M0-2 | 旧三文件草案迁移映射与归档 | ✅ | 已移入 legacy/，独立字段迁移映射完成并经负责人授权更新设计文档 12.3 |
 | M0-3 | 7.1 功能子集冻结确认 | ✅ | 负责人于 2026-07-27 确认当前基线并授权写入 7.1 |
 | M0-4 | gold 规格 spec.json（v3.0） | ✅ | 10 种报文；20 条需求的 `source_ref` 引文片段已逐段与本地 OASIS PDF 原文核对 |
-| M0-5 | spec_lint / plan_lint + 单测 | ✅ | v0.4 基线 `nepa lint spec/plan` 可用；ARCH_VALIDATE 迁移归 M1-4a，Plan v3 full lint 与 Plan State snapshot/execution lint 迁移归 M1-4b，不倒改 M0 历史完成状态 |
+| M0-5 | spec_lint / plan_lint + 单测 | ✅ | v0.4 基线 `nepa lint spec/plan` 可用；ARCH_VALIDATE 迁移归 M1-4a，Plan v3 full lint 与 Plan State snapshot/execution lint 已在 M1-4b 完成，不倒改 M0 历史完成状态 |
 | M0-6 | gold 测试集（harness + L0/L1/L2） | ✅ | v1 manifest 有 22 个用例；常量从 spec 读取、输入按 seed 随机化；v2 gate/contract/variant 迁移归 M1-4a |
 | M0-7 | 参考实现验证（100% + 20 轮） | ✅ | 2026-07-28 以当前 Spec/Test Bundle 在固定沙箱重跑：20/20 轮均为 19 passed / 1 skipped |
 | M0-8 | 沙箱镜像 Dockerfile | ✅ | 镜像构建及无网络/非 root 自验通过；digest 与 Dockerfile 哈希登记于 `docker/sandbox-image.json` |
@@ -45,16 +45,16 @@
 
 | 工作项 | 状态 | 当前进展 |
 | --- | --- | --- |
-| M1-1 运行框架 | 🔨 | Run v2/run_store、可恢复全局预算、termination request 与 spec-run 阶段准入已实现；M1 resume coordinator 会恢复 orphaned running、按 request 直达免预算 S9、校验 done receipt/Schema/hash/reason 后 finalize，并从冻结 `run.until` 关闭 planned-stop 崩溃窗口。完整阶段 orchestrator 与 CLI 尚待闭环 |
+| M1-1 运行框架 | ✅ | Run v2/run_store、可恢复全局预算、termination request、per-run controller lock、spec-run 创建与四项冻结输入、S4→S6 orchestrator 已实现；resume 先恢复 orphaned running，再按 request 直达免预算 S9 或关闭 planned-stop 窗口；阶段受控错误统一路由 S9，未知实现/工具错误落 internal error |
 | M1-2 LLM 层 | ✅ | 两个 provider、结构化输出一次修复、重试、缓存、逐 raw-call trace、成本/预算聚合与 capability probe 已闭环；probe 强制禁用缓存，请求接受仅记 `request_accepted_only`，当前 adapter 无显式证明时保持 `unknown`；非 JSON/缺关键字段等畸形 HTTP 200 统一转为 `ProviderResponseError`，probe 保守记 unknown |
-| M1-3 Agent 框架 | 🔨 | v0.5 四个 S4 角色已进入默认配置/静态路由；ArchitecturePlanner、TaskPlanner（局部 TaskShard）与 PlanCritic（结构化 issue list）已有独立 Schema/prompt，A9 FlatPlanBaseline 尚待实现；Coder/Diagnoser/Fixer 已有可定位的源码扫描与非 MQTT fixture 渲染门，公共 Coder 规则只消费注入的 Language Profile |
-| M1-4a 规划输入与 Architecture bring-up | ✅ | 四份 proposal 已迁活动 Schema；Test Manifest v2 collector、Test Bundle 双摘要、默认三资产、Delivery Constraints/planning index、ArchitecturePlanner prompt、生产 ARCH_VALIDATE 与候选指纹已实现；N=20 spike 为 Schema 首轮 90%、语义首轮 50%、一次修复后 95%。历史调用按实际响应模型重计费为 $1.04648848，指纹同时锚定请求 `deepseek-reasoner` 与响应 `deepseek-v4-flash` mismatch；DEC-23 预算不变，D1.3 仍须复核 |
-| M1-4b 确定性编译资产 | 🔨 | Plan State/Task Evidence/reconciliation、Test Summary v2、round index/pending WAL Schema 与 canonical 原子发布/crash 对账已实现；未接受 WAL/事实不符会隔离后继续，已接受工件损坏保持 fail-stop；Delivery Blueprint、唯一 task owner 门及按单一最小 ready queue 的稳定 task-id 分配已实现；Plan v3、完整 PlanDraftIR/Linker、basic/full/execution lint 仍待迁移 |
-| M1-4c 完整 S4 控制器 | ⬜ | M1-4a 冻结门已解除，可以进入开发；layered task shards 调度、A9 flat baseline、PlanCritic 调用、预算化修复、检查点/resume 与 atomic seal 尚未实现 |
-| M1-5 S5 | 🔨 | build/git/fs/event 基础工具已有；O-18 已冻结并落为 MQTT session/net C99 模板：非零 uint32 conn_id、16 connections/K、4096 bytes/item、65536 bytes/batch、超限原子失败；默认三资产解析和只按 file_rules 写入的 Target/Language template materializer 已实现，机械派生/stub、完整 blueprint/owner/contract、summary/receipt 仍待闭环 |
-| M1-6 S6 | 🔨 | 文件白名单、Plan State 初始化/迁移、Task Evidence、两阶段 task commit 与 commit-before-state 前向恢复/done 反向审计核心已实现；task commit 只暂存白名单内实际变更，允许合法子集交付及未创建白名单路径；完整 admission/execution lint、失败 attempt 基线恢复、micro-plan 单任务循环、S6 receipt 与升级路径仍待实现 |
-| M1-7 CLI | 🔨 | `status` 已实现：可按 run path 或 runs root 下的 run id，从 run/S4 checkpoint/Plan State 持久工件重建人读或 JSON 进度；`run --spec [--until s6]` 与普通阶段可续跑的 `resume` 尚待完整 controller 接线 |
-| M1-8 单测与 CI | 🔨 | 当前 369 passed、ruff/mypy/gold lint 与 `git diff --check` 全绿；Run v2、Report v2 partial、Plan State/Task Evidence/reconciliation、Test Summary v2、round WAL/index、M1-4a 活动输入 Schema/collector/双摘要/默认资产/ARCH_VALIDATE/N=20 聚合、M1-4c TaskShard/Critic 边界与 Blueprint owner 门、O-18 ABI C99 编译与模板槽位门、只读 status、受控出口/S9/planned-stop 恢复、全局预算均已覆盖，其余 receipt 与执行链门仍待完成 |
+| M1-3 Agent 框架 | ✅ | v0.5 四个 S4 角色与 Coder/Diagnoser/Fixer 已进入默认静态路由；各角色有独立 Schema/prompt，Coder/Fixer 输出包含必填 micro-plan 与完整白名单文件集；S4 模板均有 payload 渲染门，编码角色通过源码扫描与非 MQTT fixture 渲染门，公共 prompt 只消费注入工件 |
+| M1-4a 规划输入与 Architecture bring-up | ⏳ | 四份 proposal 已迁活动 Schema；Test Manifest v2 collector、Test Bundle 双摘要、默认三资产、Delivery Constraints/planning index、ArchitecturePlanner prompt、生产 ARCH_VALIDATE 与候选指纹已实现。DEC-26 后正式 N=20 `20260729T141956Z` 为 Schema 首轮 8/20、语义首轮 9/20、一次修复后 15/20；成本 $1.46027314，尚未获得活动冻结签字 |
+| M1-4b 确定性编译资产 | ✅ | Plan State/Task Evidence/reconciliation、Test Summary v2、round index/pending WAL Schema 与 canonical 原子发布/crash 对账已实现；未接受 WAL/事实不符会隔离后继续，已接受工件损坏保持 fail-stop；Delivery Blueprint、唯一 task owner 门及按单一最小 ready queue 的稳定 task-id 分配已实现；Plan v3 Schema/示例、layered 与 flat 共用的 PlanDraftIR、6.4.5 九步确定性 Linker、两级 `plan_lint`（basic + stage full）与 `execution_state_lint` 已全部落地并各自单测覆盖 |
+| M1-4c 完整 S4 控制器 | ⏳ | 6.4.2～6.4.7 controller、S4-G3、layered/flat、Critic、预算修复、检查点/resume、atomic seal/receipt 与完整 trace 已实现；TaskPlanner 跨包 work-package id 误写入 shard-local `depends_on` 已按 contract 图机械剥离。DEC-26 将 5.2.3 readiness 闭包前置到 ARCH_VALIDATE 后，新的 N=20 已完成但一次修复仍有 5 个不收敛候选；正式 D1.3 需等待活动预算重新冻结 |
+| M1-5 S5 | ✅ | Target Profile v2 三段构建图与独立机械契约已迁移；S5 重算 full Blueprint，确定性物化 Target/Language/mechanical/stub 文件，发布 artifact manifest/contract map，建立首提交，执行全部构建变体与 gate=s5 测试、clean、RoundStore summary 和 receipt；partial workspace/首提交后的 resume 与 done no-op 均有正反门 |
+| M1-6 S6 | ✅ | Plan State admission/迁移、micro-plan 单任务 Coder/Fixer、文件白名单、T2→T1 尝试、构建/任务测试、Diagnoser、失败恢复、Task Evidence、tree→evidence→commit→state 顺序、commit-state reconciliation、blocked 传播、execution lint 与 S6 receipt 已实现并覆盖成功/耗尽路径 |
+| M1-7 CLI | ✅ | `run --spec [--until s6]`、`resume`、`status`、`lint` 均接入真实 controller；Spec 来源原始字节锚点与 run 内 canonical `spec/spec.json` 双锚点分离，run 锁防止并发 controller，terminal resume 不构造外部服务 |
+| M1-8 单测与 CI | 🔨 | 当前全量 559 passed；ruff、mypy 绿。Schema/examples、gold lint、prompt 中立、fault injection 专项与成功 gold 三连跑仍须在 Architecture 决策后完成最终验收 |
 
 ## M0 DoD 验收记录
 
@@ -95,15 +95,51 @@
 | DEC-22 | 2026-07-29 | 负责人确认 O-18 精确 ABI 容量：非零 `uint32_t conn_id`、最大连接数/K=16、单项 4096 bytes、batch 65536 bytes；超限原子失败且不返回部分成功，连接容量报 CAPACITY，报文/输出过大报 RESOURCE_LIMIT 并关闭来源连接 | MQTT Target Profile resource limits、session/net 冻结头模板与 C99 编译/静态边界测试已同步；broker core 与 client session 使用不同 opaque 类型和 caller-provided storage，net 只按 conn_id 路由 batch |
 | DEC-23 | 2026-07-29 | 负责人批准冻结 M1-4a N=20 ArchitecturePlanner 基线：prompt/schema/validator/输入指纹以 `runs/_bringup/s4-architecture/20260729T035703Z/spike_report.json` 为准；`plan_architecture_repairs=1`，`plan_global_replans=1` 为进入 M1-4c 的暂定上限 | N=20 中 Schema 首轮 18/20、ARCH_VALIDATE 首轮 10/20、一次修复后 19/20；全局重规划尚未经 Critic 测量，D1.3 必须复核所有正式 S4 预算 |
 | DEC-24 | 2026-07-29 | 负责人审查后授权收口实现/文档偏差：S6 允许白名单子集交付且只 stage 实际变更；任一全局预算入口跳转按 9.1.2 degraded；畸形 HTTP 200 归一为 LLMError；Linker 使用逐个最小 ready queue；未接受的坏 WAL 隔离后继续；Test Summary 只经 RoundStore 发布；O-18 正式关闭并回填 7.3 | 历史 spike 同步按实际响应模型补价并对账请求/响应模型，成本为 $1.04648848；不改变 DEC-23 的通过率与暂定预算。设计升 v0.5.12，12.3 仓库现状同步 |
+| DEC-25 | 2026-07-29 | 负责人批准 Target Profile major 迁移：采用 deliverable→build artifact→link source set 三段显式构建图，并选择独立机械生成契约；`mechanical_spec` file rule 必须绑定模板 | Target Profile 升 v2 且新增三段/机械段必填字段；S4-G1/full lint 与 S5 必须做引用和集合闭合，Makefile 禁止从文件名猜目标。默认布局删除无 file rule 的 `src/util/`，MQTT broker 源 file rule 更名为 `broker-entry-source`，避免与 deliverable `broker-app` 混淆。设计升 v0.5.13 |
+| DEC-26 | 2026-07-29 | 负责人批准以 5.2.3 coverage readiness 工作包级可行性门重开 M1-4a，并用新 N=20 替代 DEC-23 活动冻结 | ARCH_VALIDATE `arch_10` 新增 `ARCH_TEST_READINESS_UNCLOSED`：每个 task test 的 contract provider 与全部 REQ primary/supporting 工作包必须存在共同下游祖先闭包；同步强化 ArchitecturePlanner，重跑无跨 trial 缓存 N=20 后再冻结 prompt/validator hash 与正式预算。设计升 v0.5.14 |
 
 ## 待办（需用户/负责人动作）
 
 - [x] 已批准 `project_docs/schema_proposals/m1-4a/` 四份 Schema proposal 与 README 十项裁决点；活动 Schema/示例已迁入 `nepa/schemas/`
 - [x] O-18 精确容量、错误语义与 MQTT session/net 模板已冻结并通过 C99 `-Werror` 编译门
-- [x] 已审阅并冻结 M1-4a N=20 `spike_report.json` 的 ArchitecturePlanner prompt/Schema/validator 哈希；`plan_architecture_repairs=1`、`plan_global_replans=1` 放行 M1-4c，D1.3 仍须复核
+- [ ] DEC-26 N=20 已完成：审阅 `runs/_bringup/s4-architecture/20260729T141956Z/spike_report.json`（Schema 首轮 8/20、语义首轮 9/20、一次修复 15/20），并决定是否继续调优或以何种 `plan_architecture_repairs`/`plan_global_replans` 预算重新冻结活动基线
 - [ ] 按 DEC-4 审阅并确认当前 M1 基础实现与本批修补后再提交
+- [ ] 复核 M1-4c 新增的三份活动资产：`nepa/schemas/s4-state.schema.json`（`plan/_s4` 检查点状态，5.6.6 只列出文件清单、未规定字段）、`nepa/schemas/flat-plan-draft.schema.json` 与 `nepa/agents/prompts/flat_plan_baseline.md`（A9 消融，6.4 只规定"一次调用产出完整语义草稿"）。三者的字段形状均按既有 `architecture-draft` + `task-shard` 逐字段同形推导，未引入新语义契约；主设计文档未修改
+- [ ] 复核两处 M1-4c 判断：(a) 纯机械问题重链不消耗任何语义修复配额（6.4.6 只说"由控制器修正后重新链接"，未给配额；确定性重链幂等，复现由不收敛门兜住）；(b) `s4-state.schema.json` 新增可选 `seal` 块记录崩溃重跑时是否复用了逐字节一致的盘上 Plan（6.4.7 规定了该复用条件，但未规定记录位置）
+- [x] M1-5 构建/机械接口按 DEC-25 裁决：Target Profile v2 使用 deliverable→artifact→link source set 三段声明，并采用独立机械生成契约
 
 ## 会话日志
+
+### 2026-07-29（会话 15）
+- 负责人批准 DEC-25；先按 0.1/11.3 更新主设计到 v0.5.13，再迁实现。三段构建图使用独立命名空间和显式引用，机械契约声明模板、输入域与输出 rule；7.2 删除没有 file rule/责任的 `src/util/`，MQTT broker 源 rule 将与 deliverable 分名。
+- 完成 Target Profile v2 实现迁移：新增必填 `build_artifacts[]`、`link_source_sets[]`、`mechanical_generation_contracts[]` 与相应闭合门；MQTT 默认资产采用 deliverable→artifact→link source set 显式三段图，机械输出绑定独立模板/输入域，app 源 rule 改为独立命名空间。Makefile 按 artifact 独立对象目录生成 executable/static/shared 目标，S5 机械 ABI 生成不含协议 identity 分支。
+- 完成 S5/S6 与 M1 runtime：S5 发布 artifact manifest/contract map、首提交、双构建、S5 tests、RoundStore summary/receipt；S6 实现 micro-plan 编码/修复、白名单、构建/任务门、诊断升级、失败恢复、Task Evidence/commit trailers/Plan State 对账与 receipt。新增 `run/resume` CLI、四项冻结输入、Spec 来源/冻结副本双锚点、controller lock、阶段错误→S9 与 planned-stop 路由；当前全量回归 559 passed，ruff/mypy 绿。
+- 执行三次无跨 run 缓存的正式 gold S4 联调：`20260729T1312Z_mqtt_spec-run` 因 TaskPlanner 把跨工作包 id 写入 shard-local `depends_on` 耗尽局部预算，已用“仅剥离精确命中 work-package id 的冗余依赖、其他未知 id 仍硬失败”机械规范化修正；该 run 正确产出 S9 partial report、`controlled_exit/failed/20` 与 14 条完整 trace。`20260729T1318Z_mqtt_spec-run` 通过 ARCH_VALIDATE/shards 后在 5.2.3 coverage readiness 失败，一次 global replan 后同类 `PLAN_LINK_FAILED` 复现并按不收敛门退出；Linker 反馈现列出 required provider/implementation tasks 与候选闭包。`20260729T1327Z_mqtt_spec-run` 的 Architecture 初次及一次修复均把三个 task-ready external contract 错改为 s5，按 `PLAN_ARCH_VALIDATE_FAILED` 受控退出。
+- 上述证据使 D1.3 决策阻塞：DEC-23 冻结的 Architecture prompt/validator/输入指纹没有前置表达设计 5.2.3 的 contract provider + 全部 primary/supporting implementation readiness 闭包；若在 ARCH_VALIDATE 新增工作包级可行性门并强化 Architecture prompt/规划输入，必须重做 N=20 bring-up 并由负责人重新冻结，不能由实现层静默修改。
+- 本会话先修 S4/Plan 硬门：S4 PREPARE 现逐项核验传入的 Spec/Target/Language/Test Bundle/Manifest 与 run 内冻结文件的 canonical 内容绑定；Test Manifest 的每个 MUST/MUST NOT 必须至少有 `task` 或 `s7_only` 测试，且 `s5` gate 只可依赖 `s5` ready contract；Linker 的不可定位失败统一进入既有全局重规划预算，不再绕开修复路由。新增回归门后相关 S4/Linker/full-lint 集合为 121 passed。
+- 开始 M1-5 前发现一项阻塞性资产接口缺口：现有 Target Profile 仅有 deliverables/file rules/external contracts，不能确定性得出 executable 名称和链接源集；`mechanical_spec` 文件槽也没有可生成完整公开 ABI 的字段。已记录待负责人裁决，未修改主设计文档，也未用协议文件名作隐式约定。
+- M1-4c 主体落地：`nepa/stages/s4_plan.py` 实现 6.4.2 全状态机 `PREPARE → DELIVERY_CONSTRAINTS → SELECT_STRATEGY → {layered: ARCHITECT → ARCH_VALIDATE → EXPAND_WORK_PACKAGES → SHARD_VALIDATE | flat: FLAT_DRAFT → FLAT_VALIDATE} → LINK_AND_RESOLVE_BLUEPRINT → PLAN_LINT_AND_SIMULATE → PLAN_CRITIC → {REEXPAND_WORK_PACKAGE | REPLAN_ARCHITECTURE | REPLAN_FLAT_DRAFT | SEAL_AND_PUBLISH}`；工作包按稳定 id 串行展开（4.9 v1 禁并发），每次 L3 调用仍只做一个认知任务。
+- 新增 `nepa/task_shard.py`：TaskPlanner 输入构造只投喂本包切片、相关架构决策、spec 切片、邻接契约摘要、`allowed_files`/`s5_frozen_files` 与 Test Manifest v2 六个白名单元数据字段（P1 反作弊边界，`layer` 也不外泄）；S4-G3 生产门覆盖 schema/包 id/局部 id 重复/单任务≤4 文件/文件越界与冻结/文件分区等式/契约集合等式/责任重复与越界/primary 唯一/未细化/依赖未知与自环与环共 16 个稳定错误码。
+- 预算与修复按 6.4.6 记账：架构一次定点修复，每个工作包一次局部重做（shard 门与 Critic 局部问题共用同一配额），全局问题最多回架构一次并作废受影响 shard，flat 的唯一修复路径是整份重绘且同时消耗 critic 与全局重规划各一次；相同 issue signature 复现即 `PLAN_NOT_CONVERGING`；结构化输出二次失败、预算耗尽一律受控失败且不发布部分 Plan。控制器自行复核 verdict：Critic 报 pass 但存在 blocker/major 时按 revise 处理，未解决 minor 由控制器重新编号后写入 `plan.review.unresolved_minor_issues`。
+- `plan/_s4` 检查点按 5.6.6 落盘并绑定直接父哈希，只有 Schema 校验通过才标 valid；resume 只复用"valid + 父哈希匹配 + 盘上内容哈希一致"的工件，`input_refs`/`planning_fingerprint`/`strategy` 任一漂移即整份作废。6.4.7 封口为复跑 full lint → 原子发布 → 重读校验 SHA-256/四项 `input_refs`/顶层 blueprint 哈希 → 原子写 `run.json` receipt；S4 已 done 时只核对 receipt 并作为只读 no-op。
+- 修掉一个真实缺陷：`task_planner.md` 与 `plan_critic.md` 模板从未渲染 `{{ payload_json }}`，这两个角色实际会收到空输入；已补上输入块，并新增"四个 S4 模板必须渲染各自 payload"的门防回归。同时修正 `tests/plan_v3.py` 的 Spec 夹具（`transport.req_ids` 缺失、`source_ref` 误用数组），此前只有不跑 spec lint 的 Linker 测试用到它，S4 PREPARE 会跑全量 spec lint 才暴露。
+- 新增 30 个无 LLM 的控制器测试（`tests/test_s4_plan.py` + `tests/s4_stubs.py` 角色响应队列桩）：封口 receipt 与 phase、检查点父哈希链、review 轮次记录、Critic/TaskPlanner payload 的测试实现不可见性、verdict 覆盖、minor 重新编号、局部重做只动本包、shard 门与预算耗尽、全局重规划与其预算耗尽、critic 预算耗尽、不收敛、架构一次修复与二次失败、结构化输出失败、spec lint 与冻结输入漂移在任何 LLM 调用前拦截、未知策略、flat 单次调用/整份重绘/绝不 fallback、resume 复用与指纹漂移/内容篡改作废、done 只读 no-op、封口后被改动的 Plan 报 `PLAN_RECEIPT_INVALID`。
+- 复读设计 §5.5/§6.4.2–6.4.7/§10.2 后补齐四处缺口：(1) S4 调用的追踪证据 `compiler_phase`、`work_package_id`、`parent_artifact_sha256`、`repair_budget_used` 由 `_invoke` 经 `AgentRunner.invoke(trace_extra=)` → `LLMClient.complete(trace_extra=)` → `TraceWriter.record(extra=)` 逐层下传，`extra` 只允许新增键，撞上 5.5 公共字段即报错以免证据被覆盖；(2) provider 报 `finish_reason ∈ {length, max_tokens, model_length}` 时即使 Schema 通过也抛 `TruncatedOutputError`，S4 转 `PLAN_OUTPUT_TRUNCATED` 受控失败；(3) 纯机械问题（route=mechanical）由控制器修正后回 `LINK_AND_RESOLVE_BLUEPRINT` 重链，不消耗任何语义配额——确定性重链是幂等的，同一机械 signature 复现由已登记的不收敛门终止；(4) PREPARE 追加复核 Run v2 config snapshot 哈希与 `input_refs` 逐类与 `run.json` inputs 声明的一致性。
+- 6.4.7 收尾细节：`atomic_write_canonical_json` 在 `os.replace` 后补 fsync 目录（平台不支持时忽略），满足"fsync 文件和目录"；`s4-state.schema.json` 新增可选 `seal: {reused_existing_plan, plan_sha256}`，记录"发布后写 receipt 前崩溃"重跑时是否复用了逐字节一致的盘上 Plan，并新增两个门覆盖复用与不一致残留必须重发布两条路径。
+- 完整门禁：535 passed，`ruff check nepa tests`、`mypy nepa`、gold `lint spec --gold`（0 error / 0 warning）与 `git diff --check` 全绿。主设计文档未修改，本会话不提交。
+- DEC-26 的无跨 trial 缓存正式 N=20 已完成：`runs/_bringup/s4-architecture/20260729T141956Z/spike_report.json` 可由逐 trial 重算；Schema 首轮 8/20、语义首轮 9/20、一次语义修复后 15/20，31 个逻辑调用、$1.46027314。首轮主要失败集中于 `arch_09`/`arch_10`，共现最高为 `arch_09+arch_10`（7）；剩余 5 个修复失败分别为外部 contract 漂移、三个内部槽缺失、依赖推导加主责残差、依赖推导残差、及两个 `ARCH_TEST_READINESS_UNCLOSED`。因此该批尚未替代 DEC-23 的活动签字，后续必须由负责人决定继续调优或冻结更高修复预算。
+- 在不变更 ArchitectureDraft Schema、ARCH_VALIDATE 或修复次数的前提下，强化 ArchitecturePlanner 的定点修复步骤（逐条错误路径、精确外部字段回填、内部槽、依赖重算）；相关回归 68 passed、ruff/mypy/diff 检查通过。独立 3-trial 预跑 `20260729T152625Z` 前两 trial 均在一次语义修复后通过；第 3 个 provider 调用超过有限等待窗口且未写响应，已终止，该不完整批次仅作诊断、不得计入正式基线。
+- 提示词收敛后完整本地回归为 561 passed；`ruff check nepa tests`、`mypy nepa` 与 `git diff --check` 通过。新 prompt hash 的正式 N=20 `20260729T153634Z` 正在按无跨 trial 缓存协议执行，结果未完成前不更新活动冻结。
+- `20260729T153634Z` 在第 9 个 trial 的语义修复 HTTP 调用因网络重启保持连接约五分钟；停止请求后核验发现第 9 条已自行完成并封存，且前 1–9 条的输入/配置/prompt/Schema/validator/资产哈希均未漂移。负责人指示保留这些完整独立样本并仅继续未开始的条目；因此从第 10 条恢复同一 batch，绝不覆盖或重抽第 1–9 条。该恢复尚未完成，不能用于活动冻结。
+
+### 2026-07-29（会话 14）
+- M1-4b 收口：Plan v3 Schema/示例落地（无 `status/attempts/notes`、无 scaffold task、无顶层 `modules`，`ready_gate ∈ {s5, task}` 与 `gate ∈ {s5, task, s7_only}` 分离），layered 与 flat 策略统一规范化为同一 `PlanDraftIR`。
+- 实现 6.4.5 九步确定性 Linker：集合等式与责任细化校验 → 唯一 provider task 解析与派生跨包依赖边 → 稳定 Kahn 序分配 `T-###` → 注入 requirement `context_refs` 与精确构建变体 → 生成 coverage（gate=task 绑定拓扑序中最早合法闭包）→ 反向注入 enabled nodeid 到 `acceptance.tests` → 编译并哈希 Delivery Blueprint → 注入四项 `input_refs` 与顶层 `delivery_blueprint_sha256`，同时输出可审计 `link_report`。哈希顺序保证无环：coverage 先于 acceptance 注入，acceptance 先于 Blueprint 编译，封口哈希只存在于 Plan 顶层。
+- `plan_lint` 重写为 Plan v3 两级门：basic lint 覆盖结构/冻结输入/双层 DAG/文件全分区/契约三层集合等式/责任与覆盖闭包/coverage 重算等式；新增 stage `plan_full_lint` 追加 Blueprint 封口与 s5_frozen 归属、构建变体引用、测试就绪性与规划索引预算。缺清单或 config snapshot 时 coverage 重算降级为 `PLAN-COVERAGE-UNCHECKED` 警告而非误报。
+- 新增 `execution_state_lint`（5.2.5 第三项，供 S6 准入）：核对 S4/S5 receipt 与 Blueprint 封口、S5 首提交祖先关系、done task 的 commit trailers/证据内容/依赖 commit 祖先、孤儿证据、Test Summary 双摘要与 workspace clean；`GitOps` 相应新增 `is_ancestor`。
+- `nepa lint plan` 新增 `--run-dir/--repo-root`：从 run 目录的 `run.json` config snapshot 与 `inputs/*.json` 重建四项冻结输入与 Delivery 资产后跑 full lint。
+- 测试夹具 `tests/plan_v3.py` 用真实 Linker 从示例资产生成 Plan，使 Schema、Linker、basic lint 与 full lint 校验同一工件；新增 Linker（38）、`execution_state_lint`（23）与 CLI full-lint 用例，`test_plan_lint.py`/`test_schemas.py`/`test_cli.py` 迁至 v3。
+- 完整门禁：463 passed；ruff、mypy、gold lint（0 error / 0 warning）与 `git diff --check` 全绿。开发期间未修改主设计文档，本会话不提交。
 
 ### 2026-07-29（会话 13）
 - 落实负责人代码审查：Git task commit 从整白名单 `add --all` 改为只暂存已验证实际变更，覆盖从未创建的白名单文件；S4/S6 admission 前全局预算耗尽均确定性分类为 degraded/exit 10。

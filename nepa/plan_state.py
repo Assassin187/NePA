@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from jsonschema import Draft202012Validator
 
 from nepa.canonical import atomic_write_canonical_json, canonical_sha256
 from nepa.speclib.lint import LintIssue, LintReport
+from nepa.task_evidence import TaskEvidenceValidationError, validate_task_evidence_ref
+from nepa.tools.git_ops import GitError, GitOps
 
 _SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "plan-state.schema.json"
 
@@ -285,6 +288,339 @@ def plan_state_snapshot_lint(
                         f"done task evidence path 必须为 {expected_path}",
                     )
     return report
+
+
+def execution_state_lint(
+    plan: dict[str, Any],
+    state: dict[str, Any],
+    workspace: GitOps,
+    evidence_store: str | Path,
+    stage_receipts: dict[str, Any],
+    *,
+    test_bundle: dict[str, Any] | None = None,
+    require_clean: bool = True,
+) -> LintReport:
+    """5.2.5 第三项：核对 commit/trailer/祖先、证据内容、S5 锚点与工作区状态。
+
+    只接收持久化事实：``workspace`` 是绑定生成仓库的 :class:`GitOps`，
+    ``evidence_store`` 是本次 run 目录，``stage_receipts`` 是各阶段
+    ``run.json.stages.<id>.output_refs``。需要完整执行对账时与
+    :func:`plan_state_snapshot_lint` 联合运行；本函数不重复其纯 JSON 检查。
+    """
+    report = LintReport()
+    run_dir = Path(evidence_store)
+    if plan.get("schema_version") != "3.0":
+        _error(report, "EXEC-PLAN-VERSION", "plan/schema_version", "执行对账只支持 Plan v3.0")
+        return report
+    plan_sha256 = canonical_sha256(plan)
+    s4_refs = stage_receipts.get("s4") if isinstance(stage_receipts.get("s4"), dict) else {}
+    plan_receipt = s4_refs.get("plan") if isinstance(s4_refs, dict) else None
+    if not isinstance(plan_receipt, dict) or plan_receipt.get("sha256") != plan_sha256:
+        _error(
+            report,
+            "EXEC-PLAN-SEAL",
+            "stage_receipts/s4/plan",
+            "S4 Plan receipt 缺失或与当前 Plan canonical SHA-256 不一致",
+        )
+    if state.get("plan_ref") != {
+        "path": (plan_receipt or {}).get("path"),
+        "sha256": (plan_receipt or {}).get("sha256"),
+    }:
+        _error(
+            report,
+            "EXEC-PLAN-REF",
+            "plan_ref",
+            "Plan State plan_ref 必须逐字段等于 S4 seal 的 Plan receipt",
+        )
+    if isinstance(s4_refs, dict) and s4_refs.get("delivery_blueprint_sha256") != plan.get(
+        "delivery_blueprint_sha256"
+    ):
+        _error(
+            report,
+            "EXEC-BLUEPRINT-SEAL",
+            "stage_receipts/s4/delivery_blueprint_sha256",
+            "S4 seal 的 Blueprint hash 必须等于 Plan 顶层 delivery_blueprint_sha256",
+        )
+
+    head = _check_s5_receipts(report, plan, run_dir, stage_receipts, workspace)
+    _check_task_commits(
+        report,
+        plan,
+        state,
+        workspace,
+        run_dir,
+        plan_sha256=plan_sha256,
+        head=head,
+        test_bundle=test_bundle,
+    )
+    if require_clean and not workspace.is_clean():
+        _error(report, "EXEC-WORKSPACE-DIRTY", "workspace", "执行对账要求 workspace clean")
+    return report
+
+
+def _artifact_ref(
+    report: LintReport,
+    run_dir: Path,
+    refs: dict[str, Any],
+    stage: str,
+    key: str,
+) -> dict[str, Any] | None:
+    """核对某阶段 receipt 指向的文件存在且内容 SHA-256 一致。"""
+    ref = refs.get(key)
+    if not isinstance(ref, dict) or not isinstance(ref.get("path"), str):
+        _error(
+            report,
+            "EXEC-STAGE-RECEIPT",
+            f"stage_receipts/{stage}/{key}",
+            f"{stage} 缺少合法 {key} receipt",
+        )
+        return None
+    path = run_dir / str(ref["path"])
+    if not path.is_file():
+        _error(
+            report,
+            "EXEC-ARTIFACT-MISSING",
+            f"stage_receipts/{stage}/{key}/path",
+            f"receipt 指向的文件不存在: {ref['path']}",
+        )
+        return None
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != ref.get("sha256"):
+        _error(
+            report,
+            "EXEC-ARTIFACT-HASH",
+            f"stage_receipts/{stage}/{key}/sha256",
+            f"{ref['path']} 的内容 SHA-256 与 receipt 不一致",
+        )
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _error(
+            report,
+            "EXEC-ARTIFACT-INVALID",
+            f"stage_receipts/{stage}/{key}/path",
+            f"{ref['path']} 不是合法 JSON: {exc}",
+        )
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _check_s5_receipts(
+    report: LintReport,
+    plan: dict[str, Any],
+    run_dir: Path,
+    stage_receipts: dict[str, Any],
+    workspace: GitOps,
+) -> str | None:
+    """6.5/6.6：S5 各 output ref 与 workspace 首提交必须仍锚定当前 HEAD。"""
+    refs = stage_receipts.get("s5")
+    if not isinstance(refs, dict):
+        _error(report, "EXEC-STAGE-RECEIPT", "stage_receipts/s5", "缺少 S5 output_refs")
+        return None
+    blueprint_sha256 = plan.get("delivery_blueprint_sha256")
+    for key in ("artifact_manifest", "contract_map"):
+        value = _artifact_ref(report, run_dir, refs, "s5", key)
+        if value is not None and value.get("delivery_blueprint_sha256") != blueprint_sha256:
+            _error(
+                report,
+                "EXEC-BLUEPRINT-DRIFT",
+                f"stage_receipts/s5/{key}",
+                f"{key} 的 delivery_blueprint_sha256 与 Plan 不一致",
+            )
+    if "s5_summary" in refs:
+        _artifact_ref(report, run_dir, refs, "s5", "s5_summary")
+    first_commit = refs.get("workspace_head")
+    if not isinstance(first_commit, str):
+        _error(
+            report,
+            "EXEC-STAGE-RECEIPT",
+            "stage_receipts/s5/workspace_head",
+            "S5 必须封存 workspace 首提交 SHA",
+        )
+        return None
+    head = workspace.head()
+    if not workspace.is_ancestor(first_commit, head):
+        _error(
+            report,
+            "EXEC-GIT-ANCESTRY",
+            "stage_receipts/s5/workspace_head",
+            "S5 首提交必须是当前 workspace HEAD 的祖先",
+        )
+    return head
+
+
+def _check_task_commits(
+    report: LintReport,
+    plan: dict[str, Any],
+    state: dict[str, Any],
+    workspace: GitOps,
+    run_dir: Path,
+    *,
+    plan_sha256: str,
+    head: str | None,
+    test_bundle: dict[str, Any] | None,
+) -> None:
+    """5.2.4/6.6：done task 的 commit trailer、证据内容与依赖祖先关系。"""
+    plan_tasks = {
+        task["id"]: task
+        for task in plan.get("tasks", [])
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
+    state_tasks = [task for task in state.get("tasks", []) if isinstance(task, dict)]
+    commits: dict[str, str] = {}
+    referenced: set[Path] = set()
+    for index, task in enumerate(state_tasks):
+        task_id = task.get("id")
+        if task.get("status") != "done" or not isinstance(task_id, str):
+            continue
+        commit_sha = task.get("commit_sha")
+        attempts = task.get("attempts")
+        if not isinstance(commit_sha, str) or not isinstance(attempts, int):
+            _error(
+                report,
+                "EXEC-DONE-INCOMPLETE",
+                f"tasks/{index}",
+                f"done task {task_id} 缺少 commit_sha 或 attempts",
+            )
+            continue
+        try:
+            metadata = workspace.task_commit_metadata(commit_sha)
+        except GitError as exc:
+            _error(
+                report,
+                "EXEC-COMMIT-TRAILER",
+                f"tasks/{index}/commit_sha",
+                f"{task_id}: 无法读取 task commit trailers: {exc}",
+            )
+            continue
+        if metadata.task_id != task_id or metadata.attempt != attempts:
+            _error(
+                report,
+                "EXEC-COMMIT-TRAILER",
+                f"tasks/{index}/commit_sha",
+                f"{task_id}: commit trailers 与 state 的 task/attempt 不一致",
+            )
+            continue
+        commits[task_id] = metadata.commit_sha
+        evidence_ref = (task.get("acceptance_evidence") or {}).get("task_evidence_ref")
+        if not isinstance(evidence_ref, dict):
+            _error(
+                report,
+                "EXEC-EVIDENCE-MISSING",
+                f"tasks/{index}/acceptance_evidence",
+                f"{task_id}: done task 必须携带 task evidence ref",
+            )
+            continue
+        try:
+            validated = validate_task_evidence_ref(
+                run_dir,
+                evidence_ref,
+                task_id=task_id,
+                attempt=attempts,
+                plan_sha256=plan_sha256,
+                workspace_tree=metadata.workspace_tree,
+            )
+        except TaskEvidenceValidationError as exc:
+            _error(
+                report,
+                "EXEC-EVIDENCE-INVALID",
+                f"tasks/{index}/acceptance_evidence/task_evidence_ref",
+                f"{task_id}: {exc}",
+            )
+            continue
+        referenced.add((run_dir / str(validated.ref["path"])).resolve())
+        if validated.ref["sha256"] != metadata.evidence_sha256:
+            _error(
+                report,
+                "EXEC-EVIDENCE-TRAILER",
+                f"tasks/{index}/acceptance_evidence/task_evidence_ref/sha256",
+                f"{task_id}: evidence SHA-256 与 commit trailer 不一致",
+            )
+        if head is not None and not workspace.is_ancestor(metadata.commit_sha, head):
+            _error(
+                report,
+                "EXEC-GIT-ANCESTRY",
+                f"tasks/{index}/commit_sha",
+                f"{task_id}: task commit 必须是当前 HEAD 的祖先",
+            )
+        if test_bundle is not None:
+            _check_summary_bundle_digests(
+                report,
+                run_dir,
+                validated.value,
+                test_bundle,
+                path=f"tasks/{index}/acceptance_evidence",
+                task_id=task_id,
+            )
+
+    for task_id, commit_sha in sorted(commits.items()):
+        for dependency in plan_tasks.get(task_id, {}).get("depends_on", []):
+            parent = commits.get(str(dependency))
+            if parent is None:
+                _error(
+                    report,
+                    "EXEC-DEPENDENCY-ORDER",
+                    f"tasks/{task_id}/depends_on",
+                    f"{task_id} 已 done，但依赖 {dependency} 没有已对账的 commit",
+                )
+            elif not workspace.is_ancestor(parent, commit_sha):
+                _error(
+                    report,
+                    "EXEC-GIT-ANCESTRY",
+                    f"tasks/{task_id}/depends_on",
+                    f"{task_id} 的 commit 必须以依赖 {dependency} 的 commit 为祖先",
+                )
+
+    evidence_root = run_dir / "test_results" / "task_evidence"
+    if evidence_root.is_dir():
+        for path in sorted(evidence_root.rglob("*.json")):
+            if path.resolve() not in referenced:
+                _error(
+                    report,
+                    "EXEC-EVIDENCE-ORPHAN",
+                    str(path.relative_to(run_dir)),
+                    "存在没有任何 done task commit 引用的孤儿证据",
+                )
+
+
+def _check_summary_bundle_digests(
+    report: LintReport,
+    run_dir: Path,
+    evidence: dict[str, Any],
+    test_bundle: dict[str, Any],
+    *,
+    path: str,
+    task_id: str,
+) -> None:
+    """5.3/5.4：验收证据引用的 Test Summary 必须绑定同一 Test Bundle 双摘要。"""
+    manifest_ref = test_bundle.get("manifest_ref")
+    expected = {
+        "manifest_sha256": (
+            manifest_ref.get("sha256") if isinstance(manifest_ref, dict) else None
+        ),
+        "bundle_tree_sha256": test_bundle.get("bundle_tree_sha256"),
+    }
+    for ref in evidence.get("test_summary_refs", []):
+        relative = ref.get("path") if isinstance(ref, dict) else None
+        if not isinstance(relative, str):
+            continue
+        summary_path = run_dir / relative
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            _error(report, "EXEC-SUMMARY-INVALID", f"{path}: {relative}", f"{task_id}: {exc}")
+            continue
+        if not isinstance(summary, dict):
+            continue
+        for key, value in expected.items():
+            if value is not None and summary.get(key) != value:
+                _error(
+                    report,
+                    "EXEC-BUNDLE-DRIFT",
+                    f"{path}: {relative}",
+                    f"{task_id}: Test Summary 的 {key} 与冻结 Test Bundle 不一致",
+                )
 
 
 def initialize_plan_state(

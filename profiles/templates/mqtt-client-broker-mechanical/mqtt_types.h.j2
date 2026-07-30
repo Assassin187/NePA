@@ -1,0 +1,43 @@
+#ifndef {{ include_guard }}
+#define {{ include_guard }}
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define {{ symbol_prefix_upper }}MAX_STRING UINT32_C(65535)
+#define {{ symbol_prefix_upper }}MAX_BYTES UINT32_C(65535)
+
+typedef enum {{ symbol_prefix }}result {
+    {{ symbol_prefix_upper }}OK = 0,
+    {{ symbol_prefix_upper }}ERR_MALFORMED = -1,
+    {{ symbol_prefix_upper }}ERR_BUFFER_TOO_SMALL = -2,
+    {{ symbol_prefix_upper }}ERR_NOT_IMPLEMENTED = -3
+} {{ symbol_prefix }}result_t;
+
+typedef struct {{ symbol_prefix }}bytes {
+    size_t len;
+    uint8_t data[{{ symbol_prefix_upper }}MAX_BYTES];
+} {{ symbol_prefix }}bytes_t;
+
+typedef struct {{ symbol_prefix }}string {
+    uint16_t len;
+    uint8_t data[{{ symbol_prefix_upper }}MAX_STRING];
+} {{ symbol_prefix }}string_t;
+
+{% for message in messages %}
+typedef struct {{ message.type_name }} {
+{% for field in message.fields %}
+    {{ field.declaration }};
+{% endfor %}
+} {{ message.type_name }};
+
+{% endfor %}
+#ifdef __cplusplus
+}
+#endif
+
+#endif
