@@ -1,0 +1,2027 @@
+{
+  "schema_version": "3.0",
+  "protocol": {
+    "name": "MQTT",
+    "version": "3.1.1",
+    "roles": ["client", "server"]
+  },
+  "transport": {
+    "name": "TCP",
+    "port": 1883,
+    "byte_order": "big_endian",
+    "req_ids": [
+      "REQ-TRANSPORT-001",
+      "REQ-TRANSPORT-002",
+      "REQ-TRANSPORT-003",
+      "REQ-TRANSPORT-004",
+      "REQ-DATA-001"
+    ]
+  },
+  "types": [
+    {
+      "id": "mqtt_varint",
+      "name": "MQTT Variable Byte Integer",
+      "encoding": {
+        "kind": "varint",
+        "max_bytes": 4,
+        "data_bits": 7,
+        "continuation_bit": 7
+      },
+      "req_ids": ["REQ-FRAME-001", "REQ-FRAME-002"]
+    },
+    {
+      "id": "mqtt_utf8_string",
+      "name": "MQTT UTF-8 encoded string",
+      "encoding": {
+        "kind": "length_prefixed_string",
+        "length_type": "uint16_be",
+        "charset": "utf-8"
+      },
+      "constraints": [{"max_len": 65535}],
+      "req_ids": [
+        "REQ-DATA-001",
+        "REQ-STRING-001",
+        "REQ-STRING-002",
+        "REQ-STRING-003"
+      ]
+    },
+    {
+      "id": "mqtt_binary_data",
+      "name": "MQTT length-prefixed binary data",
+      "encoding": {
+        "kind": "length_prefixed_bytes",
+        "length_type": "uint16_be"
+      },
+      "constraints": [{"max_len": 65535}],
+      "req_ids": ["REQ-DATA-001", "REQ-CONNECT-025", "REQ-CONNECT-026"]
+    },
+    {
+      "id": "mqtt_requested_qos",
+      "name": "MQTT requested maximum QoS",
+      "encoding": {
+        "kind": "enum",
+        "base_type": "uint8",
+        "values": {
+          "qos_0": 0,
+          "qos_1": 1,
+          "qos_2": 2
+        }
+      },
+      "req_ids": ["REQ-SUBSCRIBE-006"]
+    },
+    {
+      "id": "mqtt_subscription_entry",
+      "name": "MQTT subscription entry",
+      "encoding": {
+        "kind": "sequence",
+        "members": [
+          {"name": "topic_filter", "type": "mqtt_utf8_string"},
+          {"name": "requested_qos", "type": "mqtt_requested_qos"}
+        ]
+      },
+      "req_ids": [
+        "REQ-SUBSCRIBE-004",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006",
+        "REQ-TOPIC-004",
+        "REQ-TOPIC-005"
+      ]
+    },
+    {
+      "id": "mqtt_subscription_list",
+      "name": "MQTT subscription entries",
+      "encoding": {
+        "kind": "repeat",
+        "item_type": "mqtt_subscription_entry",
+        "min_items": 1
+      },
+      "req_ids": ["REQ-SUBSCRIBE-005"]
+    },
+    {
+      "id": "mqtt_topic_filter_list",
+      "name": "MQTT topic filter list",
+      "encoding": {
+        "kind": "repeat",
+        "item_type": "mqtt_utf8_string",
+        "min_items": 1
+      },
+      "req_ids": [
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-005",
+        "REQ-TOPIC-004",
+        "REQ-TOPIC-005"
+      ]
+    },
+    {
+      "id": "mqtt_suback_return_code",
+      "name": "MQTT SUBACK return code",
+      "encoding": {
+        "kind": "enum",
+        "base_type": "uint8",
+        "values": {
+          "granted_qos_0": 0,
+          "granted_qos_1": 1,
+          "granted_qos_2": 2,
+          "failure": 128
+        }
+      },
+      "req_ids": ["REQ-SUBACK-004"]
+    },
+    {
+      "id": "mqtt_suback_return_codes",
+      "name": "MQTT SUBACK return codes",
+      "encoding": {
+        "kind": "repeat",
+        "item_type": "mqtt_suback_return_code",
+        "min_items": 1
+      },
+      "req_ids": [
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBSCRIBE-009"
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "connect",
+      "name": "CONNECT",
+      "senders": ["client"],
+      "receivers": ["server"],
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 1}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-CONNECT-019"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
+          "req_ids": [
+            "REQ-FRAME-001",
+            "REQ-FRAME-002",
+            "REQ-CONNECT-003"
+          ]
+        },
+        {
+          "name": "protocol_name",
+          "loc": "variable_header",
+          "type": "mqtt_utf8_string",
+          "constraint": {"const": "MQTT"},
+          "req_ids": ["REQ-CONNECT-003", "REQ-CONNECT-004"]
+        },
+        {
+          "name": "protocol_level",
+          "loc": "variable_header",
+          "type": "uint8",
+          "constraint": {"const": 4},
+          "req_ids": ["REQ-CONNECT-003", "REQ-CONNECT-005"]
+        },
+        {
+          "name": "connect_flags",
+          "loc": "variable_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "reserved", "offset": 0, "width": 1, "constraint": {"const": 0}},
+            {"name": "clean_session", "offset": 1, "width": 1},
+            {"name": "will_flag", "offset": 2, "width": 1},
+            {"name": "will_qos", "offset": 3, "width": 2, "constraint": {"enum": [0, 1, 2]}},
+            {"name": "will_retain", "offset": 5, "width": 1},
+            {"name": "password_flag", "offset": 6, "width": 1},
+            {"name": "username_flag", "offset": 7, "width": 1}
+          ],
+          "req_ids": [
+            "REQ-CONNECT-003",
+            "REQ-CONNECT-007",
+            "REQ-CONNECT-008",
+            "REQ-CONNECT-020",
+            "REQ-CONNECT-021",
+            "REQ-CONNECT-022",
+            "REQ-CONNECT-023"
+          ]
+        },
+        {
+          "name": "keep_alive",
+          "loc": "variable_header",
+          "type": "uint16_be",
+          "req_ids": [
+            "REQ-CONNECT-003",
+            "REQ-CONNECT-012",
+            "REQ-KEEPALIVE-001",
+            "REQ-KEEPALIVE-002",
+            "REQ-KEEPALIVE-003"
+          ]
+        },
+        {
+          "name": "client_id",
+          "loc": "payload",
+          "type": "mqtt_utf8_string",
+          "req_ids": [
+            "REQ-CONNECT-013",
+            "REQ-CONNECT-014",
+            "REQ-CONNECT-015",
+            "REQ-CONNECT-016"
+          ]
+        },
+        {
+          "name": "will_topic",
+          "loc": "payload",
+          "type": "mqtt_utf8_string",
+          "presence": {"when": {"field": "connect_flags.will_flag", "equals": 1}},
+          "req_ids": ["REQ-CONNECT-020", "REQ-CONNECT-024"]
+        },
+        {
+          "name": "will_message",
+          "loc": "payload",
+          "type": "mqtt_binary_data",
+          "presence": {"when": {"field": "connect_flags.will_flag", "equals": 1}},
+          "req_ids": ["REQ-CONNECT-020", "REQ-CONNECT-024", "REQ-CONNECT-025"]
+        },
+        {
+          "name": "user_name",
+          "loc": "payload",
+          "type": "mqtt_utf8_string",
+          "presence": {"when": {"field": "connect_flags.username_flag", "equals": 1}},
+          "req_ids": ["REQ-CONNECT-022", "REQ-CONNECT-024"]
+        },
+        {
+          "name": "password",
+          "loc": "payload",
+          "type": "mqtt_binary_data",
+          "presence": {"when": {"field": "connect_flags.password_flag", "equals": 1}},
+          "req_ids": ["REQ-CONNECT-023", "REQ-CONNECT-024", "REQ-CONNECT-026"]
+        }
+      ],
+      "req_ids": [
+        "REQ-CONNECT-001",
+        "REQ-CONNECT-002",
+        "REQ-CONNECT-003",
+        "REQ-CONNECT-004",
+        "REQ-CONNECT-005",
+        "REQ-CONNECT-006",
+        "REQ-CONNECT-007",
+        "REQ-CONNECT-008",
+        "REQ-CONNECT-009",
+        "REQ-CONNECT-010",
+        "REQ-CONNECT-011",
+        "REQ-CONNECT-012",
+        "REQ-CONNECT-013",
+        "REQ-CONNECT-014",
+        "REQ-CONNECT-015",
+        "REQ-CONNECT-016",
+        "REQ-CONNECT-017",
+        "REQ-CONNECT-018",
+        "REQ-CONNECT-019",
+        "REQ-CONNECT-020",
+        "REQ-CONNECT-021",
+        "REQ-CONNECT-022",
+        "REQ-CONNECT-023",
+        "REQ-CONNECT-024",
+        "REQ-CONNECT-025",
+        "REQ-CONNECT-026",
+        "REQ-KEEPALIVE-001",
+        "REQ-KEEPALIVE-002",
+        "REQ-KEEPALIVE-003",
+        "REQ-SESSION-001",
+        "REQ-SESSION-002",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002",
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "id": "connack",
+      "name": "CONNACK",
+      "senders": ["server"],
+      "receivers": ["client"],
+      "wire_layout": ["fixed_header", "variable_header"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 2}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-CONNACK-009"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "constraint": {"const": 2},
+          "req_ids": ["REQ-CONNACK-002"]
+        },
+        {
+          "name": "acknowledge_flags",
+          "loc": "variable_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "session_present", "offset": 0, "width": 1},
+            {"name": "reserved", "offset": 1, "width": 7, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-CONNACK-003",
+            "REQ-CONNACK-004",
+            "REQ-CONNACK-005"
+          ]
+        },
+        {
+          "name": "return_code",
+          "loc": "variable_header",
+          "type": "uint8",
+          "constraint": {"enum": [0, 1, 2, 3, 4, 5]},
+          "req_ids": [
+            "REQ-CONNECT-006",
+            "REQ-CONNECT-018",
+            "REQ-CONNACK-004",
+            "REQ-CONNACK-006"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-CONNACK-001",
+        "REQ-CONNACK-002",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNACK-005",
+        "REQ-CONNACK-006",
+        "REQ-CONNACK-007",
+        "REQ-CONNACK-008",
+        "REQ-CONNACK-009",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "id": "subscribe",
+      "name": "SUBSCRIBE",
+      "senders": ["client"],
+      "receivers": ["server"],
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 8}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 2}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-SUBSCRIBE-002",
+            "REQ-SUBSCRIBE-010"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
+          "req_ids": [
+            "REQ-FRAME-001",
+            "REQ-FRAME-002",
+            "REQ-SUBSCRIBE-005"
+          ]
+        },
+        {
+          "name": "packet_identifier",
+          "loc": "variable_header",
+          "type": "uint16_be",
+          "constraint": {"min": 1, "max": 65535},
+          "req_ids": ["REQ-DATA-001", "REQ-SUBSCRIBE-003"]
+        },
+        {
+          "name": "subscriptions",
+          "loc": "payload",
+          "type": "mqtt_subscription_list",
+          "req_ids": [
+            "REQ-SUBSCRIBE-004",
+            "REQ-SUBSCRIBE-005",
+            "REQ-SUBSCRIBE-006"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-SUBSCRIBE-001",
+        "REQ-SUBSCRIBE-002",
+        "REQ-SUBSCRIBE-003",
+        "REQ-SUBSCRIBE-004",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006",
+        "REQ-SUBSCRIBE-007",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009",
+        "REQ-SUBSCRIBE-010",
+        "REQ-SESSION-001",
+        "REQ-SESSION-002",
+        "REQ-TOPIC-001",
+        "REQ-TOPIC-002",
+        "REQ-TOPIC-004",
+        "REQ-TOPIC-005",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002",
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "id": "suback",
+      "name": "SUBACK",
+      "senders": ["server"],
+      "receivers": ["client"],
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 9}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-SUBACK-005"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
+          "req_ids": ["REQ-SUBACK-002"]
+        },
+        {
+          "name": "packet_identifier",
+          "loc": "variable_header",
+          "type": "uint16_be",
+          "constraint": {"min": 1, "max": 65535},
+          "req_ids": [
+            "REQ-DATA-001",
+            "REQ-SUBSCRIBE-008"
+          ]
+        },
+        {
+          "name": "return_codes",
+          "loc": "payload",
+          "type": "mqtt_suback_return_codes",
+          "req_ids": [
+            "REQ-SUBACK-003",
+            "REQ-SUBACK-004",
+            "REQ-SUBSCRIBE-009"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-SUBACK-001",
+        "REQ-SUBACK-002",
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBACK-005",
+        "REQ-SUBACK-006",
+        "REQ-SUBSCRIBE-007",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "id": "unsubscribe",
+      "name": "UNSUBSCRIBE",
+      "senders": ["client"],
+      "receivers": ["server"],
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 10}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 2}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-UNSUBSCRIBE-002",
+            "REQ-UNSUBSCRIBE-008"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
+          "req_ids": ["REQ-FRAME-001", "REQ-FRAME-002"]
+        },
+        {
+          "name": "packet_identifier",
+          "loc": "variable_header",
+          "type": "uint16_be",
+          "constraint": {"min": 1, "max": 65535},
+          "req_ids": ["REQ-DATA-001", "REQ-UNSUBSCRIBE-003"]
+        },
+        {
+          "name": "topic_filters",
+          "loc": "payload",
+          "type": "mqtt_topic_filter_list",
+          "req_ids": [
+            "REQ-UNSUBSCRIBE-004",
+            "REQ-UNSUBSCRIBE-005",
+            "REQ-UNSUBSCRIBE-006"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-UNSUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-002",
+        "REQ-UNSUBSCRIBE-003",
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-005",
+        "REQ-UNSUBSCRIBE-006",
+        "REQ-UNSUBSCRIBE-007",
+        "REQ-UNSUBSCRIBE-008",
+        "REQ-TOPIC-001",
+        "REQ-TOPIC-004",
+        "REQ-TOPIC-005",
+        "REQ-SESSION-001",
+        "REQ-SESSION-002",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002",
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "id": "unsuback",
+      "name": "UNSUBACK",
+      "senders": ["server"],
+      "receivers": ["client"],
+      "wire_layout": ["fixed_header", "variable_header"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 11}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-UNSUBACK-004"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "constraint": {"const": 2},
+          "req_ids": ["REQ-UNSUBACK-002"]
+        },
+        {
+          "name": "packet_identifier",
+          "loc": "variable_header",
+          "type": "uint16_be",
+          "constraint": {"min": 1, "max": 65535},
+          "req_ids": ["REQ-DATA-001", "REQ-UNSUBACK-003"]
+        }
+      ],
+      "req_ids": [
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004",
+        "REQ-UNSUBSCRIBE-007",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "id": "pingreq",
+      "name": "PINGREQ",
+      "senders": ["client"],
+      "receivers": ["server"],
+      "wire_layout": ["fixed_header"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 12}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-PING-005"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "constraint": {"const": 0},
+          "req_ids": ["REQ-PING-002"]
+        }
+      ],
+      "req_ids": [
+        "REQ-PING-001",
+        "REQ-PING-002",
+        "REQ-PING-003",
+        "REQ-PING-005",
+        "REQ-KEEPALIVE-003",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "id": "pingresp",
+      "name": "PINGRESP",
+      "senders": ["server"],
+      "receivers": ["client"],
+      "wire_layout": ["fixed_header"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 13}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-FRAME-004",
+            "REQ-PING-006"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "constraint": {"const": 0},
+          "req_ids": ["REQ-PING-004"]
+        }
+      ],
+      "req_ids": [
+        "REQ-PING-003",
+        "REQ-PING-004",
+        "REQ-PING-006",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "id": "publish",
+      "name": "PUBLISH",
+      "senders": ["client", "server"],
+      "receivers": ["client", "server"],
+      "wire_layout": ["fixed_header", "variable_header", "payload"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 3}},
+            {"name": "dup", "offset": 3, "width": 1, "constraint": {"const": 0}},
+            {"name": "qos", "offset": 1, "width": 2, "constraint": {"const": 0}},
+            {"name": "retain", "offset": 0, "width": 1}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-PUBLISH-002",
+            "REQ-PUBLISH-011"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "derived": {
+            "kind": "length_of",
+            "of": ["variable_header", "payload"]
+          },
+          "req_ids": [
+            "REQ-FRAME-001",
+            "REQ-FRAME-002",
+            "REQ-PUBLISH-004"
+          ]
+        },
+        {
+          "name": "topic_name",
+          "loc": "variable_header",
+          "type": "mqtt_utf8_string",
+          "constraint": {"min_len": 1, "max_len": 65535},
+          "req_ids": [
+            "REQ-PUBLISH-005",
+            "REQ-PUBLISH-006",
+            "REQ-TOPIC-001",
+            "REQ-TOPIC-002",
+            "REQ-TOPIC-004",
+            "REQ-TOPIC-005"
+          ]
+        },
+        {
+          "name": "payload",
+          "loc": "payload",
+          "type": "bytes",
+          "req_ids": ["REQ-PUBLISH-007"]
+        }
+      ],
+      "req_ids": [
+        "REQ-PUBLISH-001",
+        "REQ-PUBLISH-002",
+        "REQ-PUBLISH-003",
+        "REQ-PUBLISH-004",
+        "REQ-PUBLISH-005",
+        "REQ-PUBLISH-006",
+        "REQ-PUBLISH-007",
+        "REQ-PUBLISH-008",
+        "REQ-PUBLISH-009",
+        "REQ-PUBLISH-010",
+        "REQ-PUBLISH-011",
+        "REQ-TOPIC-001",
+        "REQ-TOPIC-002",
+        "REQ-TOPIC-003",
+        "REQ-TOPIC-004",
+        "REQ-TOPIC-005",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002",
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "id": "disconnect",
+      "name": "DISCONNECT",
+      "senders": ["client"],
+      "receivers": ["server"],
+      "wire_layout": ["fixed_header"],
+      "fields": [
+        {
+          "name": "packet_type",
+          "loc": "fixed_header",
+          "type": "bitfield8",
+          "bits": [
+            {"name": "type", "offset": 4, "width": 4, "constraint": {"const": 14}},
+            {"name": "flags", "offset": 0, "width": 4, "constraint": {"const": 0}}
+          ],
+          "req_ids": [
+            "REQ-FRAME-003",
+            "REQ-DISCONNECT-002",
+            "REQ-DISCONNECT-009"
+          ]
+        },
+        {
+          "name": "remaining_length",
+          "loc": "fixed_header",
+          "type": "mqtt_varint",
+          "constraint": {"const": 0},
+          "req_ids": ["REQ-DISCONNECT-008"]
+        }
+      ],
+      "req_ids": [
+        "REQ-DISCONNECT-001",
+        "REQ-DISCONNECT-002",
+        "REQ-DISCONNECT-003",
+        "REQ-DISCONNECT-004",
+        "REQ-DISCONNECT-005",
+        "REQ-DISCONNECT-006",
+        "REQ-DISCONNECT-007",
+        "REQ-DISCONNECT-008",
+        "REQ-DISCONNECT-009",
+        "REQ-CONNECT-010",
+        "REQ-CONNECT-011",
+        "REQ-ERROR-001",
+        "REQ-ERROR-002",
+        "REQ-ERROR-003"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-TRANSPORT-001",
+      "text": "MQTT 的底层传输提供从 Client 到 Server 以及从 Server 到 Client 的有序、无损字节流。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.2 Network Connections",
+        "quote": "The MQTT protocol requires an underlying transport that provides an ordered, lossless, stream of bytes from the Client to Server and Server to Client."
+      }
+    },
+    {
+      "id": "REQ-TRANSPORT-002",
+      "text": "TCP/IP 可以用于承载 MQTT 3.1.1。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.2 Network Connections",
+        "quote": "TCP/IP can be used for MQTT 3.1.1."
+      }
+    },
+    {
+      "id": "REQ-TRANSPORT-003",
+      "text": "非 TLS MQTT 的 IANA 注册 TCP 端口是 1883。",
+      "level": "DEFINITION",
+      "values": {"non_tls_registered_port": 1883},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.2 Network Connections",
+        "quote": "TCP ports 8883 and 1883 are registered with IANA for MQTT TLS and non TLS communication respectively."
+      }
+    },
+    {
+      "id": "REQ-TRANSPORT-004",
+      "text": "Server 接受来自 Clients 的网络连接。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "1.2 Terminology",
+        "quote": "Accepts Network Connections from Clients."
+      }
+    },
+    {
+      "id": "REQ-DATA-001",
+      "text": "16 位整数以大端顺序在线上传输，高位字节在低位字节之前。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "1.5.2 Integer data values",
+        "quote": "Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte."
+      }
+    },
+    {
+      "id": "REQ-STRING-001",
+      "text": "MQTT UTF-8 字符串具有两字节长度前缀，编码后的字符串不得超过 65535 字节。",
+      "level": "DEFINITION",
+      "values": {"maximum_encoded_bytes": 65535},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "1.5.3 UTF-8 encoded strings",
+        "quote": "Each of these strings is prefixed with a two byte length field that gives the number of bytes in a UTF-8 encoded string itself, as illustrated in Figure 1.1 Structure of UTF-8 encoded strings below. Consequently there is a limit on the size of a string that can be passed in one of these UTF-8 encoded string components; you cannot use a string that would encode to more than 65535 bytes."
+      }
+    },
+    {
+      "id": "REQ-STRING-002",
+      "text": "UTF-8 字符串 MUST 是格式良好的 UTF-8；收到含非法 UTF-8 的 Control Packet 时接收方 MUST 关闭网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "1.5.3 UTF-8 encoded strings",
+        "quote": "The character data in a UTF-8 encoded string MUST be well-formed UTF-8 as defined by the Unicode specification [Unicode] and restated in RFC 3629 [RFC3629]. In particular this data MUST NOT include encodings of code points between U+D800 and U+DFFF. If a Server or Client receives a Control Packet containing ill-formed UTF-8 it MUST close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-STRING-003",
+      "text": "UTF-8 字符串 MUST NOT 包含 U+0000；收到含 U+0000 的 Control Packet 时接收方 MUST 关闭网络连接。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "1.5.3 UTF-8 encoded strings",
+        "quote": "A UTF-8 encoded string MUST NOT include an encoding of the null character U+0000. If a receiver (Server or Client) receives a Control Packet containing U+0000 it MUST close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-FRAME-001",
+      "text": "Remaining Length 等于当前报文中 variable header 与 payload 的字节数，不包含 Remaining Length 自身的编码字节。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.3 Remaining Length",
+        "quote": "The Remaining Length is the number of bytes remaining within the current packet, including data in the variable header and the payload. The Remaining Length does not include the bytes used to encode the Remaining Length."
+      }
+    },
+    {
+      "id": "REQ-FRAME-002",
+      "text": "Remaining Length 使用每字节七个数据位和一个 continuation bit 的变长编码，最多使用四字节。",
+      "level": "DEFINITION",
+      "values": {
+        "data_bits": 7,
+        "continuation_bit": 7,
+        "maximum_encoded_bytes": 4
+      },
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.3 Remaining Length",
+        "quote": "The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127. Larger values are handled as follows. The least significant seven bits of each byte encode the data, and the most significant bit is used to indicate that there are following bytes in the representation. Thus each byte encodes 128 values and a \"continuation bit\". The maximum number of bytes in the Remaining Length field is four."
+      }
+    },
+    {
+      "id": "REQ-FRAME-003",
+      "text": "fixed header 第一个字节的 7-4 位是四位无符号 MQTT Control Packet 类型。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.1 MQTT Control Packet type",
+        "quote": "Position: byte 1, bits 7-4. Represented as a 4-bit unsigned value, the values are listed in Table 2.1 - Control packet types."
+      }
+    },
+    {
+      "id": "REQ-FRAME-004",
+      "text": "标为 Reserved 的 fixed-header flag MUST 使用 Table 2.2 规定的值；收到非法 flags 时接收方 MUST 关闭网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.2 Flags",
+        "quote": "Where a flag bit is marked as “Reserved” in Table 2.2 - Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If invalid flags are received, the receiver MUST close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-001",
+      "text": "网络连接建立后，Client 发送给 Server 的第一个报文 MUST 是 CONNECT。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1 CONNECT",
+        "quote": "After a Network Connection is established by a Client to a Server, the first Packet sent from the Client to the Server MUST be a CONNECT Packet"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-002",
+      "text": "Client 在一个网络连接上只能发送一次 CONNECT；Server 收到第二个 CONNECT 时 MUST 断开该 Client。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1 CONNECT",
+        "quote": "A Client can only send the CONNECT Packet once over a Network Connection. The Server MUST process a second CONNECT Packet sent from a Client as a protocol violation and disconnect the Client"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-003",
+      "text": "CONNECT variable header 依次包含 Protocol Name、Protocol Level、Connect Flags 和 Keep Alive。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2 Variable header",
+        "quote": "The variable header for the CONNECT Packet consists of four fields in the following order: Protocol Name, Protocol Level, Connect Flags, and Keep Alive."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-004",
+      "text": "Protocol Name 是内容为 MQTT 的 UTF-8 字符串。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.1 Protocol Name",
+        "quote": "The Protocol Name is a UTF-8 encoded string that represents the protocol name “MQTT”, capitalized as shown."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-005",
+      "text": "MQTT 3.1.1 的 Protocol Level 字段值是 4。",
+      "level": "DEFINITION",
+      "values": {"protocol_level": 4},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.2 Protocol Level",
+        "quote": "The value of the Protocol Level field for the version 3.1.1 of the protocol is 4 (0x04)."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-006",
+      "text": "Server 不支持收到的 Protocol Level 时 MUST 返回 return code 0x01 的 CONNACK，然后断开 Client。",
+      "level": "MUST",
+      "values": {"unacceptable_protocol_level_return_code": 1},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.2 Protocol Level",
+        "quote": "The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 (unacceptable protocol level) and then disconnect the Client if the Protocol Level is not supported by the Server"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-007",
+      "text": "Connect Flags 指定 MQTT 连接行为，并指示 payload 字段是否存在。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.3 Connect Flags",
+        "quote": "The Connect Flags byte contains a number of parameters specifying the behavior of the MQTT connection. It also indicates the presence or absence of fields in the payload."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-008",
+      "text": "Server MUST 验证 CONNECT 的 reserved flag 为 0；否则断开 Client。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.3 Connect Flags",
+        "quote": "The Server MUST validate that the reserved flag in the CONNECT Control Packet is set to zero and disconnect the Client if it is not zero"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-009",
+      "text": "CleanSession=1 时，Client 和 Server MUST 丢弃此前 Session 并启动新 Session。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.4 Clean Session",
+        "quote": "If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-010",
+      "text": "CleanSession=1 创建的 Session 与网络连接具有相同生命周期。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.4 Clean Session",
+        "quote": "This Session lasts as long as the Network Connection."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-011",
+      "text": "CleanSession=1 创建的 Session 数据 MUST NOT 在后续 Session 中复用。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.4 Clean Session",
+        "quote": "State data associated with this Session MUST NOT be reused in any subsequent Session"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-012",
+      "text": "Keep Alive 是以秒为单位并表示为 16 位字的时间间隔。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.10 Keep Alive",
+        "quote": "The Keep Alive is a time interval measured in seconds. Expressed as a 16-bit word, it is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one Control Packet and the point it starts sending the next."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-013",
+      "text": "ClientId 标识 Client，并且 Client 与 Server MUST 用它标识该 MQTT Session 的状态。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.1 Client Identifier",
+        "quote": "The Client Identifier (ClientId) identifies the Client to the Server. Each Client connecting to the Server has a unique ClientId. The ClientId MUST be used by Clients and by Servers to identify state that they hold relating to this MQTT Session between the Client and the Server"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-014",
+      "text": "ClientId MUST 存在，并且 MUST 是 CONNECT payload 的第一个字段。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.1 Client Identifier",
+        "quote": "The Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-015",
+      "text": "ClientId MUST 是 MQTT UTF-8 字符串。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.1 Client Identifier",
+        "quote": "The ClientId MUST be a UTF-8 encoded string as defined in Section 1.5.3"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-016",
+      "text": "Server MUST 接受长度为 1 至 23 个 UTF-8 编码字节且仅含规定字母数字字符的 ClientId。",
+      "level": "MUST",
+      "values": {
+        "minimum_required_client_id_bytes": 1,
+        "maximum_required_client_id_bytes": 23
+      },
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.1 Client Identifier",
+        "quote": "The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\""
+      }
+    },
+    {
+      "id": "REQ-CONNECT-017",
+      "text": "Server MUST 验证 CONNECT 符合第 3.1 节；不符合时关闭网络连接且不发送 CONNACK。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.4 Response",
+        "quote": "The Server MUST validate that the CONNECT Packet conforms to section 3.1 and close the Network Connection without sending a CONNACK if it does not conform"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-018",
+      "text": "CONNECT 验证成功时，Server MUST 发送 return code 0 的 CONNACK。",
+      "level": "MUST",
+      "values": {"accepted_return_code": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.4 Response",
+        "quote": "The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-019",
+      "text": "CONNECT 的 MQTT Control Packet type 值是 1。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 1},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.1 Fixed header",
+        "quote": "MQTT Control Packet type (1)"
+      }
+    },
+    {
+      "id": "REQ-CONNECT-020",
+      "text": "Will Flag 为 1 时，payload MUST 包含 Will Topic 和 Will Message 字段；Will Flag 为 0 时，payload MUST NOT 包含 Will Topic 或 Will Message 字段。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.5 Will Flag",
+        "quote": "If the Will Flag is set to 1 this indicates that, if the Connect request is accepted, a Will Message MUST be stored on the Server and associated with the Network Connection. The Will Message MUST be published when the Network Connection is subsequently closed unless the Will Message has been deleted by the Server on receipt of a DISCONNECT Packet. If the Will Flag is set to 0 the Will QoS and Will Retain fields in the Connect Flags MUST be set to zero and the Will Topic and Will Message fields MUST NOT be present in the payload."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-021",
+      "text": "Will Flag 为 0 时，Connect Flags 中的 Will QoS 和 Will Retain MUST 为 0。",
+      "level": "MUST",
+      "values": {"will_qos": 0, "will_retain": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.6 Will QoS",
+        "quote": "If the Will Flag is set to 0, then the Will QoS MUST be set to 0 (0x00)."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-022",
+      "text": "User Name Flag 为 0 时 payload MUST NOT 包含 User Name 字段；为 1 时 MUST 包含。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.8 User Name Flag",
+        "quote": "If the User Name Flag is set to 0, a user name MUST NOT be present in the payload. If the User Name Flag is set to 1, a user name MUST be present in the payload."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-023",
+      "text": "Password Flag 为 0 时 payload MUST NOT 包含 password 字段；为 1 时 MUST 包含。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.9 Password Flag",
+        "quote": "If the Password Flag is set to 0, a password MUST NOT be present in the payload. If the Password Flag is set to 1, a password MUST be present in the payload."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-024",
+      "text": "CONNECT payload 中的字段若存在，MUST 按 Client Identifier、Will Topic、Will Message、User Name、Password 的顺序出现。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3 Payload",
+        "quote": "The payload of the CONNECT Packet contains one or more length-prefixed fields, whose presence is determined by the flags in the variable header. These fields, if present, MUST appear in the order Client Identifier, Will Topic, Will Message, User Name, Password."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-025",
+      "text": "Will Message 字段定义了要发布到 Will Topic 的 Application Message 的 payload，由两字节长度后跟该长度的字节数据组成，长度可以为零。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.3 Will Message",
+        "quote": "The Will Message defines the Application Message that is to be published to the Will Topic as described in Section 3.1.2.5. This field consists of a two byte length followed by the payload for the Will Message expressed as a sequence of zero or more bytes. The length gives the number of bytes in the data that follows and does not include the 2 bytes taken up by the length itself."
+      }
+    },
+    {
+      "id": "REQ-CONNECT-026",
+      "text": "Password 字段由两字节长度后跟该长度的二进制数据组成，长度上限为 65535 字节。",
+      "level": "DEFINITION",
+      "values": {"maximum_password_bytes": 65535},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.3.5 Password",
+        "quote": "The Password field contains 0 to 65535 bytes of binary data prefixed with a two byte length field which indicates the number of bytes used by the binary data (it does not include the two bytes taken up by the length field itself)."
+      }
+    },
+    {
+      "id": "REQ-CONNACK-001",
+      "text": "CONNACK 是 Server 响应 CONNECT 的报文，并且 MUST 是 Server 向 Client 发送的第一个报文。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2 CONNACK",
+        "quote": "The CONNACK Packet is the packet sent by the Server in response to a CONNECT Packet received from a Client. The first packet sent from the Server to the Client MUST be a CONNACK Packet"
+      }
+    },
+    {
+      "id": "REQ-CONNACK-002",
+      "text": "CONNACK Remaining Length 的值是 2。",
+      "level": "DEFINITION",
+      "values": {"remaining_length": 2},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.1 Fixed header",
+        "quote": "This is the length of the variable header. For the CONNACK Packet this has the value 2."
+      }
+    },
+    {
+      "id": "REQ-CONNACK-003",
+      "text": "CONNACK Connect Acknowledge Flags 的 7-1 位是 reserved，MUST 为 0。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.2.1 Connect Acknowledge Flags",
+        "quote": "Byte 1 is the \"Connect Acknowledge Flags\". Bits 7-1 are reserved and MUST be set to 0."
+      }
+    },
+    {
+      "id": "REQ-CONNACK-004",
+      "text": "Server 接受 CleanSession=1 的连接时，MUST 在 CONNACK 中设置 Session Present=0 和 return code=0。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.2.2 Session Present",
+        "quote": "If the Server accepts a connection with CleanSession set to 1, the Server MUST set Session Present to 0 in the CONNACK packet in addition to setting a zero return code in the CONNACK packet"
+      }
+    },
+    {
+      "id": "REQ-CONNACK-005",
+      "text": "Server 发送非零 return code 的 CONNACK 时 MUST 设置 Session Present=0。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.2.2 Session Present",
+        "quote": "If a server sends a CONNACK packet containing a non-zero return code it MUST set Session Present to 0"
+      }
+    },
+    {
+      "id": "REQ-CONNACK-006",
+      "text": "CONNACK 的单字节 Connect Return code 使用 Table 3.1 定义的值 0 至 5。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.2.3 Connect Return code",
+        "quote": "The values for the one byte unsigned Connect Return code field are listed in Table 3.1 – Connect Return code values."
+      }
+    },
+    {
+      "id": "REQ-CONNACK-007",
+      "text": "Server 发送非零 Connect return code 后 MUST 关闭网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.2.3 Connect Return code",
+        "quote": "If a server sends a CONNACK packet containing a non-zero return code it MUST then close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-CONNACK-008",
+      "text": "CONNACK 没有 payload。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.3 Payload",
+        "quote": "The CONNACK Packet has no payload."
+      }
+    },
+    {
+      "id": "REQ-CONNACK-009",
+      "text": "CONNACK 的 MQTT Control Packet type 值是 2。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 2},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.2.1 Fixed header",
+        "quote": "MQTT Control Packet Type (2)"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-001",
+      "text": "SUBSCRIBE 创建一个或多个 Subscription；每个 Subscription 注册 Client 对一个或多个 Topic 的兴趣。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8 SUBSCRIBE",
+        "quote": "The SUBSCRIBE Packet is sent from the Client to the Server to create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics."
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-002",
+      "text": "SUBSCRIBE fixed-header flags MUST 是 0,0,1,0；其他值视为 malformed 并关闭网络连接。",
+      "level": "MUST",
+      "values": {"fixed_header_flags": 2},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.1 Fixed header",
+        "quote": "Bits 3,2,1 and 0 of the fixed header of the SUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively. The Server MUST treat any other value as malformed and close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-003",
+      "text": "SUBSCRIBE MUST 包含非零 16 位 Packet Identifier。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.3.1 Packet Identifier",
+        "quote": "SUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-004",
+      "text": "SUBSCRIBE payload 中的 Topic Filters MUST 是 MQTT UTF-8 字符串。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.3 Payload",
+        "quote": "The Topic Filters in a SUBSCRIBE packet payload MUST be UTF-8 encoded strings as defined in Section 1.5.3"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-005",
+      "text": "SUBSCRIBE payload MUST 至少包含一个 Topic Filter/QoS 对；空 payload 是协议违规。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.3 Payload",
+        "quote": "The payload of a SUBSCRIBE packet MUST contain at least one Topic Filter / QoS pair. A SUBSCRIBE packet with no payload is a protocol violation"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-006",
+      "text": "Requested QoS 字节的高六位为 reserved；reserved 位非零或 QoS 不为 0、1、2 时，Server MUST 将 SUBSCRIBE 视为 malformed 并关闭连接。",
+      "level": "MUST",
+      "values": {
+        "qos_0": 0,
+        "qos_1": 1,
+        "qos_2": 2
+      },
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.3 Payload",
+        "quote": "The upper 6 bits of the Requested QoS byte are not used in the current version of the protocol. They are reserved for future use. The Server MUST treat a SUBSCRIBE packet as malformed and close the Network Connection if any of Reserved bits in the payload are non-zero, or QoS is not 0,1 or 2"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-007",
+      "text": "Server 收到 SUBSCRIBE 时 MUST 回复 SUBACK。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.4 Response",
+        "quote": "When the Server receives a SUBSCRIBE Packet from a Client, the Server MUST respond with a SUBACK Packet"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-008",
+      "text": "SUBACK Packet Identifier MUST 与其确认的 SUBSCRIBE Packet Identifier 相同。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.4 Response",
+        "quote": "The SUBACK Packet MUST have the same Packet Identifier as the SUBSCRIBE Packet that it is acknowledging"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-009",
+      "text": "SUBACK MUST 为每个 Topic Filter/QoS 对包含一个表示 granted maximum QoS 或失败的 return code。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.4 Response",
+        "quote": "The SUBACK Packet sent by the Server to the Client MUST contain a return code for each Topic Filter/QoS pair. This return code MUST either show the maximum QoS that was granted for that Subscription or indicate that the subscription failed"
+      }
+    },
+    {
+      "id": "REQ-SUBSCRIBE-010",
+      "text": "SUBSCRIBE 的 MQTT Control Packet type 值是 8。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 8},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.1 Fixed header",
+        "quote": "MQTT Control Packet type (8)"
+      }
+    },
+    {
+      "id": "REQ-SUBACK-001",
+      "text": "SUBACK 确认 SUBSCRIBE 的接收和处理。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.9 SUBACK",
+        "quote": "A SUBACK Packet is sent by the Server to the Client to confirm receipt and processing of a SUBSCRIBE Packet."
+      }
+    },
+    {
+      "id": "REQ-SUBACK-002",
+      "text": "SUBACK Remaining Length 等于两字节 variable header 加 payload 的长度。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.9.1 Fixed header",
+        "quote": "This is the length of variable header (2 bytes) plus the length of the payload."
+      }
+    },
+    {
+      "id": "REQ-SUBACK-003",
+      "text": "SUBACK return codes 的顺序 MUST 与 SUBSCRIBE Topic Filters 的顺序一致。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.9.3 Payload",
+        "quote": "The order of return codes in the SUBACK Packet MUST match the order of Topic Filters in the SUBSCRIBE Packet"
+      }
+    },
+    {
+      "id": "REQ-SUBACK-004",
+      "text": "SUBACK 仅可使用 return code 0x00、0x01、0x02、0x80，其他值 MUST NOT 使用。",
+      "level": "MUST NOT",
+      "values": {
+        "granted_qos_0": 0,
+        "granted_qos_1": 1,
+        "granted_qos_2": 2,
+        "failure": 128
+      },
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.9.3 Payload",
+        "quote": "SUBACK return codes other than 0x00, 0x01, 0x02 and 0x80 are reserved and MUST NOT be used"
+      }
+    },
+    {
+      "id": "REQ-SUBACK-005",
+      "text": "SUBACK 的 MQTT Control Packet type 值是 9。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 9},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.9.1 Fixed header",
+        "quote": "MQTT Control Packet type (9)"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-001",
+      "text": "PUBLISH 从 Client 发往 Server 或从 Server 发往 Client，用于传输 Application Message。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3 PUBLISH",
+        "quote": "A PUBLISH Control Packet is sent from a Client to a Server or from Server to a Client to transport an Application Message."
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-002",
+      "text": "QoS 0 的发送方 MUST 使用 QoS=0、DUP=0 的 PUBLISH。",
+      "level": "MUST",
+      "values": {"qos": 0, "dup": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.3.1 QoS 0: At most once delivery",
+        "quote": "In the QoS 0 delivery protocol, the Sender MUST send a PUBLISH packet with QoS=0, DUP=0"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-003",
+      "text": "QoS=0 的 PUBLISH MUST NOT 包含 Packet Identifier。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.3.1 Packet Identifier",
+        "quote": "A PUBLISH Packet MUST NOT contain a Packet Identifier if its QoS value is set to 0"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-004",
+      "text": "PUBLISH Remaining Length 等于 variable header 与 payload 的长度之和。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.1 Fixed header",
+        "quote": "This is the length of variable header plus the length of the payload."
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-005",
+      "text": "Topic Name MUST 是 PUBLISH variable header 的第一个字段，并且 MUST 是 MQTT UTF-8 字符串。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.2.1 Topic Name",
+        "quote": "The Topic Name MUST be present as the first field in the PUBLISH Packet Variable header. It MUST be a UTF-8 encoded string"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-006",
+      "text": "PUBLISH Topic Name MUST NOT 包含通配符。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.2.1 Topic Name",
+        "quote": "The Topic Name in the PUBLISH Packet MUST NOT contain wildcard characters"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-007",
+      "text": "PUBLISH payload 包含 Application Message，并且允许长度为零。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.3 Payload",
+        "quote": "The Payload contains the Application Message that is being published. The content and format of the data is application specific. The length of the payload can be calculated by subtracting the length of the variable header from the Remaining Length field that is in the Fixed Header. It is valid for a PUBLISH Packet to contain a zero length payload."
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-008",
+      "text": "Client 使用 PUBLISH 向 Server 发送 Application Message，以分发给具有匹配订阅的 Clients。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.5 Actions",
+        "quote": "The Client uses a PUBLISH Packet to send an Application Message to the Server, for distribution to Clients with matching subscriptions."
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-009",
+      "text": "Server 使用 PUBLISH 向每个具有匹配订阅的 Client 发送 Application Message。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.5 Actions",
+        "quote": "The Server uses a PUBLISH Packet to send an Application Message to each Client which has a matching subscription."
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-010",
+      "text": "因匹配既有订阅而向 Client 发送 PUBLISH 时，Server MUST 设置 RETAIN=0。",
+      "level": "MUST",
+      "values": {"retain": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.1.3 RETAIN",
+        "quote": "It MUST set the RETAIN flag to 0 when a PUBLISH Packet is sent to a Client because it matches an established subscription regardless of how the flag was set in the message it received"
+      }
+    },
+    {
+      "id": "REQ-PUBLISH-011",
+      "text": "PUBLISH 的 MQTT Control Packet type 值是 3。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 3},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.3.1 Fixed header",
+        "quote": "MQTT Control Packet type (3)"
+      }
+    },
+    {
+      "id": "REQ-TOPIC-001",
+      "text": "Server 进行订阅匹配时 MUST NOT 规范化 Topic Name 或 Topic Filter，也不得修改或替换无法识别的字符。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.7.3 Topic semantic and usage",
+        "quote": "When it performs subscription matching the Server MUST NOT perform any normalization of Topic Names or Topic Filters, or any modification or substitution of unrecognized characters"
+      }
+    },
+    {
+      "id": "REQ-TOPIC-002",
+      "text": "Topic Filter 中每个非通配层必须与 Topic Name 对应层逐字符相同，匹配才成功。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.7.3 Topic semantic and usage",
+        "quote": "Each non-wildcarded level in the Topic Filter has to match the corresponding level in the Topic Name character for character for the match to succeed."
+      }
+    },
+    {
+      "id": "REQ-TOPIC-003",
+      "text": "Application Message 被发送到每个 Topic Filter 与 Topic Name 匹配的 Client Subscription。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.7.3 Topic semantic and usage",
+        "quote": "An Application Message is sent to each Client Subscription whose Topic Filter matches the Topic Name attached to an Application Message."
+      }
+    },
+    {
+      "id": "REQ-TOPIC-004",
+      "text": "Topic Name 和 Topic Filter MUST 至少包含一个字符。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.7.3 Topic semantic and usage",
+        "quote": "All Topic Names and Topic Filters MUST be at least one character long"
+      }
+    },
+    {
+      "id": "REQ-TOPIC-005",
+      "text": "Topic Name 和 Topic Filter 的 UTF-8 编码长度 MUST NOT 超过 65535 字节。",
+      "level": "MUST NOT",
+      "values": {"maximum_encoded_bytes": 65535},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.7.3 Topic semantic and usage",
+        "quote": "Topic Names and Topic Filters are UTF-8 encoded strings, they MUST NOT encode to more than 65535 bytes"
+      }
+    },
+    {
+      "id": "REQ-SESSION-001",
+      "text": "Client 和 Server MUST 在整个 Session 生命周期内保存 Session state。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.1 Storing state",
+        "quote": "The Client and Server MUST store Session state for the entire duration of the Session"
+      }
+    },
+    {
+      "id": "REQ-SESSION-002",
+      "text": "Server 的 Session state 包含 Client 的 subscriptions。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.4 Clean Session",
+        "quote": "The Session state in the Server consists of: The existence of a Session, even if the rest of the Session state is empty. The Client’s subscriptions."
+      }
+    },
+    {
+      "id": "REQ-KEEPALIVE-001",
+      "text": "Keep Alive 非零时，若 Server 在一点五倍 Keep Alive 时间内没有收到 Client 的任何报文，MUST 断开该 Client 的网络连接，视同网络故障。",
+      "level": "MUST",
+      "values": {"timeout_multiplier": 1.5},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.10 Keep Alive",
+        "quote": "If the Keep Alive value is non-zero and the Server does not receive a Control Packet from the Client within one and a half times the Keep Alive time period, it MUST disconnect the Network Connection to the Client as if the network had failed."
+      }
+    },
+    {
+      "id": "REQ-KEEPALIVE-002",
+      "text": "Keep Alive 值为 0 时关闭保活机制，Server 不因 Client 不活动而断开连接。",
+      "level": "DEFINITION",
+      "values": {"keep_alive": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.10 Keep Alive",
+        "quote": "A Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism. This means that, in this case, the Server is not required to disconnect the Client on the grounds of inactivity."
+      }
+    },
+    {
+      "id": "REQ-KEEPALIVE-003",
+      "text": "Keep Alive 非零时，Client MUST 发送报文；在没有其他报文可发送的情况下 MUST 发送 PINGREQ。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.1.2.10 Keep Alive",
+        "quote": "It is the responsibility of the Client to ensure that the interval between Control Packets being sent does not exceed the Keep Alive value. In the absence of sending any other Control Packets, the Client MUST send a PINGREQ Packet."
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-001",
+      "text": "DISCONNECT 是 Client 发给 Server 的最后一个 Control Packet，表示 Client 正常断开。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14 DISCONNECT",
+        "quote": "The DISCONNECT Packet is the final Control Packet sent from the Client to the Server. It indicates that the Client is disconnecting cleanly."
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-002",
+      "text": "Server MUST 验证 DISCONNECT reserved bits 为 0；否则断开 Client。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.1 Fixed header",
+        "quote": "The Server MUST validate that reserved bits are set to zero and disconnect the Client if they are not zero"
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-003",
+      "text": "DISCONNECT 没有 variable header。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.2 Variable header",
+        "quote": "The DISCONNECT Packet has no variable header."
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-004",
+      "text": "DISCONNECT 没有 payload。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.3 Payload",
+        "quote": "The DISCONNECT Packet has no payload."
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-005",
+      "text": "Client 发送 DISCONNECT 后 MUST 关闭网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.4 Response",
+        "quote": "MUST close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-006",
+      "text": "Client 发送 DISCONNECT 后 MUST NOT 在该网络连接上继续发送 Control Packet。",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.4 Response",
+        "quote": "MUST NOT send any more Control Packets on that Network Connection"
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-007",
+      "text": "Server 收到 DISCONNECT 后，如果 Client 尚未关闭网络连接，Server SHOULD 关闭该连接。",
+      "level": "SHOULD",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.4 Response",
+        "quote": "SHOULD close the Network Connection if the Client has not already done so."
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-008",
+      "text": "DISCONNECT Remaining Length 为 0。",
+      "level": "DEFINITION",
+      "values": {"remaining_length": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.1 Fixed header",
+        "quote": "byte 2 Remaining Length (0)"
+      }
+    },
+    {
+      "id": "REQ-DISCONNECT-009",
+      "text": "DISCONNECT 的 MQTT Control Packet type 值是 14。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 14},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.14.1 Fixed header",
+        "quote": "MQTT Control Packet type (14)"
+      }
+    },
+    {
+      "id": "REQ-ERROR-001",
+      "text": "除非另有规定，Client 或 Server 遇到协议违规时 MUST 关闭收到引发违规 Control Packet 的网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.8 Handling errors",
+        "quote": "Unless stated otherwise, if either the Server or Client encounters a protocol violation, it MUST close the Network Connection on which it received that Control Packet which caused the protocol violation"
+      }
+    },
+    {
+      "id": "REQ-ERROR-002",
+      "text": "处理入站 Control Packet 时发生 Transient Error，Client 或 Server MUST 关闭收到该报文的网络连接。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.8 Handling errors",
+        "quote": "If the Client or Server encounters a Transient Error while processing an inbound Control Packet it MUST close the Network Connection on which it received that Control Packet"
+      }
+    },
+    {
+      "id": "REQ-ERROR-003",
+      "text": "Server 检测到 Transient Error 时 SHOULD NOT 断开其他 Client，也不应影响与其他 Client 的交互。",
+      "level": "SHOULD",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "4.8 Handling errors",
+        "quote": "If a Server detects a Transient Error it SHOULD NOT disconnect or have any other effect on its interactions with any other Client."
+      }
+    },
+    {
+      "id": "REQ-PING-001",
+      "text": "PINGREQ 由 Client 发往 Server，用于向 Server 表明 Client 存活、请求 Server 响应以确认存活，并维持网络连接活动。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.12 PINGREQ",
+        "quote": "The PINGREQ Packet is sent from a Client to the Server. It can be used to: Indicate to the Server that the Client is alive in the absence of any other Control Packets being sent from the Client to the Server. Request that the Server responds to confirm that it is alive. Exercise the network to indicate that the Network Connection is active."
+      }
+    },
+    {
+      "id": "REQ-PING-002",
+      "text": "PINGREQ 没有 variable header 也没有 payload，Remaining Length 为 0。",
+      "level": "DEFINITION",
+      "values": {"remaining_length": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.12.2 Variable header",
+        "quote": "The PINGREQ Packet has no variable header."
+      }
+    },
+    {
+      "id": "REQ-PING-003",
+      "text": "Server 收到 PINGREQ 后 MUST 返回 PINGRESP。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.12.4 Actions",
+        "quote": "The Server MUST send a PINGRESP Packet in response to a PINGREQ Packet"
+      }
+    },
+    {
+      "id": "REQ-PING-004",
+      "text": "PINGRESP 没有 variable header 也没有 payload，Remaining Length 为 0。",
+      "level": "DEFINITION",
+      "values": {"remaining_length": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.13.2 Variable header",
+        "quote": "The PINGRESP Packet has no variable header."
+      }
+    },
+    {
+      "id": "REQ-PING-005",
+      "text": "PINGREQ 的 MQTT Control Packet type 值是 12。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 12},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.12.1 Fixed header",
+        "quote": "MQTT Control Packet type (12)"
+      }
+    },
+    {
+      "id": "REQ-PING-006",
+      "text": "PINGRESP 的 MQTT Control Packet type 值是 13。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 13},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.13.1 Fixed header",
+        "quote": "MQTT Control Packet type (13)"
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-001",
+      "text": "UNSUBSCRIBE 由 Client 发往 Server，用于取消订阅 Topics。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10 UNSUBSCRIBE",
+        "quote": "An UNSUBSCRIBE Packet is sent by the Client to the Server, to unsubscribe from topics."
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-002",
+      "text": "UNSUBSCRIBE 固定报头的 3-0 位是保留位，MUST 被设置为 0010；其他任何值都是 malformed，接收方 MUST 关闭网络连接。",
+      "level": "MUST",
+      "values": {"flags": 2},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.1 Fixed header",
+        "quote": "Bits 3,2,1 and 0 of the fixed header of the UNSUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1,0 respectively. The Server MUST treat any other value as malformed and close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-003",
+      "text": "UNSUBSCRIBE variable header 包含 Packet Identifier。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.2 Variable header",
+        "quote": "The variable header contains a Packet Identifier. The Packet Identifier field is described in section 2.3.1."
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-004",
+      "text": "UNSUBSCRIBE payload 包含一组 Topic Filters，每个 Topic Filter 是 UTF-8 字符串，在 payload 中紧密打包。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.3 Payload",
+        "quote": "The Payload for the UNSUBSCRIBE Packet contains the list of Topic Filters that the Client wishes to unsubscribe from. The Topic Filters in an UNSUBSCRIBE packet MUST be UTF-8 encoded strings as defined in Section 1.5.3, packed contiguously"
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-005",
+      "text": "UNSUBSCRIBE payload MUST 至少包含一个 Topic Filter；没有 payload 的 UNSUBSCRIBE 是协议违规。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.3 Payload",
+        "quote": "The Payload of an UNSUBSCRIBE packet MUST contain at least one Topic Filter. An UNSUBSCRIBE packet with no payload is a protocol violation."
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-006",
+      "text": "Server MUST 将 UNSUBSCRIBE 的 Topic Filters 与其为该 Client 保存的 Subscriptions 的 Topic Filters 逐字符比较；匹配时 MUST 删除该 Subscription，否则 MUST NOT 有任何额外影响。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.4 Actions",
+        "quote": "The Topic Filters (whether they contain wildcards or not) supplied in an UNSUBSCRIBE packet MUST be compared character-by-character with the current set of Topic Filters held by the Server for the Client. If any filter matches exactly then its owning Subscription is deleted, otherwise no additional processing occurs"
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-007",
+      "text": "Server MUST 在完成删除后发送 UNSUBACK，即使没有删除任何 Subscription 也 MUST 发送。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.4 Actions",
+        "quote": "The Server MUST send an UNSUBACK packet in response to an UNSUBSCRIBE packet. The UNSUBACK Packet MUST have the same Packet Identifier as the UNSUBSCRIBE Packet. Even where no Topic Subscriptions are deleted, the Server MUST respond with an UNSUBACK."
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-008",
+      "text": "UNSUBSCRIBE 的 MQTT Control Packet type 值是 10。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 10},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.10.1 Fixed header",
+        "quote": "MQTT Control Packet type (10)"
+      }
+    },
+    {
+      "id": "REQ-UNSUBACK-001",
+      "text": "UNSUBACK 由 Server 发往 Client，用于确认收到 UNSUBSCRIBE。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.11 UNSUBACK",
+        "quote": "The UNSUBACK Packet is sent by the Server to the Client to confirm receipt of an UNSUBSCRIBE Packet."
+      }
+    },
+    {
+      "id": "REQ-UNSUBACK-002",
+      "text": "UNSUBACK Remaining Length 的值是 2。",
+      "level": "DEFINITION",
+      "values": {"remaining_length": 2},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.11.1 Fixed header",
+        "quote": "This is the length of the variable header. For the UNSUBACK Packet this has the value 2."
+      }
+    },
+    {
+      "id": "REQ-UNSUBACK-003",
+      "text": "UNSUBACK variable header 包含与被确认的 UNSUBSCRIBE 相同的 Packet Identifier。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.11.2 Variable header",
+        "quote": "The variable header contains the Packet Identifier of the UNSUBSCRIBE Packet that is being acknowledged."
+      }
+    },
+    {
+      "id": "REQ-UNSUBACK-004",
+      "text": "UNSUBACK 的 MQTT Control Packet type 值是 11。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 11},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.11.1 Fixed header",
+        "quote": "MQTT Control Packet type (11)"
+      }
+    },
+    {
+      "id": "REQ-SUBACK-006",
+      "text": "Server 可以授予比 Client 请求更低的 maximum QoS，因此对请求 QoS 1 或 QoS 2 的 Subscription 回复 Success - Maximum QoS 0 是允许的。",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "3.8.4 Response",
+        "quote": "The Server might grant a lower maximum QoS than the subscriber requested. The QoS of Payload Messages sent in response to a Subscription MUST be the minimum of the QoS of the originally published message and the maximum QoS granted by the Server."
+      }
+    }
+  ]
+}
