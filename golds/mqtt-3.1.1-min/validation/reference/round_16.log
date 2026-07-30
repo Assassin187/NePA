@@ -1,7 +1,0 @@
-$ /usr/bin/python3 -m pytest /w/golds/mqtt-3.1.1-min/tests/l1_codec /w/golds/mqtt-3.1.1-min/tests/l2_behavior --target=reference --seed=311015 -q
-
-[stdout]
-.......s............                                                     [100%]
-19 passed, 1 skipped in 8.80s
-
-[stderr]

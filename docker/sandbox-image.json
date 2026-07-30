@@ -1,8 +1,0 @@
-{
-  "schema_version": "1.0",
-  "image": "nepa-sandbox:latest",
-  "digest": "sha256:3795cf4e272e1353b0437779511b3433a950e93a4bee3e7a1a2c094992d1de37",
-  "dockerfile": "docker/sandbox.Dockerfile",
-  "dockerfile_sha256": "95b5f74a7da7336fdc97291852f20ef4b88454683e0248148180b01542dcb75b",
-  "built_at": "2026-07-27"
-}
