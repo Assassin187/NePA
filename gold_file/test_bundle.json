@@ -1,0 +1,396 @@
+{
+  "bundle": {
+    "default_build_variant_ids": ["san"],
+    "id": "mqtt-3-1-1-min-gold",
+    "version": "1.0.0"
+  },
+  "schema_version": "3.0",
+  "tests": [
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Independent client-packet encoders match bytes emitted by Paho MQTT 3.1.1.",
+      "gate": "task",
+      "layer": "l1",
+      "nodeid": "tests/l1_codec/test_reference_codec.py::test_client_packet_encoders_match_paho",
+      "req_ids": [
+        "REQ-CONNECT-003",
+        "REQ-DATA-001",
+        "REQ-DISCONNECT-001",
+        "REQ-DISCONNECT-005",
+        "REQ-DISCONNECT-006",
+        "REQ-FRAME-001",
+        "REQ-FRAME-002",
+        "REQ-FRAME-003",
+        "REQ-PUBLISH-001",
+        "REQ-SUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-003",
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-008"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Optional CONNECT fields are encoded in the order declared by the spec.",
+      "gate": "task",
+      "layer": "l1",
+      "nodeid": "tests/l1_codec/test_reference_codec.py::test_connect_optional_fields_follow_declared_wire_order",
+      "req_ids": [
+        "REQ-CONNECT-020",
+        "REQ-CONNECT-021",
+        "REQ-CONNECT-022",
+        "REQ-CONNECT-023",
+        "REQ-CONNECT-024",
+        "REQ-CONNECT-025",
+        "REQ-CONNECT-026"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Fixed server and zero-length packets match their MQTT 3.1.1 byte vectors.",
+      "gate": "task",
+      "layer": "l1",
+      "nodeid": "tests/l1_codec/test_reference_codec.py::test_fixed_packets_match_mqtt_311_vectors",
+      "req_ids": [
+        "REQ-CONNACK-002",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNECT-018",
+        "REQ-DISCONNECT-003",
+        "REQ-DISCONNECT-004",
+        "REQ-DISCONNECT-008",
+        "REQ-DISCONNECT-009",
+        "REQ-PING-002",
+        "REQ-PING-004",
+        "REQ-PING-005",
+        "REQ-PING-006",
+        "REQ-SUBACK-002",
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009",
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Remaining Length round-trips at every MQTT encoding-width boundary.",
+      "gate": "task",
+      "layer": "l1",
+      "nodeid": "tests/l1_codec/test_reference_codec.py::test_remaining_length_reference_codec_boundaries",
+      "req_ids": [
+        "REQ-FRAME-001",
+        "REQ-FRAME-002"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "The reference encoder rejects a UTF-8 field above 65535 bytes.",
+      "gate": "task",
+      "layer": "l1",
+      "nodeid": "tests/l1_codec/test_reference_codec.py::test_utf8_length_reference_codec_boundary",
+      "req_ids": [
+        "REQ-STRING-001",
+        "REQ-TOPIC-005"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A clean reconnect does not reuse an earlier subscription.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_clean_session_discards_old_subscription",
+      "req_ids": [
+        "REQ-CONNECT-009",
+        "REQ-CONNECT-011",
+        "REQ-SESSION-001"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A DISCONNECT with nonzero reserved flags closes its connection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_disconnect_rejects_reserved_flags",
+      "req_ids": [
+        "REQ-DISCONNECT-002",
+        "REQ-ERROR-001",
+        "REQ-FRAME-004"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Empty and wildcard-containing PUBLISH topics are protocol violations.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_invalid_publish_topic_closes_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-PUBLISH-006",
+        "REQ-TOPIC-004"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Malformed CONNECT packets close their source connection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_malformed_connect_closes_source_connection",
+      "req_ids": [
+        "REQ-CONNECT-008",
+        "REQ-CONNECT-017",
+        "REQ-CONNECT-020",
+        "REQ-CONNECT-021",
+        "REQ-CONNECT-022",
+        "REQ-CONNECT-023",
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-STRING-003"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Malformed SUBSCRIBE variants close their source connection only.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_malformed_subscribe_closes_connection_without_crash",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-SUBSCRIBE-002",
+        "REQ-SUBSCRIBE-003",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A QoS 0 publication reaches the matching subscriber unchanged.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_publish_is_forwarded_exactly_to_matching_subscriber",
+      "req_ids": [
+        "REQ-PUBLISH-002",
+        "REQ-PUBLISH-003",
+        "REQ-PUBLISH-005",
+        "REQ-PUBLISH-010",
+        "REQ-SESSION-001",
+        "REQ-TOPIC-001"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A second CONNECT on one connection is isolated as a protocol violation.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_second_connect_closes_only_that_connection",
+      "req_ids": [
+        "REQ-CONNECT-002",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "The server closes a connection after receiving a valid DISCONNECT.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_server_closes_after_valid_disconnect",
+      "req_ids": [
+        "REQ-DISCONNECT-007"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "SUBACK echoes the identifier and returns one legal code per topic filter.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_subscribe_returns_one_legal_code_per_filter",
+      "req_ids": [
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBACK-006",
+        "REQ-SUBSCRIBE-003",
+        "REQ-SUBSCRIBE-004",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006",
+        "REQ-SUBSCRIBE-007",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A transient error on one client does not affect another client.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_transient_error_does_not_affect_other_client",
+      "req_ids": [
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A configured packet-size resource error closes its source connection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_transient_resource_error_closes_source_connection",
+      "req_ids": [
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Two valid clients remain connected at the same time.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_two_clients_connect_concurrently",
+      "req_ids": [
+        "REQ-CONNACK-001",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNECT-001",
+        "REQ-CONNECT-013",
+        "REQ-CONNECT-014",
+        "REQ-CONNECT-015",
+        "REQ-CONNECT-016",
+        "REQ-CONNECT-018",
+        "REQ-SESSION-001",
+        "REQ-TRANSPORT-001",
+        "REQ-TRANSPORT-002",
+        "REQ-TRANSPORT-003",
+        "REQ-TRANSPORT-004"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "An unsupported protocol level receives code 1 and then disconnection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_unsupported_protocol_level_gets_failure_connack",
+      "req_ids": [
+        "REQ-CONNACK-005",
+        "REQ-CONNACK-007",
+        "REQ-CONNECT-006"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "Malformed UNSUBSCRIBE packets close only their source connection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_malformed_unsubscribe_closes_only_its_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-UNSUBSCRIBE-002",
+        "REQ-UNSUBSCRIBE-005"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A connection with nonzero Keep Alive is closed after inactivity.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_nonzero_keep_alive_times_out",
+      "req_ids": [
+        "REQ-KEEPALIVE-001"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "PINGREQ receives the zero-length PINGRESP required by the server.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_pingreq_receives_pingresp",
+      "req_ids": [
+        "REQ-KEEPALIVE-003",
+        "REQ-PING-001",
+        "REQ-PING-002",
+        "REQ-PING-003",
+        "REQ-PING-004",
+        "REQ-PING-005",
+        "REQ-PING-006"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "UNSUBSCRIBE acknowledges every request and removes only its exact filter.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_unsubscribe_removes_only_the_exact_subscription",
+      "req_ids": [
+        "REQ-SESSION-002",
+        "REQ-TOPIC-001",
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004",
+        "REQ-UNSUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-003",
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-006",
+        "REQ-UNSUBSCRIBE-007",
+        "REQ-UNSUBSCRIBE-008"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
+      "description": "A zero Keep Alive leaves an otherwise idle connection active.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_zero_keep_alive_disables_idle_timeout",
+      "req_ids": [
+        "REQ-KEEPALIVE-002"
+      ]
+    }
+  ]
+}

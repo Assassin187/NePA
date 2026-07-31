@@ -3,7 +3,10 @@
   "protocol": {
     "name": "MQTT",
     "version": "3.1.1",
-    "roles": ["client", "server"]
+    "roles": [
+      "client",
+      "server"
+    ]
   },
   "transport": {
     "name": "TCP",
