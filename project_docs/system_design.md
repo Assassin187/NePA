@@ -1,8 +1,8 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：2.1.0\
-> 最后更新：2026\-07\-30\
+> 设计版本：2.2.1\
+> 最后更新：2026\-07\-31\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
 ## 0\. 阅读指南
@@ -83,7 +83,7 @@ NePA 的长期目标是：支持 PDF、TXT、HTML 等载体中网络协议的 RF
 
 基于任务本身的高度复杂性，将系统任务分为以下里程碑节点。各里程碑的入口条件、任务分解与验收标准（DoD）在第 10 章逐一展开。
 
-**M0. 首个协议及其范围。** 明确先采用 MQTT 3.1.1 作为实验协议，只实现其最基础的功能子集，同时在此基础上维护一个人工的 gold 规格文件和对应的功能测试集。当前固定 MQTT 用 C 语言实现。规格文件采用本文档第 5 章定义的 `specs-requirements.schema.json` v3.0。
+**M0. 首个协议及其范围。** 明确先采用 MQTT 3.1.1 作为实验协议，只实现其最基础的功能子集，同时维护人工 gold Spec、Target Profile 与 Test Bundle 前置规格。具体功能测试集由 M2 智能体生成。当前固定 MQTT 用 C 语言实现。规格文件采用本文档第 5 章定义的 `specs-requirements.schema.json` v3.0。
 
 **M1. 人工规格到可构建协议实现。** 输入人工编写的 Spec，能够直接生成无需人工修改的可构建完整项目，同时生成过程可重复且稳定。
 
@@ -241,11 +241,11 @@ flowchart TD
 | ---- | -------- |
 | Spec IR | 可直接提取的协议事实：角色、传输、类型、报文与原子需求 |
 | Target Profile | 本次实现选择的目标协议角色数组，以及实现语言与版本；除此之外不承载任何信息 |
-| Test Bundle | 独立测试、runner、判定 oracle，以及参考实现与生成工作区的目标适配器 |
+| Test Bundle | M0/M1 使用的测试需求与覆盖清单；具体测试、runner、oracle 和适配器由 M2 智能体据此生成 |
 
 Target Profile 与 Test Bundle 在运行开始时按原始字节哈希冻结。NePA 当前只生成应用层网络协议实现，因此只维护一套系统内置的应用层生成后端，不设置后端选择、后端身份或后端版本字段。该后端根据 Target Profile 的 `language` 使用内置语言规则，并只为该规则明确支持的 `roles[]` 生成交付形态；C99 当前固定使用 POSIX、gcc、GNU Make、内置类型映射、构建变体和编码约束，且当前只支持 `server`。命名规则由协议事实与语言规则机械派生，容量默认值、角色交付规则、三段构建图、文件规则、布局模板和机械生成规则均由系统内置后端与 S4 Delivery Compiler 提供，不进入 Target Profile。
 
-Test Bundle 的测试目标采用 5.3 定义的**两阶段绑定**：M0 冻结 `reference/workspace` 双目标路由、统一 fixture 和 workspace 适配器插槽，并只完整绑定参考实现；M2\-0 再把 workspace 适配器绑定到生成物的具体外部契约。目标路由是 Test Bundle runner 的控制面，不是 Target Profile、Test Manifest 或生成物外部契约字段。
+M0/M1 只冻结并消费 `gold_file/test_bundle.json` 中的测试需求、覆盖关系与计划 nodeid，不要求具体测试文件、runner、oracle 或适配器存在，也不执行协议行为测试。M2 负责先裁决公开测试边界，再由智能体生成这些测试资产并验证其与前置清单一致。
 
 S4 仍以 deliverable→build artifact→link source set 三段结构生成 Delivery Blueprint，并保留文件规则、布局模板与机械生成机制；这些结构是运行工件，不是用户输入。系统模板是随代码维护的普通实现资源，**禁止**为模板或后端设计、记录或校验 id、version、hash。后续阶段禁止按协议名称写行为分支；具体协议标识符只能由 Spec IR 进入命名派生和生成上下文。默认组合为 MQTT 3.1.1 最小 Spec、`roles=["server"]`、C99 与 MQTT gold Test Bundle。
 
@@ -624,7 +624,7 @@ P3 在 NePA 中由两个职责互斥的工件实现：
 
 `delivery_blueprint_sha256` 位于 Plan 顶层，**不属于** Blueprint 编译器的语义输入；否则会形成"输出哈希参与自身输入"的循环。`review` 只封存最终未解决 minor issue，完整轮次历史仍只在 `_s4/reviews/`。这样 S9 可从正式 Plan 读取已知问题，而无需把 `_s4` 提升为下游事实源。
 
-`input_refs` 固定包含 `spec`、`target_profile` 与 `test_bundle`，每项只保存 `{path, sha256}`。S4 控制器从本次 run 的冻结输入确定性注入并覆盖这些值；任何 Agent 的回显均不作为事实来源。解析后的 Test Bundle 描述同时绑定 `manifest_sha256` 与 `bundle_tree_sha256`（5.3），使 `input_refs.test_bundle` 传递性锁定 S4 看到的清单和 S7 实际执行的测试资产。
+`input_refs` 固定包含 `spec`、`target_profile` 与 `test_bundle`，每项只保存 `{path, sha256}`。S4 控制器从本次 run 的冻结输入确定性注入并覆盖这些值；任何 Agent 的回显均不作为事实来源。M0/M1 的 `test_bundle` 引用只锁定 `gold_file/test_bundle.json` 的 canonical 内容；M2 生成的具体测试资产及其完整性绑定由 M2\-0 在实现前补充设计，不得伪装成开工前已存在的输入。
 
 `architecture` 至少包含：
 
@@ -801,7 +801,7 @@ Plan State 校验拆为三个能力，避免一个只接收 JSON 的函数声称
 
 ### 5\.3 测试集组织
 
-Test Bundle 是独立版本化的测试、runner、oracle，以及 reference/workspace 目标适配器集合。当前默认组合的三份前置规格文件统一放在 `gold_file/`，目录中不放测试实现、runner、收集脚本或 pytest 配置：
+Test Bundle 在开工时是一份独立版本化的测试需求与覆盖清单。当前默认组合的三份前置规格文件统一放在 `gold_file/`，目录中不放测试实现、runner、收集脚本或 pytest 配置：
 
 ```text
 gold_file/
@@ -812,22 +812,22 @@ gold_file/
 
 强制规则：
 
-1. 测试**禁止**链接或 import 生成代码的内部实现，必须经测试面对的公开边界交互，以保证测试独立于生成过程并防止"应试作弊"；公开边界的字段与绑定机制由 M2\-0 裁决，当前 Schema 不预设 CLI、服务进程或构建入口；
-2. 每个测试**必须**按 5.3.1 用 marker 声明其 REQ 与 gate，可选声明构建变体，供覆盖矩阵统计（9.1）与 Linker 的 gate readiness 计算（5.2.3）；
-3. 测试自身的正确性在 M0 用参考实现验证：L2 用例经 conftest 的 `--target=reference` 开关运行，适配层负责启动参考 server 并做就绪探测；L1 用例以 harness 内置参考编解码与 paho 构造的报文字节交叉验证；L0（构建产物检查）不适用参考实现。这里的参考实现适配方式不定义生成物的外部测试契约。适用用例的通过率**必须**达到 100% 方可冻结（10.1）；
-4. L1/L2 默认在 ASan\+UBSan 构建上运行（7.4）；内存错误即测试失败；
-5. harness **必须**对 client\_id、topic、payload 等测试输入做参数随机化（随机种子记录进测试日志，保证可复现）——V\-2/R\-8 引用的防作弊机制。
+1. M0/M1 只校验和消费 `test_bundle.json`，不要求其中 `nodeid` 指向的测试文件存在，不生成 runner/oracle/adapter，也不执行协议行为测试；
+2. M2 生成的测试**禁止**链接或 import 生成代码的内部实现，必须经测试面对的公开边界交互，以保证测试独立于生成过程并防止"应试作弊"；公开边界、测试资产布局及完整性绑定由 M2\-0 裁决；
+3. M2 生成的每个测试**必须**按 5.3.1 用 marker 镜像清单中的 REQ、gate 与构建变体，供覆盖矩阵统计（9.1）、一致性检查与后续 gate readiness 计算（5.2.3）；
+4. 测试生成后必须用参考实现验证：L2 用例经 reference adapter 运行，L1 用例以参考编解码与 paho 构造的报文字节交叉验证；L0（构建产物检查）不适用参考实现。适用用例的通过率**必须**达到 100%，并连续 20 轮无波动，方可进入 S7；
+5. L1/L2 默认在 ASan\+UBSan 构建上运行（7.4）；内存错误即测试失败；
+6. harness **必须**对 client\_id、topic、payload 等测试输入做参数随机化（随机种子记录进测试日志，保证可复现）——V\-2/R\-8 引用的防作弊机制。
 
-**两阶段目标绑定（冻结裁决）**：
+**M2 生成与绑定边界**：
 
-1. **第一阶段（M0，冻结路由而不猜测生成物契约）**：Test Bundle runner **必须**提供 `--target={reference,workspace}`，默认值为 `reference`，并提供 `--workspace <path>`；后者在 `target=workspace` 时必填且表示本次 NePA run 的工作区根目录。公共 fixture 按 `target` 分派到 reference adapter 或 workspace adapter，测试函数只依赖公共 fixture，**禁止**读取 `target` 后自行分支，也禁止分别维护两套行为用例。
-2. M0 **必须**完整实现 reference adapter 的启动、就绪探测、连接与停止，使 D0.2 能以 `--target=reference` 校验测试集自身。M0 同时保留 workspace adapter 插槽，但在 M2\-0 前不规定可执行文件路径、启动参数、构建入口、就绪协议或退出语义；此时选择 `--target=workspace` **必须**在执行测试前以稳定、明确的 `WORKSPACE_ADAPTER_UNBOUND` 配置错误失败，禁止 skip、假通过、回退到 reference 或硬编码历史生成物约定。
-3. **第二阶段（M2\-0，绑定生成物）**：M2\-0 只裁决并实现 workspace adapter 所需的外部契约及其 Blueprint/生成物映射，包括构建入口、可执行文件定位、启动参数、就绪探测、停止与退出语义。该裁决不得取消或改写第一阶段冻结的双目标 runner、公共 fixture 与同一套测试；若确需改变这些冻结项，必须按 11.3 作为独立破坏性变更审批。
-4. `--target` 与 `--workspace` 只是 runner 调用参数，不进入 Test Manifest v3、Target Profile、Spec IR 或生成物契约 Schema。M2\-0 可以新增独立外部契约工件或在既有运行工件中增加经批准的映射字段，但在裁决前不得先行添加。M0 的参考验证固定使用 `reference`；S7 对生成实现的验收固定使用 `workspace`，两者不得互相替代。
+1. M2\-0 在生成任何测试代码前裁决测试资产布局、runner 接口、reference/workspace 目标路由、公共 fixture、两类 adapter、生成物公开边界，以及生成测试资产的描述与完整性哈希放置位置；M0/M1 不预设这些实现细节。
+2. M2\-1 由智能体以冻结的 `test_bundle.json` 为规格生成具体测试、runner、oracle、pytest marker 注册与 adapter。生成结果必须通过 5.3.2 的逐项一致性检查，禁止新增、遗漏或改写清单用例。
+3. 参考目标用于验证测试本身，workspace 目标用于 S7 验收生成实现；具体 CLI 与绑定机制以 M2\-0 的设计为准。
 
 #### 5\.3.1 测试元数据的声明载体
 
-测试元数据的**唯一**权威载体是测试函数上的 pytest marker。选择 marker 而非 docstring、命名约定或独立映射文件的理由：marker 与被标注的测试函数在同一处、随测试一起版本化，且能由 `pytest --collect-only` 机械读取，不需要解析自然语言。所有 marker **必须**在 Test Bundle 的 `pytest.ini`/`pyproject.toml` 中用 `markers =` 注册，使拼错的 marker 在 `--strict-markers` 下直接报错而非被静默忽略。
+M0/M1 中测试元数据的权威载体是 `gold_file/test_bundle.json`。M2 生成测试后，测试函数上的 pytest marker 必须逐项镜像该文件；marker 是生成代码侧的可收集表示，不得反向覆盖或改写冻结清单。所有 marker **必须**在生成测试资产的 `pytest.ini`/`pyproject.toml` 中用 `markers =` 注册，使拼错的 marker 在 `--strict-markers` 下直接报错而非被静默忽略。
 
 | marker | 参数 | 必填 | 对应 manifest 字段 |
 | ------ | ---- | ---- | ------------------ |
@@ -835,9 +835,9 @@ gold_file/
 | `@pytest.mark.gate("task")` | 恰一个 `s5` / `task` / `s7_only` | 是 | `gate` |
 | `@pytest.mark.variants("san", ...)` | 一个或多个 build variant id | 否 | `build_variant_ids[]` |
 
-`layer` **不用** marker 声明，而由测试文件所在目录确定性派生：`tests/l<N>_*/` → `l<N>`。目录是唯一来源，**禁止**用 marker 覆盖，也禁止同一目录下出现不同 layer 的用例。`description` 取测试函数 docstring 的首行（去首尾空白）；docstring 只作人类可读说明进入 manifest，**禁止**参与 gate/REQ 的任何推断——这正是 5.3.2 漂移检查要防的事。
+`layer` **不用** marker 声明；M2 生成的测试文件路径必须与清单中 `nodeid` 的 `tests/l<N>_*/` 目录及 `layer` 值一致。`description` 必须与测试函数 docstring 的首行（去首尾空白）一致；docstring 只作人类可读说明，**禁止**参与 gate/REQ 的任何推断。
 
-参数化用例（`@pytest.mark.parametrize`）的每个 `nodeid` 各占 manifest 一行，元数据继承函数级 marker；若某个参数组需要不同的 gate 或构建变体，**必须**拆成独立测试函数，不得用 `pytest.param(marks=...)` 制造同函数内的元数据分叉。
+参数化用例（`@pytest.mark.parametrize`）的每个 `nodeid` 各占清单一行，元数据继承函数级 marker；若某个参数组需要不同的 gate 或构建变体，**必须**拆成独立测试函数，不得用 `pytest.param(marks=...)` 制造同函数内的元数据分叉。
 
 最小示例：
 
@@ -859,7 +859,7 @@ def test_roundtrip(target_test_boundary):
   "bundle": {
     "id": "mqtt-3-1-1-min-gold",
     "version": "1.0.0",
-    "default_build_variant_ids": ["release"]
+    "default_build_variant_ids": ["san"]
   },
   "tests": [{
     "nodeid": "tests/l1_codec/test_connect.py::test_roundtrip",
@@ -876,29 +876,30 @@ def test_roundtrip(target_test_boundary):
 
 | 字段 | 类型 | 必填 | 约束 |
 | ---- | ---- | ---- | ---- |
-| `nodeid` | string | 是 | Test Bundle `tests/` 根的相对 pytest nodeid；全清单唯一 |
-| `layer` | enum | 是 | `l0` / `l1` / `l2` / `l3`；由目录派生（5.3.1） |
+| `nodeid` | string | 是 | M2 计划生成的相对 pytest nodeid；全清单唯一，生成结果必须匹配 |
+| `layer` | enum | 是 | `l0` / `l1` / `l2` / `l3`；必须与 `nodeid` 中的目录层级一致（5.3.1） |
 | `req_ids` | array | 是 | `minItems: 1`、元素唯一；每项必须存在于 Spec IR 的 `requirements[].id` |
 | `description` | string | 是 | 非空；docstring 首行 |
 | `gate` | enum | 是 | `s5` / `task` / `s7_only` |
 | `build_variant_ids` | array | 否 | 元素唯一；只引用系统内置语言规则提供的构建变体 id。省略表示用 `bundle.default_build_variant_ids` |
 
+当前 MQTT Test Bundle 有意把缺省构建变体设为 `san`，且现有用例均显式声明 `["san"]`：REQ 行为证据统一来自 sanitizer 构建；release 构建仍由 D1.1 的独立编译门覆盖，不作为当前 REQ 测试证据。
+
 `gate ∈ {s5, task, s7_only}` 与 `layer ∈ {l0,l1,l2,l3}` 正交：`s5` 表示脚手架完成后即可运行的结构性快验；`task` 表示 Linker 可把测试绑定到满足 REQ 实现闭包的最早任务；`s7_only` 只在完整集成阶段运行。M2\-0 裁决公开测试边界后，必须按 11.3 修订本节及相关 Schema，禁止在实现中先行添加未裁决字段。
 
-清单由收集脚本 `nepa test-manifest <bundle-dir>` 生成：它以 `--collect-only --strict-markers` 收集用例，逐用例读取 5.3.1 的 marker 与目录派生 layer，按 `nodeid` 字典序排序后写入项目 canonical JSON 字节（第 5 章通用约定）。脚本**禁止**从 docstring 或 `layer` 猜测 gate；缺少任一必填 marker 即报错退出，不生成部分清单。同一 bundle 重复运行**必须**逐字节可复现。
+M0 必须把人工提供的清单规范化为项目 canonical JSON 字节（第 5 章通用约定）并完成 Schema、引用、覆盖和构建变体校验。该 canonical 化要求**有意只适用于** `gold_file/test_bundle.json`：`specIR.json` 与 `target.json` 是人工源输入，保留调用方提供的原始字节并按原始字节计算输入哈希；进入 run 后才分别写成 canonical 冻结副本。M0\-5 先完成 `test_bundle.json` 的字节改写，M0\-6 再计算并签字冻结三份 gold 文件哈希。此时没有具体测试代码，因而不运行收集或漂移检查。
 
-`--check` 模式做漂移检查：重新收集并与磁盘上的 `gold_file/test_bundle.json` 逐字节比较，不一致即非零退出并打印差异。覆盖 nodeid、REQ、gate、build variant 与 layer 五项——任何一项在测试侧改动而未重新生成清单，都会被这一步拦住。该模式进 CI（M1\-8）。
+M2 生成测试资产后，`nepa test-manifest <bundle-dir> --check` 以 `--collect-only --strict-markers` 收集用例，逐用例读取 5.3.1 的 marker、路径、layer 与 docstring，并与冻结的 `gold_file/test_bundle.json` 比较；任何新增、遗漏或 nodeid、REQ、gate、build variant、layer、description 不一致都必须非零退出并打印差异。该检查从 M2 起进入 CI，禁止由生成代码反向重写前置清单。
 
-解析后的 Test Bundle v3 描述必须同时记录：
+M0/M1 解析后的 Test Bundle v3 描述只记录：
 
 - `manifest_sha256`：`gold_file/test_bundle.json` canonical 内容哈希；
-- `bundle_tree_sha256`：覆盖 manifest、tests、runner、oracle 与 adapter 的源资产树哈希。
 
-树哈希按规范化相对路径字典序列举文件，对每个文件计算原始字节 SHA\-256，再对 `path + NUL + file_sha256 + LF` 的串联结果计算 SHA\-256；缓存、测试结果、版本控制元数据和生成到 `inputs/test_bundle.json` 的解析描述本身不在树内，避免自引用。`input_refs.test_bundle.sha256` 哈希解析描述，因而传递性绑定上述两个摘要。S4/S5/S6/S7 入口均复核两者；S4 Agent 与 `plan_lint` 仍只接收清单元数据，控制器可核验树摘要，但不得把测试、runner、oracle 或适配器源码送入规划角色（6.4）。
+M2\-0 必须在生成测试代码前定义生成测试资产的描述工件及 `bundle_tree_sha256` 绑定位置。树哈希覆盖 M2 生成的 tests、runner、oracle 与 adapter；缓存、测试结果和版本控制元数据不在树内。S7 入口必须同时复核冻结清单哈希与生成测试资产树哈希；M0/M1 不要求或伪造尚不存在的树哈希。
 
 ### 5\.4 测试报告、修复日志与证据报告
 
-**测试轮次摘要 v2** `test_results/round_NNN/summary.json`：`schema_version: "2.0"`、全 run 唯一的 `round_id`、触发者（`s5_scaffold / s6_task / s7_full / s8_cluster / s8_regression`）、可选 `task_id/attempt/repair_id`、`workspace_head/workspace_tree`、`parent_round_id`、构建配置、每用例结果（`pass/fail/error/skipped` \+ 耗时 \+ 失败输出摘录）、按需求聚合的通过矩阵。`s8_cluster` 是 pre\-commit 簇快验，永不作为 terminal round。build\-only 的 S6 任务允许 `cases=[]`，但必须有成功构建记录；Plan 不允许空构建验收。禁用测试不伪装成 runtime `skipped`，而是在 coverage/report 中记为 disabled/not\_run；enabled 测试的动态 skipped 是未验证结果。每份摘要记录 `plan_sha256`、`delivery_blueprint_sha256`、`manifest_sha256` 与 `bundle_tree_sha256`；空用例和受控中止均有明确 Schema 表达，禁止靠字段缺失猜测。
+**测试轮次摘要 v2** `test_results/round_NNN/summary.json`：`schema_version: "2.0"`、全 run 唯一的 `round_id`、触发者（`s5_scaffold / s6_task / s7_full / s8_cluster / s8_regression`）、可选 `task_id/attempt/repair_id`、`workspace_head/workspace_tree`、`parent_round_id`、构建配置、每用例结果（`pass/fail/error/skipped` \+ 耗时 \+ 失败输出摘录）、按需求聚合的通过矩阵。`s8_cluster` 是 pre\-commit 簇快验，永不作为 terminal round。build\-only 的 S6 任务允许 `cases=[]`，但必须有成功构建记录；Plan 不允许空构建验收。禁用测试不伪装成 runtime `skipped`，而是在 coverage/report 中记为 disabled/not\_run；enabled 测试的动态 skipped 是未验证结果。每份摘要记录 `plan_sha256`、`delivery_blueprint_sha256` 与 `manifest_sha256`；M2 生成测试资产后还必须记录 `bundle_tree_sha256`。空用例和受控中止均有明确 Schema 表达，禁止靠字段缺失猜测。
 
 精确条件为：`s6_task` 必须且只能带 `task_id + attempt`；`s8_cluster/s8_regression` 必须且只能带 `repair_id`；其余 trigger 禁止这些 producer context 字段。`parent_round_id` 在首轮为 `null`，否则必须小于当前 `round_id`。`build_results[]` 至少一项且 `variant_id` 唯一，结果为 `pass/fail/error`；pass 强制 warnings/errors 均为 0 且无错误摘录，其他结果必须带非空摘录。`cases[].nodeid` 唯一，pass 禁止摘录，fail/error/skipped 必须带摘录；动态 skipped 仍进入执行计数。
 
@@ -1144,7 +1145,7 @@ Delivery Compiler 根据 Spec IR、Target Profile、系统内置生成规则和�
 
 ##### 5\.6.5.5 冻结输入描述
 
-`inputs/target.json` 是源 Target Profile 通过固定双字段 Schema 校验后的 canonical 副本，内容仍只能是 `roles` 与 `language`，禁止解析器补入任何元数据。`inputs/test_bundle.json` 是本 run 内冻结的 Test Bundle 解析描述，包含其 `schema_version`、`id/version`、`manifest_sha256`、`bundle_tree_sha256` 及 5.3 定义的字段。不存在 `inputs/language.json`。
+`inputs/target.json` 是源 Target Profile 通过固定双字段 Schema 校验后的 canonical 副本，内容仍只能是 `roles` 与 `language`，禁止解析器补入任何元数据。`inputs/test_bundle.json` 是本 run 内冻结的 Test Bundle 前置规格解析描述，包含其 `schema_version`、`id/version`、`manifest_sha256` 及 5.3 定义的清单字段；M0/M1 不包含尚未生成的测试资产树哈希。不存在 `inputs/language.json`。
 
 #### 5\.6.6 S4 内部检查点
 
@@ -1303,7 +1304,7 @@ M1 按稳定 work package id **串行**展开；控制器接口可以未来并�
 
 控制器依次：
 
-1. 重验 Run v3/config snapshot hash、三项冻结输入的 Schema/文件哈希，以及 Test Bundle 的 `manifest_sha256/bundle_tree_sha256`，运行 `spec_lint`；
+1. 重验 Run v3/config snapshot hash、三项冻结输入的 Schema/文件哈希，以及 Test Bundle 的 `manifest_sha256`，运行 `spec_lint`；
 2. 建立 type/message/requirement 引用图、REQ→test 索引与系统内置 build variant 索引；
 3. 编译 Delivery Constraints；
 4. 生成 `planning_index.json`：去除架构阶段不需要的 `source_ref.quote`，但保留全部元素 id、requirement 的 id/level/text、类型/报文结构依赖、Target Profile 的角色/语言和测试的 req/gate/build\-variant 元数据；
@@ -1464,7 +1465,7 @@ B2/B3 触发时，旧批次按 6.4.8 末段规则保留为历史证据但立即�
 
 主流程：
 
-1. 先做无副作用的 basic/input/seal gate：核对 `run.json.stages.s4.output_refs`、正式 Plan SHA\-256、config snapshot hash、三项 `input_refs`、Test Bundle 双摘要及 Plan 中不存在 scaffold task。
+1. 先做无副作用的 basic/input/seal gate：核对 `run.json.stages.s4.output_refs`、正式 Plan SHA\-256、config snapshot hash、三项 `input_refs`、Test Bundle 清单摘要及 Plan 中不存在 scaffold task。
 2. 用 6.4.1 的相同纯函数重算 Delivery Constraints/Blueprint；其 canonical hash 必须与 `plan.delivery_blueprint_sha256` 和 S4 seal receipt 一致，否则以 `DELIVERY_BLUEPRINT_DRIFT` 受控失败，不进入 LLM 修复。
 3. 把重算出的 constraints/blueprint 传给 stage full `plan_lint`；只有 full lint 0 error 后才允许第一个 workspace 副作用。
 4. S5 作为 scaffold **唯一生产阶段**，按 blueprint 物化所有目录、构建文件、`s5_frozen` 机械文件和 `s6_owned` 可构建存根。构建文件只消费 Blueprint 已展开的 build artifact/link source set，机械文件只消费对应机械契约白名单中的输入域；协议事实只从 Spec IR 读取，禁止重新决定 Plan 的架构、owner、contract 或以文件名推断链接关系。
@@ -1498,7 +1499,7 @@ S6 admission 分 fresh 与 resume 两条确定性路径，但分支由**持久�
 - **fresh admission**：仅当 `plan_state.json` 不存在、HEAD 恰为 S5 首提交且 workspace clean 时成立；立即按 5.2.4 用 **S4 seal 中的 Plan hash** 初始化。状态初始化发生在检查全局剩余预算、决定是否执行第一个 task **之前**；因此即使预算为零而直接转 S9，也有全 pending 的合法 Plan State。state 缺失但 HEAD 已越过 S5 基线属于工件损坏，禁止猜测。
 - **resume admission**：只要 Plan State 已存在就走此路径。先运行 snapshot lint，再对 Plan State、HEAD、commit trailers、证据和工作树做 reconciliation，而不是先要求 clean。`in_progress` 且没有与当前 task/attempt/evidence/tree 全部匹配的有效 commit 时，恢复该 attempt 的基线快照并清除无有效 commit trailer 引用的孤儿证据；存在完全匹配的合法 task commit 而 state 仍 `in_progress` 时前向补记 `done`；`done` 却缺 commit/证据、trailer 或内容 hash 不符时判工件损坏。reconciliation 完成后才执行 clean gate。
 
-随后两条路径共同运行 `execution_state_lint`：核对 Plan v4/三项 refs、config snapshot hash、S4 seal、Blueprint、S5 各 output ref、Test Bundle `manifest_sha256/bundle_tree_sha256`、git ancestry 与工作区清洁状态。错位属于输入工件错误，不进入代码修复循环。S6 在每次 resume、每个任务 commit 前后与阶段出口复核封存 Plan/config hash；任何变化均以 `PLAN_MUTATED_AFTER_SEAL` 受控失败。
+随后两条路径共同运行 `execution_state_lint`：核对 Plan v4/三项 refs、config snapshot hash、S4 seal、Blueprint、S5 各 output ref、Test Bundle `manifest_sha256`、git ancestry 与工作区清洁状态。错位属于输入工件错误，不进入代码修复循环。S6 在每次 resume、每个任务 commit 前后与阶段出口复核封存 Plan/config hash；任何变化均以 `PLAN_MUTATED_AFTER_SEAL` 受控失败。
 
 #### 6\.6.1 单任务循环
 
@@ -1561,7 +1562,7 @@ Coder 输出 JSON：`{"micro_plan": ["..."], "files": [{"path": "...", "content"
 
 ### 6\.7 S7 集成与一致性测试
 
-本节的执行框架在 M2 实现。Test Bundle 的 `reference/workspace` 双目标路由、公共 fixture 与 workspace adapter 插槽已由 5.3 第一阶段冻结；生成物的外部 CLI、服务进程和构建入口如何声明并绑定到 workspace adapter，必须先由 M2\-0 裁决并同步修订 5.2、5.3、5.6、6.5～6.7 与第 7 章。裁决前不得自行添加外部契约字段，选择 workspace 目标必须按 5.3 以 `WORKSPACE_ADAPTER_UNBOUND` 失败。
+本节的执行框架和具体测试资产均在 M2 实现。M2\-0 必须先裁决测试资产布局、runner、reference/workspace 路由、生成物的外部 CLI、服务进程和构建入口及其完整性绑定，并同步修订 5.2、5.3、5.6、6.5～6.7 与第 7 章；M2\-1 随后由智能体按冻结清单生成并验证测试资产。裁决与生成完成前不得启动 S7。
 
 | 项        | 内容                                                         |
 | --------- | ------------------------------------------------------------ |
@@ -1573,10 +1574,10 @@ Coder 输出 JSON：`{"micro_plan": ["..."], "files": [{"path": "...", "content"
 
 主流程：
 
-1. 先做工件完整性 gate：Plan SHA\-256 与 S4 seal/Plan State 一致，config snapshot hash 与 S4 seal 一致；Test Bundle `manifest_sha256/bundle_tree_sha256` 与冻结描述一致；Blueprint 与 Plan 一致；artifact manifest、internal contract map 及 workspace 首提交与 S5 output receipt 一致；Plan State 与首次 S7 的 workspace HEAD 匹配 S6 receipt，且其 evidence refs 的内容哈希有效。由 S8 回调时，当前 HEAD 必须是 S6 基线加已登记 repair commit 的合法后代。工作区必须干净；工件错误不得伪装成测试失败。
-2. Test Bundle runner 按系统内置语言规则的构建变体构建；默认组合仍执行 `make` 与 `make SAN=1`。控制器必须以 `--target=workspace --workspace=<本次 run 的 workspace 根目录>` 调用 runner；workspace adapter 的公开入口绑定严格使用 M2\-0 已批准的机制，未完成绑定不得启动 S7。
-3. Test Bundle 经 workspace adapter 按自身层级与 oracle 执行**全部启用测试**，不按 task acceptance 或最早 gate 裁剪；默认 MQTT Bundle 仍依序运行 L0 → L1 → L2 → L3。reference adapter 只用于 M0 的测试自验证及显式参考对照，不得成为 S7 的受测目标；`gate` 只控制 S5/S6 的最早增量快验点。
-4. 由调用者决定 Test Summary v2 的 trigger：正常进入 S7 时为 `s7_full`，S8 发起的全量回归为 `s8_regression`；摘要包含逐用例结果、按 REQ 聚合矩阵及 Plan/Blueprint/Test Bundle 双摘要。
+1. 先做工件完整性 gate：Plan SHA\-256 与 S4 seal/Plan State 一致，config snapshot hash 与 S4 seal 一致；Test Bundle `manifest_sha256` 与冻结清单一致，M2 生成测试资产的树哈希与 M2\-0 定义的描述工件一致；Blueprint 与 Plan 一致；artifact manifest、internal contract map 及 workspace 首提交与 S5 output receipt 一致；Plan State 与首次 S7 的 workspace HEAD 匹配 S6 receipt，且其 evidence refs 的内容哈希有效。由 S8 回调时，当前 HEAD 必须是 S6 基线加已登记 repair commit 的合法后代。工作区必须干净；工件错误不得伪装成测试失败。
+2. Test Bundle runner 按 M2\-0 批准的接口及系统内置语言规则的构建变体构建和启动 workspace 目标；默认组合仍执行 `make` 与 `make SAN=1`。未完成 M2\-0 设计、测试生成、一致性检查和参考实现验证不得启动 S7。
+3. Test Bundle 按自身层级与 oracle 执行**全部启用测试**，不按 task acceptance 或最早 gate 裁剪；默认 MQTT Bundle 仍依序运行 L0 → L1 → L2 → L3。参考目标只用于 M2 的测试自验证及显式参考对照，不得成为 S7 的受测目标；`gate` 只控制 M2 启用增量测试后的最早快验点。
+4. 由调用者决定 Test Summary v2 的 trigger：正常进入 S7 时为 `s7_full`，S8 发起的全量回归为 `s8_regression`；摘要包含逐用例结果、按 REQ 聚合矩阵及 Plan/Blueprint/Test Bundle 摘要（M2 起含测试资产树哈希）。
 5. 按 5.4 把 round 原子登记到 `test_results/index.json`。正常 S7 在 `stages.s7.output_refs` 封存该 accepted round；若不进入 S8，它同时是 terminal round。进入 S8 后，最终 terminal round 改由 S8 receipt 指定，S9 不按目录编号猜测。
 
 S7 只向 S6/S8 暴露用例 id、REQ、状态及经清洗的失败证据句柄；测试输入、期望值和 oracle 源码不得进入任何 LLM 上下文。
@@ -1670,7 +1671,7 @@ workspace/
     └── mqtt_server_main.c    # server 可执行入口
 ```
 
-注意：测试不在 workspace 内——gold 测试集在 NePA 仓库侧（5.3）。其访问 server 的公开边界由 M2\-0 裁决。
+注意：M0/M1 没有具体协议测试资产。M2 生成的测试不得写入受测 workspace；其存放位置及访问 server 的公开边界由 M2\-0 裁决。
 
 ### 7\.3 代码规范约束
 
@@ -1722,7 +1723,7 @@ workspace/
 
 系统内置 C99 规则使用 `make`（release：`-std=c99 -Wall -Wextra -Werror -O0 -g`）与 `make SAN=1`（另加 `-fsanitize=address,undefined`）；内部目标为 `all` / `clean`，产物落在 `build/`。零警告是硬性要求（`-Werror`）。这些值是生成后端和 M1 可构建验收的一部分，不等同于 Test Bundle 已获授权的外部构建入口。
 
-Test Bundle runner 的 `--target={reference,workspace}`、`--workspace <path>`、公共 fixture 与两个 adapter 插槽已经按 5.3 冻结，不属于 M2\-0 的待裁决范围。以下内容留待 M2\-0 决定：workspace adapter 如何表达构建入口、如何定位并启动和停止 server、如何发现就绪状态、L1 是否需要独立 codec 测试适配器，以及这些公开边界如何映射到 Blueprint/生成物。M2\-0 必须先更新本文档与相关 Schema，再允许实现 S7；不得沿用历史 CLI 约定或由实现者自行补齐。裁决前 workspace adapter 只能以 `WORKSPACE_ADAPTER_UNBOUND` 明确失败。
+Test Bundle 的具体测试资产、runner 接口、公共 fixture、reference/workspace 目标路由与 adapter 均留待 M2\-0 设计。M2\-0 还必须决定 workspace adapter 如何表达构建入口、如何定位并启动和停止 server、如何发现就绪状态、L1 是否需要独立 codec 测试适配器，以及这些公开边界如何映射到 Blueprint/生成物。M2\-0 必须先更新本文档与相关 Schema，再允许智能体生成测试代码和实现 S7；不得沿用历史约定或由实现者自行补齐。
 
 ## 8\. NePA 工程实现
 
@@ -1764,7 +1765,7 @@ nepa/
 │   ├── specIR.json
 │   ├── target.json
 │   └── test_bundle.json
-├── protocol_docs/
+├── protocol_document/
 │   └── mqtt-v3.1.1-os.pdf     # 规范源文档（doc-run 输入，12.3）
 ├── configs/
 │   ├── default.yaml
@@ -1897,15 +1898,15 @@ sandbox.exec(cmd: list[str], cwd: str, timeout_s: int,
 ```text
 nepa run --spec gold_file/specIR.json [--config configs/default.yaml]   # spec-run
 nepa run --spec ... --until s6             # M1 正常验收终点：planned_stop，不运行 S7/S9
-nepa run --doc protocol_docs/mqtt-v3.1.1-os.pdf --scope configs/scope-mqtt-min.yaml   # doc-run
+nepa run --doc protocol_document/mqtt-v3.1.1-os.pdf --scope configs/scope-mqtt-min.yaml   # doc-run
 nepa run --doc ... --until s3            # 半程运行：跑到指定阶段后停（M3 验收用）
 nepa resume <run_id>                     # 断点续跑（4.8）
 nepa status <run_id>                     # 进度、预算消耗、当前阶段
 nepa lint spec <path>                    # Spec 结构与引用校验（5.1.6 规则 1~3、5）
 nepa lint spec <path> --gold --manifest <path>   # 追加 5.1.6 规则 4 的 gold MUST 覆盖检查
 nepa lint target <path> [--spec <path>]          # 5.6.5 双字段 Schema 与角色/语言门
-nepa test-manifest <bundle-dir>          # 从 marker 生成 gold_file/test_bundle.json（5.3.2）
-nepa test-manifest <bundle-dir> --check  # 漂移检查；进 CI
+nepa lint test-bundle <path> [--spec <path>]     # M0：Schema、引用、覆盖与 canonical 检查
+nepa test-manifest <bundle-dir> --check --manifest <path>  # M2：生成测试与冻结清单的一致性检查
 nepa lint plan <path> --spec <path> --manifest <path> --run-meta <run.json>   # Plan basic lint
 nepa lint plan <path> --run-dir <run_id-or-path>          # 重算 blueprint 的 stage full lint
 nepa lint plan-state <state> --plan <plan> --run-meta <run.json>  # snapshot lint
@@ -2091,7 +2092,7 @@ S4 额外规则：生产 `layered` 角色禁止任何单个 prompt 同时要求�
 | ---- | ------------------ | ---------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------- |
 | V\-1 | 模型先验污染       | 模型记忆中的 MQTT 知识冒充提取/生成能力                    | "宁缺勿造"提示词规则（6.2）\+ `source_ref_validity` \+ A7 探针 \+ M6 低知名度协议 | 先验与 spec 一致时无法区分   |
 | V\-2 | 应试拟合           | 生成代码针对具体测试输入特判                               | 测试实现对所有 LLM 角色不可见（6.4、6.6.2）；harness 对端口、client\_id、topic、payload 做参数随机化；A7 变异 | M2 公开测试边界暴露的信息面  |
-| V\-3 | gold 测试自身错误  | 测试错则一切指标失真（P1 的根基）                          | 冻结前对参考实现 100% 通过 \+ 20 次连续全绿的 flaky 审计（10.1） | 参考实现自身的偏离           |
+| V\-3 | 生成测试自身错误  | 测试错则一切指标失真（P1 的根基）                          | M2 生成后对参考实现 100% 通过 \+ 20 次连续全绿的 flaky 审计（10.3） | 参考实现自身的偏离           |
 | V\-4 | 环境与版本漂移     | 模型静默升级、镜像变化导致不可比                           | 模型版本字符串与镜像 digest 记录并强制同实验一致（9.2）      | provider 不透明的同名改版    |
 | V\-5 | 评估器自身 bug     | evalx 算错数                                               | evalx 单测（含手工核算的黄金用例）\+ 报告交叉自检（6.9）     | —                            |
 | V\-6 | 系统过拟合单协议   | 架构与提示词隐性绑定 MQTT                                  | Spec IR 协议无关设计（5.1.2）；M6a 架构探针；泛化改造清单（D6a.3/D6b.3） | v1 阶段无法完全消除          |
@@ -2121,21 +2122,21 @@ flowchart LR
 
 ### 10\.1 M0：gold 资产与校验工具
 
-**入口条件**：0.3 速览表的默认决策无未决异议。
+**入口条件**：0.3 速览表的默认决策无未决异议，且开工前只要求 `gold_file/specIR.json`、`gold_file/target.json`、`gold_file/test_bundle.json` 三份前置规格文件存在。Schema、校验器、scope 配置、沙箱镜像、签字和哈希冻结记录均是 M0 的交付物，不是 M0 开工前置资产。
 
-**内部顺序约束**：M0 先冻结 scope、Target Profile 与 gold Spec，再生成 Test Manifest。Test Manifest 的构建变体只能引用第 7 章系统内置 C99 规则公开的 id；M0 按 5.3 冻结 Test Bundle 的双目标 runner、公共 fixture 和未绑定的 workspace adapter 插槽，但外部测试契约仍不属于 M0，禁止为提前联调而私自增加字段。
+**内部顺序约束**：M0 先实现 Schema 与校验器，再校验三份 gold 输入、仅 canonical 化 `test_bundle.json`，最后冻结三份文件，同时产出 scope、沙箱和签字/哈希记录。Test Manifest 的构建变体只能引用第 7 章系统内置 C99 规则公开的 id；M0/M1 不生成或执行具体协议测试，禁止为提前联调而私自增加 runner、oracle、adapter 或公开测试契约。
 
 **工作分解**：
 
 | id    | 工作项                                                       | 产出                                        | 依赖         | 详见          |
 | ----- | ------------------------------------------------------------ | ------------------------------------------- | ------------ | ------------- |
 | M0\-1 | Schema 转写：把第 5 章的工件结构定义（5.1、5.2、5.4、5.6）转为 JSON Schema（spec、segments、run、spec\_review、merge\_decisions、summary、repair\_log、report、tests\_manifest、target\_profile） | `nepa/schemas/*.json` \+ 每个 schema 一份最小合法示例 | —            | 5、5\.6.5     |
-| M0\-2 | 范围冻结：7.1 基线经负责人确认后写入独立 scope 配置          | 冻结记录（日期 \+ 确认人）                  | —            | 7\.1          |
+| M0\-2 | 范围冻结：7.1 基线经负责人确认后写入独立 scope 配置          | `configs/scope-mqtt-min.yaml` \+ 冻结记录（日期、确认人） | — | 7\.1 |
 | M0\-3 | gold 规格编写：覆盖 7.1 全部纳入项的 `gold_file/specIR.json`；每条 REQ 的 `source_ref` 指向 OASIS 标准章节与原文关键句 | gold spec                                   | M0\-1/2      | 5\.1          |
 | M0\-3a | **默认 Target Profile**：按 5.6.5 编写只含 `roles=["server"]` 与 C99 `language` 对象的文件，不含任何其他字段；历史双角色 Target 不再作为运行资产发布 | `gold_file/target.json`       | M0\-1/2/3    | 4\.2、5\.6.5、7 |
 | M0\-4 | 校验工具：`spec_lint`（5.1.6）、Target Profile 双字段及语言/角色支持校验、`nepa lint` CLI 入口及单测（每类检查至少一正一反用例；必须含仅保留双字段的 `roles=["client","server"]` 输入被 `TARGET_ROLE_UNSUPPORTED` 拒绝）。`plan_lint` 与 Blueprint 闭合门属 M1\-4b，不在 M0 范围 | `nepa/speclib/lint.py` \+ `nepa lint` 命令 \+ 测试 | M0\-1        | 5\.1.6、5\.6.5 |
-| M0\-5 | gold Test Bundle：harness \+ L0/L1/L2 用例，全部按 5.3.1 注册并标注 req/gate/variants marker；`nepa test-manifest` 收集脚本及其 `--check` 漂移模式；`build_variant_ids` 只引用第 7 章内置 C99 变体；真实协议验证所需常量从 gold spec 读取，并实现 5.3 规则 5 的参数随机化；按 5.3 实现 `reference/workspace` 双目标 runner、公共 fixture、完整 reference adapter 与未绑定的 workspace adapter 插槽，workspace 目标在 M2\-0 前以 `WORKSPACE_ADAPTER_UNBOUND` 失败；A7 合成变异另用独立 oracle | `gold_file/test_bundle.json` | M0\-2/3/3a   | 5\.3、9\.3    |
-| M0\-6 | 参考实现验证：gold 测试集对 mosquitto \+ paho 跑通，并做 flaky 审计 | 验证记录（20 轮日志）                       | M0\-5        | 5\.3、9\.4    |
+| M0\-5 | Test Bundle 前置规格处理：为 `gold_file/test_bundle.json` 实现 Schema、canonical JSON 格式化、REQ/nodeid/gate/layer/build variant 校验及 gold MUST/MUST NOT 覆盖检查；不生成或收集具体测试代码 | canonical `gold_file/test_bundle.json` \+ 校验报告 | M0\-1/3/3a   | 5\.1.6、5\.3 |
+| M0\-6 | 三份 gold 输入冻结：记录原始字节哈希、负责人签字与默认输入组合冻结记录 | 冻结记录（日期、确认人、三份 SHA\-256） | M0\-3/3a/5 | 4\.2、5\.6 |
 | M0\-7 | 沙箱镜像：`docker/sandbox.Dockerfile` 构建并记录 digest；必须提供内置 C99 规则要求的 gcc、make 与 sanitizer runtime | 镜像 \+ digest                              | M0\-3a       | 8\.5、5\.6.5 |
 
 **DoD**：
@@ -2143,13 +2144,12 @@ flowchart LR
 | id    | 标准                                                         | 判定方式                                        |
 | ----- | ------------------------------------------------------------ | ----------------------------------------------- |
 | D0.1  | gold 规格通过校验：0 error                                   | `nepa lint spec gold_file/specIR.json` |
-| D0.2  | gold 测试对参考实现 100% 通过（L2 经 reference 适配层、L1 经 paho 交叉验证——5.3 规则 3），连续 20 轮无一次波动 | 沙箱内脚本化执行，日志存档                      |
+| D0.2  | `gold_file/test_bundle.json` 通过 Schema、引用、覆盖和构建变体校验，且字节为项目 canonical JSON（无缩进、无尾随换行） | `nepa lint` \+ 逐字节 canonical 检查 |
 | D0.3  | 每条 MUST/MUST NOT 需求都被 Test Bundle manifest 中 `gate ∈ {task, s7_only}` 用例的 `req_ids` 覆盖（5.1.6 规则 4） | `nepa lint spec <spec> --gold --manifest gold_file/test_bundle.json` |
 | D0.3a | Target Profile 恰含 `roles` 与 `language`，默认值为 server/C99，角色既属于 gold Spec 又被 C99 规则支持；含 client 的双角色 Target 必须以 `TARGET_ROLE_UNSUPPORTED` 失败；Test Manifest 构建变体均属于内置 C99 规则 | `nepa lint target <path> --spec <gold-spec>` 正反用例 \+ manifest lint |
 | D0.4  | 全部 schema 文件与其示例互相校验通过                         | 本地校验脚本（M1\-8 起入 CI）                   |
 | D0.5  | M0 功能子集冻结                                              | 负责人签字                                      |
-| D0.6  | 默认输入组合冻结：Target Profile 原始字节哈希记录在案，确认其不含后端、模板或交付字段 | 负责人签字 \+ 双字段检查脚本                    |
-| D0.7  | Test Bundle 保留 `reference/workspace` 两个 target 与 `--workspace`；同一套测试只依赖公共 fixture；reference 目标满足 D0.2，workspace 目标在未绑定期稳定报 `WORKSPACE_ADAPTER_UNBOUND`，且无 skip、回退或硬编码生成物路径 | runner/fixture 正反测试 \+ 收集检查 |
+| D0.6  | 默认输入组合冻结：三份 gold 文件的原始字节哈希记录在案，Target Profile 不含后端、模板或交付字段 | 负责人签字 \+ 三文件哈希 \+ 双字段检查脚本 |
 
 ### 10\.2 M1：人工规格 → 可构建项目
 
@@ -2164,13 +2164,13 @@ flowchart LR
 | M1\-1 | 运行框架：Run v3、config、run\_store（原子写）、orchestrator（阶段状态机、预算、resume），以及 S4～S6 预算/流程错误受控早退所需的最小 S9 core/Report v2 部分报告 | 4\.7、4\.8、5\.4、5\.6.2、8\.2、8\.3 |
 | M1\-2 | LLM 层：两个 provider、结构化输出统一策略、重试限流、缓存、采样参数 capability probe/能力状态记账、telemetry/trace | 8\.4、5\.5         |
 | M1\-3 | Agent 框架：调用器；ArchitecturePlanner / TaskPlanner / PlanCritic、A9 专用 FlatPlanBaseline 与编码/修复角色的注册、Schema 和协议中立提示词 | 4\.5、8\.8 |
-| M1\-4a | 规划输入与架构校准：三输入冻结、Test Bundle 双摘要、Test Manifest 的 S4 元数据、planning index、Delivery Constraints、ArchitectureDraft Schema/prompt、生产 `ARCH_VALIDATE`；按 6.4.8 完成校准批次，并按 6.4.8.1 由负责人裁决分支、冻结 prompt/Schema/validator、架构修复默认值及全局重规划暂定上限 | 4\.2、4\.7、5\.3、5\.6.5、6\.4.1、6\.4.3、6\.4.4、6\.4.8、8\.4、8\.8 |
+| M1\-4a | 规划输入与架构校准：三输入冻结、Test Bundle 清单摘要、Test Manifest 的 S4 元数据、planning index、Delivery Constraints、ArchitectureDraft Schema/prompt、生产 `ARCH_VALIDATE`；按 6.4.8 完成校准批次，并按 6.4.8.1 由负责人裁决分支、冻结 prompt/Schema/validator、架构修复默认值及全局重规划暂定上限 | 4\.2、4\.7、5\.3、5\.6.5、6\.4.1、6\.4.3、6\.4.4、6\.4.8、8\.4、8\.8 |
 | M1\-4b | 确定性编译资产：系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message` 文件展开、角色支持门、Plan/Plan State Schema、Delivery Constraints/Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
 | M1\-4c | 完整 S4 控制器：layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、原子 seal 与正式发布；**必须**在 M1\-4a 签字后开工，消费其冻结决策（含 6.4.8.1 采纳的 ARCHITECT 调用形态）并复用 M1\-4b 的确定性实现 | 4\.8、6\.4.2、6\.4.4～6\.4.8 |
 | M1\-5 | S5 实现：内置可表达 server 扇出的 session/net 布局与机械模板；重算 Blueprint、独占脚手架、机械派生、双轴工件所有权、内部契约映射、默认构建、首提交与 output receipt | 5\.6、6\.5、7\.2、7\.3 |
 | M1\-6 | S6 实现：Plan State admission 初始化/迁移 API、单任务 micro\-plan/编码循环、白名单、task evidence/commit trailers、commit/state reconciliation、S6 receipt 与升级路径 | 5\.2、5\.4、6\.6 |
 | M1\-7 | CLI：`run --spec [--until s6]` / `resume` / `status` / `lint`；`--until s6` 写 `planned_stop` 且不进入 S7/S9 | 4\.7、5\.6.2、8\.7 |
-| M1\-8 | NePA 自身单测与 CI（ruff \+ mypy \+ pytest \+ schema 示例校验 \+ gold lint \+ target lint \+ `test-manifest --check` 漂移门 \+ 通用 prompt 协议中立 lint） | 8\.1、8\.8、10\.8 |
+| M1\-8 | NePA 自身单测与 CI（ruff \+ mypy \+ pytest \+ schema 示例校验 \+ gold lint \+ target lint \+ Test Bundle canonical/Schema/引用检查 \+ 通用 prompt 协议中立 lint） | 8\.1、8\.8、10\.8 |
 
 **DoD**（D1.0 的判定对象是 6.4.8 的隔离架构校准批次；D1.1～D1.11 的判定对象均为 gold 规格上的正式 spec\-run）：
 
@@ -2197,8 +2197,8 @@ flowchart LR
 
 | id    | 工作项                                                       | 详见         |
 | ----- | ------------------------------------------------------------ | ------------ |
-| M2\-0 | 完成两阶段绑定的第二阶段：保持 M0 冻结的双目标 runner、公共 fixture 与用例不变，裁决 workspace adapter 的外部 CLI、server 服务进程、测试所用构建入口的字段归属、Schema、可执行文件定位、启动参数、就绪/停止/退出语义及其与 Blueprint/生成物的映射；批准后先更新本文档、Schema 和修订记录，再实现 adapter 并解除 `WORKSPACE_ADAPTER_UNBOUND` | 5\.2、5\.3、5\.6、6\.5～6\.7、7\.4 |
-| M2\-1 | S7 实现：双构建、L0～L2 分层执行、junit \+ Test Summary \+ REQ 通过矩阵、accepted terminal round receipt | 6\.7、5\.4 |
+| M2\-0 | Test Bundle 实现设计：裁决生成测试资产的目录与描述工件、完整性哈希、runner、reference/workspace 路由、公共 fixture、oracle、adapter、外部 CLI/server/构建入口、启动/就绪/停止/退出语义及其与 Blueprint/生成物的映射；批准后先更新本文档、Schema 和修订记录 | 5\.2、5\.3、5\.6、6\.5～6\.7、7\.4 |
+| M2\-1 | 由智能体按冻结 `test_bundle.json` 生成 L0～L2 测试、runner、oracle、marker 注册及 reference/workspace adapter；完成逐项清单一致性检查、参考实现 100% 通过和 20 轮 flaky 审计；随后实现 S7 的双构建、分层执行、junit、Test Summary、REQ 通过矩阵与 accepted terminal round receipt | 5\.3、5\.4、6\.7 |
 | M2\-2 | 失败聚类与嫌疑文件定位启发式                                 | 6\.8         |
 | M2\-3 | S8 单簇轮次：确定性选簇 → 诊断 → 修复 → 快验；快验通过后至多一 commit/全量回归，并含收敛回滚与 T1 升级 | 6\.8 |
 | M2\-4 | Repair Log（含 rejected quick-test）、immutable repair evidence、commit/log reconciliation 与 S8 receipt | 5\.4、6\.8 |
@@ -2210,7 +2210,7 @@ flowchart LR
 
 | id    | 标准                                                         | 判定方式                       |
 | ----- | ------------------------------------------------------------ | ------------------------------ |
-| D2.0  | M2\-0 的 workspace adapter 绑定方案经负责人批准，本文档、Schema、Test Bundle/Blueprint 映射规则与迁移说明同步完成；S7 能以 `--target=workspace --workspace=<run workspace>` 启动并测试生成物，同一套用例与公共 fixture 未分叉，且 Target Profile 仍严格只有两个字段 | 裁决记录 \+ 文档/Schema diff \+ adapter 集成测试 |
+| D2.0  | M2\-0 设计经负责人批准并同步本文档/Schema；智能体生成的测试与冻结清单逐项一致，适用用例对参考实现 100% 通过且连续 20 轮无波动；S7 能按批准的 workspace 绑定测试生成物，且 Target Profile 仍严格只有两个字段 | 裁决记录 \+ 文档/Schema diff \+ `test-manifest --check` \+ 参考验证日志 \+ adapter 集成测试 |
 | D2.1  | spec\-run N \= 5 中 ≥ 4 次 `outcome = success`，且 `internal_error_count = 0`（9.1.2/9.2；默认，可推翻） | `nepa eval runs` |
 | D2.2  | 故障注入修复演示：向全绿 workspace 分别注入 3 类预设缺陷（codec 字节序错误、状态机缺转移、长度检查缺失），S7\+S8 在预算内修复至全绿 ≥ 2/3 | 注入脚本 \+ 运行记录           |
 | D2.3  | 受控失败演示：构造不可收敛场景，验证按 4.7/6.8 规则回滚、以 degraded（退出码 10）结束、无死循环 | 脚本化测试                     |
@@ -2236,7 +2236,7 @@ flowchart LR
 | M3\-7 | doc\-run CLI 集成：`run --doc --scope [--until]` 与 `planned_stop` | 8\.7、5\.6.2 |
 | M3\-8 | `nepa eval spec` CLI                                         | 8\.7       |
 
-**DoD**（判定对象：`protocol_docs/mqtt-v3.1.1-os.pdf` \+ `scope-mqtt-min` 的 doc\-run 前半程（`--until s3`，8.7），N \= 3 取 median；阈值均为默认可推翻）：
+**DoD**（判定对象：`protocol_document/mqtt-v3.1.1-os.pdf` \+ `scope-mqtt-min` 的 doc\-run 前半程（`--until s3`，8.7），N \= 3 取 median；阈值均为默认可推翻）：
 
 | id    | 标准                                                        | 判定方式          |
 | ----- | ----------------------------------------------------------- | ----------------- |
@@ -2275,7 +2275,7 @@ flowchart LR
 
 | id | 工作项 | 出口 |
 | --- | --- | --- |
-| M5\-0a | M5\-prep 输入：按 M5a/M5b 扩展并冻结 gold Spec、scope 与 Test Bundle；先做 Spec IR 表达力评审，缺口按 O\-2/O\-5 走 Schema 修订；参考实现验证沿用 D0.2 | 完整预备输入重新满足 D0.1～D0.3 |
+| M5\-0a | M5\-prep 输入：按 M5a/M5b 扩展并冻结 gold Spec、scope 与 Test Bundle；先做 Spec IR 表达力评审，缺口按 O\-2/O\-5 走 Schema 修订；具体测试生成后的参考实现验证沿用 D2.0 | 完整预备输入重新满足 D0.1～D0.3，并在 M2 测试生成后满足 D2.0 |
 | M5\-0b | M5\-prep 规模资格：实现 `nepa preflight scale` 与 `scale_gate` Schema；对冻结输入的 ArchitecturePlanner planning index、S2 Reduce、S3 评审及工作包切片做 token 压力测试 | `preflight/scale_gate.json` |
 | M5\-0c | 若任一 gate 失败，先实现 planning unit→architecture merge、SpecMerger 分批合并与 S3 分区评审，并以确定性控制器做归并/覆盖校验；重复 M5\-0b | scale gate 全绿 |
 | M5\-1 | 正式执行 M5a/M5b spec/doc pipeline runs 与评估；**禁止**在 M5 临时切换规划策略 | D5.2 运行证据 |
@@ -2300,7 +2300,7 @@ flowchart LR
 
 **入口条件**：M5 DoD 通过。
 
-**第二协议选型标准**（决策记录为 O\-1）：(a) 应用层；(b) 规范公开、章节化、含 MUST 级规范语言；(c) 有可用的开源参考实现充当 D0.2 对照；(d) 与 MQTT 至少一项结构性差异（UDP 承载 / 文本编码 / 不同状态机形态），否则不构成泛化证据；(e) 模型先验知名度低者优先（V\-1）。候选：CoAP（RFC 7252，UDP \+ 二进制，差异度好）、Modbus/TCP（结构简单，可快速验证）；文本协议（如 SMTP 子集）对 Spec IR 表达力挑战最大，见 O\-5。
+**第二协议选型标准**（决策记录为 O\-1）：(a) 应用层；(b) 规范公开、章节化、含 MUST 级规范语言；(c) 有可用的开源参考实现充当 D2.0 对照；(d) 与 MQTT 至少一项结构性差异（UDP 承载 / 文本编码 / 不同状态机形态），否则不构成泛化证据；(e) 模型先验知名度低者优先（V\-1）。候选：CoAP（RFC 7252，UDP \+ 二进制，差异度好）、Modbus/TCP（结构简单，可快速验证）；文本协议（如 SMTP 子集）对 Spec IR 表达力挑战最大，见 O\-5。
 
 **工作分解**：在 M6a 边界内扩展新协议 gold 规格、极简 Target Profile 与 Test Bundle；若发现 Spec IR 表达力缺口，按 Schema 修订流程处理，不得以 core 协议分支绕过；随后执行 spec\-run 与 doc\-run 实验。
 
@@ -2308,8 +2308,8 @@ flowchart LR
 
 ### 10\.8 横切纪律（贯穿所有里程碑）
 
-1. **文档同步**：实现与本文档冲突时先改文档再改码（0.1 规则 1/2）；
-2. **CI 常绿**：ruff、mypy、pytest、schema 示例校验、gold lint、target lint、`nepa test-manifest --check` 每提交必跑；
+1. **文档权威**：实现与本文档冲突时以本文档为准；若发现严重设计 bug 或实质歧义，必须停止实现、报告影响并取得负责人对文档变更的明确授权，获准后先改文档再改代码（0.1 规则 1/2）；
+2. **CI 常绿**：ruff、mypy、pytest、schema 示例校验、gold lint、target lint 每提交必跑；M2 生成具体测试资产后，再将 `nepa test-manifest --check` 加入每提交门；
 3. **实验登记**：所有正式实验按 9.2 规范执行并存档配置快照，实验结果只认 `nepa eval` 输出；
 4. **实现简报**：开工任一跨三节以上的工作项（当前为 M1\-4a～M1\-6）前，**必须**先从本文档派生一份该模块的实现简报，只含四项内容：输入工件与其 Schema 引用、输出工件与其验收命令、需要实现的函数/类签名清单、该模块引用的全部章节号。简报是本文档的**派生物**而非补充：与本文档冲突时以本文档为准，**禁止**在简报中新增设计决定。这是 P4（上下文按需定向注入）对本文档自身的应用——实现 S6 需同时持有 5.2、5.4、6.6、4.7、4.8 五处交叉引用，直接全文注入会重演 P4 要避免的问题。
 
@@ -2324,7 +2324,7 @@ flowchart LR
 | R\-1  | **模型先验污染**：模型背过 MQTT，提取/生成看似正确实为背诵，M3/M6 结论失去效度 | 研究效度      | 高   | "宁缺勿造"规则（6.2）、`source_ref_validity`（9.1.3）、A7 变异探针（9.3）、M6 选低知名度协议 | A7 变异遵循率 < 90%                                        |
 | R\-2  | **Spec IR 表达力不足**：二进制复合项或文本协议线语法无法用当前直接事实结构表达 | M5/M6         | 中   | Spec IR 提供 `sequence/repeat`；需求保留原子原文；只有出现可直接引用的反例才扩展 Schema | wire fact 被迫退化为自然语言，或同类缺口在两个协议出现     |
 | R\-3  | **弱模型输出不稳**：T2/T3 结构化输出失败率高，预算被格式修复吃掉 | 成本/成功率   | 中   | P8 统一校验\+修复重试（8.4）、完整文件输出契约（6.6.3）、白名单拒绝（6.6.1）、升级路径（4.6） | `validation_repair_rate` 单角色 > 10%（9.1.5）             |
-| R\-4  | **gold 测试自身缺陷**：测试错误或 flaky，则 P1 根基失效，修复循环被假失败驱动 | 全局          | 高   | 参考实现 100% 闸门 \+ 20 轮 flaky 审计（D0.2）、L2 超时留余量 | S8 中同一测试对参考实现也失败                              |
+| R\-4  | **生成测试自身缺陷**：测试错误或 flaky，则 P1 根基失效，修复循环被假失败驱动 | M2 以后 | 高 | 参考实现 100% 闸门 \+ 20 轮 flaky 审计（D2.0）、L2 超时留余量 | S8 中同一测试对参考实现也失败 |
 | R\-5  | **PDF 抽取质量**：MQTT 标准大量表格与多栏排版，平铺后线序/位序信息丢失 | M3            | 高   | `has_table` 标注（6.1）、字符覆盖率闸门 ≥ 95%、S3 评审拦截、D3.3 报文零漏检 | 含表格分片的元素 recall 显著低于纯文本分片                 |
 | R\-6  | **环境与模型漂移**：provider 静默改版、镜像变化导致实验不可比、不可复现 | 研究效度      | 中   | 模型版本字符串与镜像 digest 强制记录并同实验一致（9.2）      | `eval runs` 中同配置方差突增                               |
 | R\-7  | **成本失控**：S4 调用数随工作包增长，或修复/提取重试消耗超预期 | 预算          | 中   | S4 分层子预算、三重预算硬顶与受控失败（4.7）、缓存（8.4）、按角色/phase 成本记账（5.5） | 单 run 成本超过配置上限的 80%，或 S4 调用数偏离工作包数线性上界 |
@@ -2354,7 +2354,7 @@ flowchart LR
 | O\-14 | TLS/安全层的演进路径                                         | 2.4 排除 TLS，但 transport 模型无安全层槽位、7.3 禁第三方库使 TLS 事实上不可实现；强依赖 TLS 的现代协议将无法承接 | transport 增加可选 `security` 槽位（minor 演进）；生成侧例外允许链接系统 TLS 库（需推翻 7.3 的裁决） | M6 后按需      |
 | O\-15 | **无 gold 测试集协议的验证闭环（长期目标关键路线）**         | Spec IR 有带证据的原子需求和线格式事实，但刻意不含测试步骤；厂商私有协议仍缺独立 oracle | 另设测试设计 Agent 从 Spec IR 生成候选 Test Bundle，再由独立路径审批；不得把测试决策塞回 Spec IR | M4 后立项评估  |
 | O\-16 | 大规格下的全局输入分区与 S2/S3 分批归并                      | 架构→工作包展开只解决 S4 的详细输出规模；ArchitecturePlanner 的 planning index、S2 Reduce 与 S3 整本评审在完整 MQTT5/HTTP 量级仍可能超过上下文，而静默裁剪会漏规范性需求 | 先以 token preflight 在超限时受控失败（4\.7）；进入完整协议规模前由 scale gate 判定：可容纳则直接运行，否则先交付确定性分区与归并方案（10\.6） | 完整协议规模的 pipeline 前 |
-| O\-17 | workspace adapter 的具体公开测试契约                         | 两阶段方案的目标路由、公共 fixture 与 adapter 插槽已冻结；Target Profile 不承载 external contracts，但 CLI、server 进程、构建入口的字段归属与 Blueprint 映射仍待裁决 | 在 M2\-0 比较“Test Bundle 自描述”与“独立测试接口工件”后由负责人裁决；裁决前禁止实现外部契约字段，workspace 目标按 5.3 明确失败 | M2\-1 开工前 |
+| O\-17 | M2 生成测试资产及公开测试契约                                | M0/M1 只有 Test Bundle 前置清单；测试目录、runner、oracle、reference/workspace 路由、adapter、CLI、server 进程、构建入口与 Blueprint 映射均未设计 | M2\-0 统一裁决生成资产与公开边界，更新本文档和 Schema 后才允许 M2\-1 生成测试与实现 S7 | M2\-1 开工前 |
 
 ### 11\.3 决策与变更流程
 
@@ -2371,13 +2371,13 @@ flowchart LR
 | Spec IR               | 规格中间表示：以 `specs-requirements.schema.json` 保存可直接提取的协议事实与原子需求 | 5\.1       |
 | Target Profile         | 只含目标协议角色数组与实现语言/版本的用户输入文件            | 4\.2、5\.6.5 |
 | 系统内置应用层生成规则 | NePA 固定后端中的平台、工具链、类型映射、构建、编码、命名、角色交付和模板规则；不是独立运行资产 | 5\.6.5、6\.4.1 |
-| Test Bundle           | 独立测试、runner、oracle，以及 reference/workspace 目标适配器的版本化集合 | 4\.2、5\.3 |
+| Test Bundle           | 开工时的版本化测试需求与覆盖清单；M2 智能体据此生成测试、runner、oracle 与适配器 | 4\.2、5\.3 |
 | Test gate             | 测试最早可执行阶段；当前按 REQ 实现闭包确定 readiness         | 5\.3、6\.4 |
 | Plan Compiler         | S4 的多轮编译流程：架构、工作包展开、确定性链接、lint、critic 与原子发布 | 6\.4 |
 | Delivery Constraints / Blueprint | Spec、Target Profile 与内置生成规则决定的交付约束，以及结合静态 Plan 后解析出的精确文件/owner/internal contract 蓝图 | 6\.4.1 |
 | Immutable Plan / Plan State | 发布后不可变的架构/任务合同，与按 Plan 哈希绑定的可变执行账本 | 5\.2 |
 | Artifact Manifest / Contract Map | S5 解析出的生成物创建者/修改 owner 清单，以及内部逻辑契约到接口的映射 | 5\.6、6\.5 |
-| gold 规格 / gold 测试 | 人工编写维护的标准答案资产：规格文件与功能测试集，独立于生成过程 | 5\.3、10\.1 |
+| gold 前置规格 / 生成测试 | 三份人工维护的 gold 输入与 M2 智能体据 Test Bundle 生成的独立功能测试资产 | 5\.3、10\.1、10\.3 |
 | spec\-run / doc\-run  | 流水线两个入口：从人工规格起跑（S4 起）/ 从协议文档起跑（S1 起） | 4\.1       |
 | run / 运行            | 一次完整的流水线执行，对应 `runs/` 下一个独立目录与唯一 run\_id | 4\.4       |
 | 工件（artifact）      | 阶段间唯一的通信载体；NePA 生成的 JSON 工件均带 `schema_version` | 4\.3、5    |
@@ -2392,7 +2392,7 @@ flowchart LR
 | 收敛判据              | S8 中已 commit 的 full regression 必须使失败数严格递减；快验拒绝不提交但消耗一轮 | 4\.7、6\.8 |
 | 上下文包              | 按固定优先级为一次 Agent 调用组装的输入切片集合              | 6\.6.2     |
 | 机械派生              | 不经 LLM、由确定性模板从 spec 直接生成的产物（如接口头文件） | 6\.5、7\.3 |
-| 公开测试边界          | Test Bundle 的 workspace adapter 访问生成物的接口；目标路由已冻结，具体字段与生成物绑定机制待 M2\-0 裁决 | 5\.3、7\.4、10\.3 |
+| 公开测试边界          | M2 生成测试访问生成物的接口；目标路由、字段与绑定机制均由 M2\-0 裁决 | 5\.3、7\.4、10\.3 |
 | spec\_lint / plan\_lint | 规格/计划的确定性校验器；Plan 分 basic/full 两级，状态另有 snapshot/transition/execution 校验 | 5\.1.6、5\.2 |
 | spec\_align           | 提取规格与 gold 的确定性对齐评分工具                         | 9\.1.3     |
 | outcome               | 流程运行的三值结局 success / degraded / failed；NePA internal\_error 独立于该集合 | 9\.1.2 |
@@ -2406,13 +2406,13 @@ flowchart LR
 
 | 资料                                                         | 用途                                       | 位置/链接                                                    |
 | ------------------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------ |
-| MQTT Version 3.1.1（OASIS Standard, 2014-10-29）             | 首个目标协议的规范源文档；gold 规格 `source_ref` 的指向对象 | 本仓库 `protocol_docs/mqtt-v3.1.1-os.pdf`；<http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html> |
+| MQTT Version 3.1.1（OASIS Standard, 2014-10-29）             | 首个目标协议的规范源文档；gold 规格 `source_ref` 的指向对象 | 本仓库 `protocol_document/mqtt-v3.1.1-os.pdf`；<http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html> |
 | 《智能体蜂群与新的模型经济学》（Cursor Blog, 2026）          | 3\.3 设计基石：分层分解、模型经济学、评审、规格中心化 | <https://cursor.com/cn/blog/agent-swarm-model-economics>     |
 | OpenAI Codex：ExecPlans、Best practices、Subagents           | 3\.1/6.4：living plan、可验证里程碑、隔离上下文与独立评审 | <https://developers.openai.com/cookbook/articles/codex_exec_plans>、<https://learn.chatgpt.com/guides/best-practices>、<https://developers.openai.com/codex/subagents> |
 | Claude Code：Plan mode、Subagents；Anthropic long\-running harness | 3\.1/6.4：只读规划、独立上下文，以及 one\-shot 长任务失败后的增量工作账本 | <https://code.claude.com/docs/en/permission-modes>、<https://code.claude.com/docs/en/sub-agents>、<https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents> |
 | RFC 2119 / RFC 8174                                          | 本文档规范用语约定（0.2）                  | <https://www.rfc-editor.org/rfc/rfc2119>                     |
 | JSON Schema draft 2020\-12                                   | 全部工件的结构校验标准（第 5 章）          | <https://json-schema.org/specification>                      |
-| Eclipse Mosquitto / Eclipse Paho                             | gold 测试的参考实现对照（D0.2）与 L3 互操作对象 | <https://mosquitto.org>、<https://eclipse.dev/paho>          |
+| Eclipse Mosquitto / Eclipse Paho                             | M2 生成测试的参考实现对照（D2.0）与 L3 互操作对象 | <https://mosquitto.org>、<https://eclipse.dev/paho>          |
 | RFC 7252（CoAP）                                             | M6 候选协议（O\-1 建议默认）               | <https://www.rfc-editor.org/rfc/rfc7252>                     |
 
 ### 12\.3 仓库资产与本文档的对应关系
@@ -2421,7 +2421,7 @@ flowchart LR
 
 | 文件/目录                                  | 性质                                       | 设计出处                        |
 | ------------------------------------------ | ------------------------------------------ | ------------------------------- |
-| `protocol_docs/mqtt-v3.1.1-os.pdf`         | 规范源文档：doc\-run 输入与 gold `source_ref` 的指向对象 | 12\.2、5\.1.4    |
+| `protocol_document/mqtt-v3.1.1-os.pdf`     | 规范源文档：doc\-run 输入与 gold `source_ref` 的指向对象 | 12\.2、5\.1.4    |
 | `nepa/schemas/*.json`                      | 全部工件的 JSON Schema 及其最小合法示例     | 第 5 章                         |
 | `nepa/agents/prompts/*.md`                 | 各 Agent 角色的提示词模板                   | 4\.5、8\.8                      |
 | `nepa/tools/scaffold/templates/`           | 系统内置应用层生成规则使用的布局与机械模板；无独立 id/version/hash | 5\.6.5、6\.5、7 |
@@ -2462,3 +2462,5 @@ flowchart LR
 | 1\.1.0 | 2026\-07\-30 | 补全 Delivery Compiler 的确定性规则：定义 C99 标识符归一化与六条命名模式；限定 `file_rules[].expansion` 为 `none/per_message`，定义 `{message_id}` 展开并冻结 server 文件槽；资源上限改为逐键取最小上界且冻结当前四项 server 默认值无 Spec 映射；语言规则显式声明支持角色，当前 client/双角色 Target 在 lint 与 S4 PREPARE 受控失败；同步 M0/M1/M6 验收 | 负责人 |
 | 2\.0.0 | 2026\-07\-30 | 将 MQTT 目标角色术语与 gold Spec 统一为 `server`：同步 Target Profile 默认值与支持门、交付物、角色布局、生成入口路径、内部类型名、测试边界、配置示例及里程碑验收；不再使用旧角色词 | 负责人 |
 | 2\.1.0 | 2026\-07\-30 | 冻结 Test Bundle 两阶段绑定：M0 保留 `reference/workspace` 双目标 runner、`--workspace`、公共 fixture 与未绑定 workspace adapter，完整实现 reference adapter；未绑定 workspace 目标明确失败且禁止 skip/回退。M2\-0 只裁决并实现生成物外部契约到 workspace adapter 的具体绑定，S7 固定测试 workspace；同步 4.2、5.3、6.7、7.4、M0/M2 验收、开放问题与术语 | 负责人 |
+| 2\.2.0 | 2026\-07\-31 | 明确开工前只需三份 gold 前置规格；M0/M1 只校验和消费 Test Bundle 清单，不生成或执行协议测试；测试资产、runner、oracle、adapter 与公开边界统一延后至 M2 设计并由智能体生成；同步输入哈希、M0/M2 工作项与 DoD，并将规范文档目录统一为 `protocol_document/` | 负责人 |
+| 2\.2.1 | 2026\-07\-31 | 澄清 canonical 化仅作用于 `test_bundle.json` 且先于三文件哈希冻结；Test Bundle 摘要从 M2 起增加测试资产树哈希；统一示例与默认 MQTT Bundle 的 `san` 构建策略，并明确 release 仅承担 M1 编译门 | 负责人 |

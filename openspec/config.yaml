@@ -1,0 +1,47 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
+context: |
+  NePA 的唯一规范性设计来源是 project_docs/system_design.md。
+  实现前必须阅读当前 change 指向的设计章节和对应 DoD。
+  当前 change 必须明确所属里程碑，禁止实现其范围之外的后续工作。
+  设计文档与代码或 OpenSpec 工件冲突时，停止并报告，不得自行猜测。
+  完成必须以设计文档规定的机器验证或负责人签字为准。
+
+rules:
+  proposal:
+    - 标出 M0 工作项编号、设计文档章节、依赖、范围与非范围。
+    - 写出对应 DoD 和负责人签字项。
+  specs:
+    - 只写可验证的工件行为与失败语义，不写实现方案。
+  tasks:
+    - 每项任务必须关联 requirement、设计章节和验证命令。

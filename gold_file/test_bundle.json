@@ -35,24 +35,6 @@
       "build_variant_ids": [
         "san"
       ],
-      "description": "Optional CONNECT fields are encoded in the order declared by the spec.",
-      "gate": "task",
-      "layer": "l1",
-      "nodeid": "tests/l1_codec/test_reference_codec.py::test_connect_optional_fields_follow_declared_wire_order",
-      "req_ids": [
-        "REQ-CONNECT-020",
-        "REQ-CONNECT-021",
-        "REQ-CONNECT-022",
-        "REQ-CONNECT-023",
-        "REQ-CONNECT-024",
-        "REQ-CONNECT-025",
-        "REQ-CONNECT-026"
-      ]
-    },
-    {
-      "build_variant_ids": [
-        "san"
-      ],
       "description": "Fixed server and zero-length packets match their MQTT 3.1.1 byte vectors.",
       "gate": "task",
       "layer": "l1",
@@ -139,6 +121,20 @@
       "build_variant_ids": [
         "san"
       ],
+      "description": "Forbidden MQTT Control Packet type values close their source connection.",
+      "gate": "task",
+      "layer": "l2",
+      "nodeid": "tests/l2_behavior/test_broker_behavior.py::test_forbidden_packet_type_closes_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-FRAME-005",
+        "REQ-FRAME-006"
+      ]
+    },
+    {
+      "build_variant_ids": [
+        "san"
+      ],
       "description": "Empty and wildcard-containing PUBLISH topics are protocol violations.",
       "gate": "task",
       "layer": "l2",
@@ -160,10 +156,6 @@
       "req_ids": [
         "REQ-CONNECT-008",
         "REQ-CONNECT-017",
-        "REQ-CONNECT-020",
-        "REQ-CONNECT-021",
-        "REQ-CONNECT-022",
-        "REQ-CONNECT-023",
         "REQ-ERROR-001",
         "REQ-STRING-002",
         "REQ-STRING-003"
@@ -324,7 +316,8 @@
         "REQ-ERROR-001",
         "REQ-STRING-002",
         "REQ-UNSUBSCRIBE-002",
-        "REQ-UNSUBSCRIBE-005"
+        "REQ-UNSUBSCRIBE-005",
+        "REQ-UNSUBSCRIBE-009"
       ]
     },
     {

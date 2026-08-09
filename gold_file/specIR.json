@@ -49,16 +49,6 @@
       ]
     },
     {
-      "id": "mqtt_binary_data",
-      "name": "MQTT length-prefixed binary data",
-      "encoding": {
-        "kind": "length_prefixed_bytes",
-        "length_type": "uint16_be"
-      },
-      "constraints": [{"max_len": 65535}],
-      "req_ids": ["REQ-DATA-001", "REQ-CONNECT-025", "REQ-CONNECT-026"]
-    },
-    {
       "id": "mqtt_requested_qos",
       "name": "MQTT requested maximum QoS",
       "encoding": {
@@ -202,20 +192,16 @@
           "bits": [
             {"name": "reserved", "offset": 0, "width": 1, "constraint": {"const": 0}},
             {"name": "clean_session", "offset": 1, "width": 1},
-            {"name": "will_flag", "offset": 2, "width": 1},
-            {"name": "will_qos", "offset": 3, "width": 2, "constraint": {"enum": [0, 1, 2]}},
-            {"name": "will_retain", "offset": 5, "width": 1},
-            {"name": "password_flag", "offset": 6, "width": 1},
-            {"name": "username_flag", "offset": 7, "width": 1}
+            {"name": "will_flag", "offset": 2, "width": 1, "constraint": {"const": 0}},
+            {"name": "will_qos", "offset": 3, "width": 2, "constraint": {"const": 0}},
+            {"name": "will_retain", "offset": 5, "width": 1, "constraint": {"const": 0}},
+            {"name": "password_flag", "offset": 6, "width": 1, "constraint": {"const": 0}},
+            {"name": "username_flag", "offset": 7, "width": 1, "constraint": {"const": 0}}
           ],
           "req_ids": [
             "REQ-CONNECT-003",
             "REQ-CONNECT-007",
-            "REQ-CONNECT-008",
-            "REQ-CONNECT-020",
-            "REQ-CONNECT-021",
-            "REQ-CONNECT-022",
-            "REQ-CONNECT-023"
+            "REQ-CONNECT-008"
           ]
         },
         {
@@ -240,34 +226,6 @@
             "REQ-CONNECT-015",
             "REQ-CONNECT-016"
           ]
-        },
-        {
-          "name": "will_topic",
-          "loc": "payload",
-          "type": "mqtt_utf8_string",
-          "presence": {"when": {"field": "connect_flags.will_flag", "equals": 1}},
-          "req_ids": ["REQ-CONNECT-020", "REQ-CONNECT-024"]
-        },
-        {
-          "name": "will_message",
-          "loc": "payload",
-          "type": "mqtt_binary_data",
-          "presence": {"when": {"field": "connect_flags.will_flag", "equals": 1}},
-          "req_ids": ["REQ-CONNECT-020", "REQ-CONNECT-024", "REQ-CONNECT-025"]
-        },
-        {
-          "name": "user_name",
-          "loc": "payload",
-          "type": "mqtt_utf8_string",
-          "presence": {"when": {"field": "connect_flags.username_flag", "equals": 1}},
-          "req_ids": ["REQ-CONNECT-022", "REQ-CONNECT-024"]
-        },
-        {
-          "name": "password",
-          "loc": "payload",
-          "type": "mqtt_binary_data",
-          "presence": {"when": {"field": "connect_flags.password_flag", "equals": 1}},
-          "req_ids": ["REQ-CONNECT-023", "REQ-CONNECT-024", "REQ-CONNECT-026"]
         }
       ],
       "req_ids": [
@@ -290,13 +248,6 @@
         "REQ-CONNECT-017",
         "REQ-CONNECT-018",
         "REQ-CONNECT-019",
-        "REQ-CONNECT-020",
-        "REQ-CONNECT-021",
-        "REQ-CONNECT-022",
-        "REQ-CONNECT-023",
-        "REQ-CONNECT-024",
-        "REQ-CONNECT-025",
-        "REQ-CONNECT-026",
         "REQ-KEEPALIVE-001",
         "REQ-KEEPALIVE-002",
         "REQ-KEEPALIVE-003",
@@ -487,7 +438,7 @@
           "name": "packet_identifier",
           "loc": "variable_header",
           "type": "uint16_be",
-          "constraint": {"min": 1, "max": 65535},
+          "constraint": {"max": 65535},
           "req_ids": [
             "REQ-DATA-001",
             "REQ-SUBSCRIBE-008"
@@ -555,7 +506,11 @@
           "loc": "variable_header",
           "type": "uint16_be",
           "constraint": {"min": 1, "max": 65535},
-          "req_ids": ["REQ-DATA-001", "REQ-UNSUBSCRIBE-003"]
+          "req_ids": [
+            "REQ-DATA-001",
+            "REQ-UNSUBSCRIBE-003",
+            "REQ-UNSUBSCRIBE-009"
+          ]
         },
         {
           "name": "topic_filters",
@@ -577,6 +532,7 @@
         "REQ-UNSUBSCRIBE-006",
         "REQ-UNSUBSCRIBE-007",
         "REQ-UNSUBSCRIBE-008",
+        "REQ-UNSUBSCRIBE-009",
         "REQ-TOPIC-001",
         "REQ-TOPIC-004",
         "REQ-TOPIC-005",
@@ -619,7 +575,7 @@
           "name": "packet_identifier",
           "loc": "variable_header",
           "type": "uint16_be",
-          "constraint": {"min": 1, "max": 65535},
+          "constraint": {"max": 65535},
           "req_ids": ["REQ-DATA-001", "REQ-UNSUBACK-003"]
         }
       ],
@@ -849,22 +805,22 @@
     },
     {
       "id": "REQ-TRANSPORT-002",
-      "text": "TCP/IP 可以用于承载 MQTT 3.1.1。",
+      "text": "标准的非规范性注释说明 TCP/IP 可以用于承载 MQTT 3.1.1。",
       "level": "DEFINITION",
       "source_ref": {
         "doc_id": "mqtt-v3.1.1-os",
-        "section": "4.2 Network Connections",
+        "section": "4.2 Network Connections — Non normative comment",
         "quote": "TCP/IP can be used for MQTT 3.1.1."
       }
     },
     {
       "id": "REQ-TRANSPORT-003",
-      "text": "非 TLS MQTT 的 IANA 注册 TCP 端口是 1883。",
+      "text": "标准的非规范性注释说明非 TLS MQTT 的 IANA 注册 TCP 端口是 1883。",
       "level": "DEFINITION",
       "values": {"non_tls_registered_port": 1883},
       "source_ref": {
         "doc_id": "mqtt-v3.1.1-os",
-        "section": "4.2 Network Connections",
+        "section": "4.2 Network Connections — Non normative comment",
         "quote": "TCP ports 8883 and 1883 are registered with IANA for MQTT TLS and non TLS communication respectively."
       }
     },
@@ -962,6 +918,28 @@
         "doc_id": "mqtt-v3.1.1-os",
         "section": "2.2.2 Flags",
         "quote": "Where a flag bit is marked as “Reserved” in Table 2.2 - Flag Bits, it is reserved for future use and MUST be set to the value listed in that table [MQTT-2.2.2-1]. If invalid flags are received, the receiver MUST close the Network Connection"
+      }
+    },
+    {
+      "id": "REQ-FRAME-005",
+      "text": "MQTT Control Packet type 值 0 是 Forbidden。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 0},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.1 Table 2.1 - Control packet types",
+        "quote": "Reserved 0 Forbidden Reserved"
+      }
+    },
+    {
+      "id": "REQ-FRAME-006",
+      "text": "MQTT Control Packet type 值 15 是 Forbidden。",
+      "level": "DEFINITION",
+      "values": {"packet_type": 15},
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.2.1 Table 2.1 - Control packet types",
+        "quote": "Reserved 15 Forbidden Reserved"
       }
     },
     {
@@ -1160,78 +1138,6 @@
         "doc_id": "mqtt-v3.1.1-os",
         "section": "3.1.1 Fixed header",
         "quote": "MQTT Control Packet type (1)"
-      }
-    },
-    {
-      "id": "REQ-CONNECT-020",
-      "text": "Will Flag 为 1 时，payload MUST 包含 Will Topic 和 Will Message 字段；Will Flag 为 0 时，payload MUST NOT 包含 Will Topic 或 Will Message 字段。",
-      "level": "MUST",
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.2.5 Will Flag",
-        "quote": "If the Will Flag is set to 1 this indicates that, if the Connect request is accepted, a Will Message MUST be stored on the Server and associated with the Network Connection. The Will Message MUST be published when the Network Connection is subsequently closed unless the Will Message has been deleted by the Server on receipt of a DISCONNECT Packet. If the Will Flag is set to 0 the Will QoS and Will Retain fields in the Connect Flags MUST be set to zero and the Will Topic and Will Message fields MUST NOT be present in the payload."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-021",
-      "text": "Will Flag 为 0 时，Connect Flags 中的 Will QoS 和 Will Retain MUST 为 0。",
-      "level": "MUST",
-      "values": {"will_qos": 0, "will_retain": 0},
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.2.6 Will QoS",
-        "quote": "If the Will Flag is set to 0, then the Will QoS MUST be set to 0 (0x00)."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-022",
-      "text": "User Name Flag 为 0 时 payload MUST NOT 包含 User Name 字段；为 1 时 MUST 包含。",
-      "level": "MUST",
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.2.8 User Name Flag",
-        "quote": "If the User Name Flag is set to 0, a user name MUST NOT be present in the payload. If the User Name Flag is set to 1, a user name MUST be present in the payload."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-023",
-      "text": "Password Flag 为 0 时 payload MUST NOT 包含 password 字段；为 1 时 MUST 包含。",
-      "level": "MUST",
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.2.9 Password Flag",
-        "quote": "If the Password Flag is set to 0, a password MUST NOT be present in the payload. If the Password Flag is set to 1, a password MUST be present in the payload."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-024",
-      "text": "CONNECT payload 中的字段若存在，MUST 按 Client Identifier、Will Topic、Will Message、User Name、Password 的顺序出现。",
-      "level": "MUST",
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.3 Payload",
-        "quote": "The payload of the CONNECT Packet contains one or more length-prefixed fields, whose presence is determined by the flags in the variable header. These fields, if present, MUST appear in the order Client Identifier, Will Topic, Will Message, User Name, Password."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-025",
-      "text": "Will Message 字段定义了要发布到 Will Topic 的 Application Message 的 payload，由两字节长度后跟该长度的字节数据组成，长度可以为零。",
-      "level": "DEFINITION",
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.3.3 Will Message",
-        "quote": "The Will Message defines the Application Message that is to be published to the Will Topic as described in Section 3.1.2.5. This field consists of a two byte length followed by the payload for the Will Message expressed as a sequence of zero or more bytes. The length gives the number of bytes in the data that follows and does not include the 2 bytes taken up by the length itself."
-      }
-    },
-    {
-      "id": "REQ-CONNECT-026",
-      "text": "Password 字段由两字节长度后跟该长度的二进制数据组成，长度上限为 65535 字节。",
-      "level": "DEFINITION",
-      "values": {"maximum_password_bytes": 65535},
-      "source_ref": {
-        "doc_id": "mqtt-v3.1.1-os",
-        "section": "3.1.3.5 Password",
-        "quote": "The Password field contains 0 to 65535 bytes of binary data prefixed with a two byte length field which indicates the number of bytes used by the binary data (it does not include the two bytes taken up by the length field itself)."
       }
     },
     {
@@ -1904,13 +1810,13 @@
     },
     {
       "id": "REQ-UNSUBSCRIBE-002",
-      "text": "UNSUBSCRIBE 固定报头的 3-0 位是保留位，MUST 被设置为 0010；其他任何值都是 malformed，接收方 MUST 关闭网络连接。",
+      "text": "UNSUBSCRIBE 固定报头的 3-0 位是保留位，MUST 被设置为 0010；其他任何值都是 malformed，Server MUST 关闭网络连接。",
       "level": "MUST",
       "values": {"flags": 2},
       "source_ref": {
         "doc_id": "mqtt-v3.1.1-os",
         "section": "3.10.1 Fixed header",
-        "quote": "Bits 3,2,1 and 0 of the fixed header of the UNSUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1,0 respectively. The Server MUST treat any other value as malformed and close the Network Connection"
+        "quote": "Bits 3,2,1 and 0 of the fixed header of the UNSUBSCRIBE Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively. The Server MUST treat any other value as malformed and close the Network Connection"
       }
     },
     {
@@ -1920,7 +1826,7 @@
       "source_ref": {
         "doc_id": "mqtt-v3.1.1-os",
         "section": "3.10.2 Variable header",
-        "quote": "The variable header contains a Packet Identifier. The Packet Identifier field is described in section 2.3.1."
+        "quote": "The variable header contains a Packet Identifier. Section 2.3.1 provides more information about Packet Identifiers."
       }
     },
     {
@@ -1955,12 +1861,12 @@
     },
     {
       "id": "REQ-UNSUBSCRIBE-007",
-      "text": "Server MUST 在完成删除后发送 UNSUBACK，即使没有删除任何 Subscription 也 MUST 发送。",
+      "text": "Server MUST 通过发送 UNSUBACK 响应 UNSUBSCRIBE；即使没有删除任何 Subscription 也 MUST 响应。",
       "level": "MUST",
       "source_ref": {
         "doc_id": "mqtt-v3.1.1-os",
         "section": "3.10.4 Actions",
-        "quote": "The Server MUST send an UNSUBACK packet in response to an UNSUBSCRIBE packet. The UNSUBACK Packet MUST have the same Packet Identifier as the UNSUBSCRIBE Packet. Even where no Topic Subscriptions are deleted, the Server MUST respond with an UNSUBACK."
+        "quote": "The Server MUST respond to an UNSUBSUBCRIBE request by sending an UNSUBACK packet. The UNSUBACK Packet MUST have the same Packet Identifier as the UNSUBSCRIBE Packet. Even where no Topic Subscriptions are deleted, the Server MUST respond with an UNSUBACK."
       }
     },
     {
@@ -1972,6 +1878,16 @@
         "doc_id": "mqtt-v3.1.1-os",
         "section": "3.10.1 Fixed header",
         "quote": "MQTT Control Packet type (10)"
+      }
+    },
+    {
+      "id": "REQ-UNSUBSCRIBE-009",
+      "text": "UNSUBSCRIBE MUST 包含非零 16 位 Packet Identifier。",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "mqtt-v3.1.1-os",
+        "section": "2.3.1 Packet Identifier",
+        "quote": "SUBSCRIBE, UNSUBSCRIBE, and PUBLISH (in cases where QoS > 0) Control Packets MUST contain a non-zero 16-bit Packet Identifier"
       }
     },
     {

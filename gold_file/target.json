@@ -1,6 +1,6 @@
 {
   "roles": [
-    "broker"
+    "server"
   ],
   "language": {
     "name": "C",
