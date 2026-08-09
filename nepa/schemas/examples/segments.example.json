@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "doc": {
+    "doc_id": "doc-min",
+    "filename": "source.txt",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "format": "txt",
+    "char_count": 1
+  },
+  "segments": [
+    {
+      "segment_id": "seg-0001",
+      "section_path": "1",
+      "title": "Minimal",
+      "text": "x",
+      "token_count": 1,
+      "has_table": false,
+      "warnings": []
+    }
+  ],
+  "coverage_ratio": 1.0
+}

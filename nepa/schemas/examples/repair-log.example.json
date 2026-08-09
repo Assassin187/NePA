@@ -1,0 +1,22 @@
+{
+  "schema_version": "2.0",
+  "repair_id": "repair-001",
+  "repair_round": 1,
+  "failure_cluster_signature": "none",
+  "consecutive_uneliminated_count": 0,
+  "round_start_ref": {
+    "path": "test_results/round_001/summary.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "round_start_sha": "0000000000000000000000000000000000000000",
+  "parent_sha": "0000000000000000000000000000000000000000",
+  "diagnosis": "No repair was required.",
+  "target_files": ["src/example.c"],
+  "diff_summary": "No changes.",
+  "quick_test_summary_ref": {
+    "path": "test_results/round_001/summary.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "status": "rejected_quick_test",
+  "consumption": {}
+}

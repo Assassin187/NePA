@@ -1,0 +1,42 @@
+{
+  "schema_version": "2.0",
+  "artifact_availability": {
+    "plan": {
+      "status": "unavailable",
+      "reason": {
+        "code": "NOT_STARTED",
+        "detail": "The plan has not been produced."
+      }
+    }
+  },
+  "termination_kind": "completed",
+  "outcome": "success",
+  "termination_reason": {
+    "code": "COMPLETED",
+    "detail": "The run completed."
+  },
+  "summary": "The minimal run completed.",
+  "req_coverage": {"status": "available", "value": []},
+  "test_final": {
+    "status": "available",
+    "value": {
+      "counts": {"pass": 0, "fail": 0, "error": 0, "skipped": 0},
+      "failures": [],
+      "errors": [],
+      "dynamic_skipped": [],
+      "disabled": [],
+      "not_run": []
+    }
+  },
+  "process": {
+    "stage_durations": {},
+    "model_usage": [],
+    "repair_rounds": 0,
+    "convergence": []
+  },
+  "assumptions": {"status": "available", "value": []},
+  "known_defects": {"status": "available", "value": []},
+  "reproduction": {
+    "config_snapshot_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

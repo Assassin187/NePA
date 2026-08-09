@@ -1,0 +1,41 @@
+{
+  "schema_version": "3.0",
+  "run_id": "run-min",
+  "entry": "spec-run",
+  "created_at": "2026-01-01T00:00:00Z",
+  "inputs": {
+    "spec": {
+      "path": "gold_file/specIR.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "target_profile": {
+      "path": "inputs/target.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "test_bundle": {
+      "id": "minimal",
+      "version": "1.0.0",
+      "path": "inputs/test_bundle.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "config_snapshot": {},
+  "config_snapshot_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "stages": {
+    "s1": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s2": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s3": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s4": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s5": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s6": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s7": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s8": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s9": {"status": "pending", "started_at": null, "ended_at": null, "error": null}
+  },
+  "budget_used": {
+    "wall_clock_s": 0,
+    "cost_usd": 0,
+    "tokens_in": 0,
+    "tokens_out": 0
+  }
+}

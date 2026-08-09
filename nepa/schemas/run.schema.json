@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NePA run metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "entry", "created_at", "inputs", "config_snapshot", "config_snapshot_sha256", "stages", "budget_used"],
+  "properties": {
+    "schema_version": {"const": "3.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "entry": {"enum": ["spec-run", "doc-run"]},
+    "created_at": {"type": "string", "minLength": 1},
+    "inputs": {"$ref": "#/$defs/inputs"},
+    "config_snapshot": {"type": "object"},
+    "config_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"],
+      "properties": {
+        "s1": {"$ref": "#/$defs/stage"},
+        "s2": {"$ref": "#/$defs/stage"},
+        "s3": {"$ref": "#/$defs/stage"},
+        "s4": {"$ref": "#/$defs/stage"},
+        "s5": {"$ref": "#/$defs/stage"},
+        "s6": {"$ref": "#/$defs/stage"},
+        "s7": {"$ref": "#/$defs/stage"},
+        "s8": {"$ref": "#/$defs/stage"},
+        "s9": {"$ref": "#/$defs/stage"}
+      }
+    },
+    "budget_used": {"$ref": "#/$defs/budget"},
+    "flags": {"type": "object"},
+    "termination_request": {"$ref": "#/$defs/terminationRequest"},
+    "termination_kind": {"enum": ["completed", "planned_stop", "controlled_exit", "internal_error"]},
+    "outcome": {"enum": ["success", "degraded", "failed"]},
+    "exit_code": {"type": "integer"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"entry": {"const": "spec-run"}}},
+      "then": {
+        "properties": {
+          "inputs": {
+            "required": ["spec", "target_profile", "test_bundle"],
+            "not": {"anyOf": [{"required": ["doc"]}, {"required": ["scope"]}]}
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "inputs": {
+            "required": ["doc", "scope", "target_profile", "test_bundle"],
+            "not": {"required": ["spec"]}
+          }
+        }
+      }
+    },
+    {
+      "if": {"required": ["termination_kind"]},
+      "then": {"required": ["exit_code"]}
+    },
+    {
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"const": "controlled_exit"}}},
+      "then": {
+        "required": ["termination_request", "outcome"],
+        "properties": {
+          "outcome": {"enum": ["degraded", "failed"]},
+          "exit_code": {"enum": [10, 20]}
+        }
+      }
+    },
+    {
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"enum": ["completed", "controlled_exit"]}}},
+      "then": {"required": ["outcome"]}
+    },
+    {
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"enum": ["completed", "planned_stop"]}}},
+      "then": {"not": {"required": ["termination_request"]}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "inputRef": {"$ref": "#/$defs/ref"},
+    "testBundleRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_profile", "test_bundle"],
+      "properties": {
+        "spec": {"$ref": "#/$defs/inputRef"},
+        "doc": {"$ref": "#/$defs/inputRef"},
+        "scope": {"$ref": "#/$defs/inputRef"},
+        "target_profile": {"$ref": "#/$defs/inputRef"},
+        "test_bundle": {"$ref": "#/$defs/testBundleRef"}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "started_at", "ended_at", "error"],
+      "properties": {
+        "status": {"enum": ["pending", "running", "done", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "error": {"type": ["string", "null"]},
+        "output_refs": {"type": "object"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wall_clock_s", "cost_usd", "tokens_in", "tokens_out"],
+      "properties": {
+        "wall_clock_s": {"type": "number", "minimum": 0},
+        "cost_usd": {"type": "number", "minimum": 0},
+        "tokens_in": {"type": "integer", "minimum": 0},
+        "tokens_out": {"type": "integer", "minimum": 0}
+      }
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "detail"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+        "detail": {"type": "string", "minLength": 1}
+      }
+    },
+    "terminationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stage", "requested_at", "reason"],
+      "properties": {
+        "kind": {"const": "controlled_exit"},
+        "stage": {"enum": ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]},
+        "requested_at": {"type": "string", "minLength": 1},
+        "reason": {"$ref": "#/$defs/reason"}
+      }
+    }
+  }
+}

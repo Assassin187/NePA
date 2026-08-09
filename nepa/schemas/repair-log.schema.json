@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NePA repair log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repair_id", "repair_round", "failure_cluster_signature", "consecutive_uneliminated_count", "round_start_ref", "round_start_sha", "parent_sha", "diagnosis", "target_files", "diff_summary", "quick_test_summary_ref", "status", "consumption"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "repair_id": {"type": "string", "minLength": 1},
+    "repair_round": {"type": "integer", "minimum": 1},
+    "failure_cluster_signature": {"type": "string", "minLength": 1},
+    "consecutive_uneliminated_count": {"type": "integer", "minimum": 0},
+    "round_start_ref": {"$ref": "#/$defs/ref"},
+    "round_start_sha": {"$ref": "#/$defs/gitSha"},
+    "parent_sha": {"$ref": "#/$defs/gitSha"},
+    "diagnosis": {"type": "string", "minLength": 1},
+    "target_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "diff_summary": {"type": "string", "minLength": 1},
+    "quick_test_summary_ref": {"$ref": "#/$defs/ref"},
+    "status": {"enum": ["rejected_quick_test", "committed_pending_regression", "accepted", "rolled_back"]},
+    "consumption": {"type": "object"},
+    "commit_sha": {"$ref": "#/$defs/gitSha"},
+    "repair_evidence_ref": {"$ref": "#/$defs/ref"},
+    "regression_summary_ref": {"$ref": "#/$defs/ref"}
+  },
+  "oneOf": [
+    {
+      "properties": {"status": {"const": "rejected_quick_test"}},
+      "not": {
+        "anyOf": [
+          {"required": ["commit_sha"]},
+          {"required": ["repair_evidence_ref"]},
+          {"required": ["regression_summary_ref"]}
+        ]
+      }
+    },
+    {
+      "properties": {"status": {"enum": ["committed_pending_regression", "accepted", "rolled_back"]}},
+      "required": ["commit_sha", "repair_evidence_ref"]
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "gitSha": {"type": "string", "pattern": "^[A-Fa-f0-9]{40}$"},
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

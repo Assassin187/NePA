@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NePA document segments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "doc", "segments", "coverage_ratio"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "doc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["doc_id", "filename", "sha256", "format", "char_count"],
+      "properties": {
+        "doc_id": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "format": {"enum": ["pdf", "txt", "html"]},
+        "char_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["segment_id", "section_path", "title", "text", "token_count", "has_table", "warnings"],
+        "properties": {
+          "segment_id": {"type": "string", "minLength": 1},
+          "section_path": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "text": {"type": "string"},
+          "token_count": {"type": "integer", "minimum": 0},
+          "has_table": {"type": "boolean"},
+          "page_range": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "integer", "minimum": 1}
+          },
+          "warnings": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "coverage_ratio": {"type": "number", "minimum": 0}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}
+  }
+}

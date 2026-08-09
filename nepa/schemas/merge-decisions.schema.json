@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NePA merge decisions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decisions"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["element_path", "conflicting_values", "resolution", "rationale"],
+        "properties": {
+          "element_path": {"type": "string", "minLength": 1},
+          "conflicting_values": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["segment_id", "value"],
+              "properties": {
+                "segment_id": {"type": "string", "minLength": 1},
+                "value": {}
+              }
+            }
+          },
+          "resolution": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

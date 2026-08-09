@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NePA Spec IR",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "protocol", "types", "messages", "requirements"],
+  "properties": {
+    "schema_version": {"const": "3.0"},
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "roles"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["req_ids"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "byte_order": {"type": "string", "minLength": 1},
+        "req_ids": {"$ref": "#/$defs/reqIds"}
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/type"}
+    },
+    "messages": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/message"}
+    },
+    "requirements": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/requirement"}
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "reqIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "const": {},
+        "min": {"type": "number"},
+        "max": {"type": "number"},
+        "min_len": {"type": "integer", "minimum": 0},
+        "max_len": {"type": "integer", "minimum": 0},
+        "charset": {"type": "string", "minLength": 1},
+        "enum": {"type": "array", "minItems": 1}
+      }
+    },
+    "encoding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "varint",
+            "length_prefixed_string",
+            "length_prefixed_bytes",
+            "sequence",
+            "repeat",
+            "enum"
+          ]
+        },
+        "max_bytes": {"type": "integer", "minimum": 1},
+        "data_bits": {"type": "integer", "minimum": 1},
+        "continuation_bit": {"type": "integer", "minimum": 0},
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "item_type": {"type": "string", "minLength": 1},
+        "min_items": {"type": "integer", "minimum": 0},
+        "max_items": {"type": "integer", "minimum": 0}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "varint"}}},
+          "then": {"required": ["max_bytes", "data_bits", "continuation_bit"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "sequence"}}},
+          "then": {"required": ["members"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "repeat"}}},
+          "then": {"required": ["item_type", "min_items", "max_items"]}
+        }
+      ]
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "encoding", "req_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "encoding": {"$ref": "#/$defs/encoding"},
+        "constraints": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/constraint"}
+        },
+        "req_ids": {"$ref": "#/$defs/reqIds"}
+      }
+    },
+    "bit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "offset", "width"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "offset": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "constraint": {"$ref": "#/$defs/constraint"}
+      }
+    },
+    "presence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field", "equals"],
+          "properties": {
+            "field": {"type": "string", "minLength": 1},
+            "equals": {}
+          }
+        }
+      }
+    },
+    "derived": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "of"],
+      "properties": {
+        "kind": {"const": "length_of"},
+        "of": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "loc", "type", "req_ids"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "loc": {"type": "string", "minLength": 1},
+        "type": {"type": "string", "minLength": 1},
+        "bits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/bit"}
+        },
+        "presence": {"$ref": "#/$defs/presence"},
+        "constraint": {"$ref": "#/$defs/constraint"},
+        "derived": {"$ref": "#/$defs/derived"},
+        "req_ids": {"$ref": "#/$defs/reqIds"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "bitfield8"}}},
+          "then": {"required": ["bits"]},
+          "else": {"not": {"required": ["bits"]}}
+        }
+      ]
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "senders", "receivers", "wire_layout", "fields", "req_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "senders": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "receivers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "wire_layout": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/field"}
+        },
+        "req_ids": {"$ref": "#/$defs/reqIds"}
+      }
+    },
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "quote"],
+      "properties": {
+        "section": {"type": "string", "minLength": 1},
+        "quote": {"type": "string", "minLength": 1},
+        "segment_id": {"type": "string", "minLength": 1},
+        "doc_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "level", "source_ref"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^REQ-[A-Za-z0-9_-]+-[0-9]{3}$"
+        },
+        "text": {"type": "string", "minLength": 1},
+        "level": {"enum": ["DEFINITION", "MUST", "MUST NOT", "SHOULD", "MAY"]},
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          }
+        },
+        "source_ref": {"$ref": "#/$defs/sourceRef"}
+      }
+    }
+  }
+}

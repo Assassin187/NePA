@@ -1,0 +1,7 @@
+{
+  "roles": ["server"],
+  "language": {
+    "name": "C",
+    "version": "C99"
+  }
+}
