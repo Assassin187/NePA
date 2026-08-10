@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,10 @@ SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 BUILTIN_TYPES = {"uint8", "uint16_be", "uint32_be", "bytes", "bitfield8"}
 SUPPORTED_LANGUAGE = {"name": "C", "version": "C99"}
 SUPPORTED_ROLES = {"server"}
+BUILTIN_BUILD_VARIANTS = {"release", "san"}
+TEST_GATES = {"s5", "task", "s7_only"}
+TEST_LAYERS = {"l0", "l1", "l2", "l3"}
+GOLD_COVERAGE_GATES = {"task", "s7_only"}
 
 
 def _path(parts: tuple[Any, ...] | list[Any]) -> str:
@@ -27,6 +32,29 @@ def _issue(code: str, path: str, message: str) -> dict[str, str]:
 
 def _report(errors: list[dict[str, str]], warnings: list[dict[str, str]] | None = None) -> dict[str, Any]:
     return {"valid": not errors, "errors": errors, "warnings": warnings or []}
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    """Encode a JSON value using the Chapter 5 canonical byte sequence."""
+
+    def check_keys(item: Any, path: str = "/") -> None:
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"object key at {path} must be a string")
+                check_keys(child, f"{path}{key}/")
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                check_keys(child, f"{path}{index}/")
+
+    check_keys(value)
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def _read_json(source: str | Path | dict[str, Any]) -> tuple[Any | None, list[dict[str, str]]]:
@@ -70,7 +98,48 @@ def _check_requirement_refs(
             errors.append(_issue("SPEC_EVIDENCE_MISSING", f"/requirements/{req_id}/source_ref", "requirement has no source_ref"))
 
 
-def lint_spec(source: str | Path | dict[str, Any]) -> dict[str, Any]:
+def _lint_spec_manifest_coverage(
+    spec_data: dict[str, Any],
+    manifest: str | Path | dict[str, Any],
+    errors: list[dict[str, str]],
+) -> None:
+    manifest_data, manifest_errors = _read_json(manifest)
+    if manifest_errors:
+        errors.extend(
+            _issue("SPEC_MANIFEST_INVALID", item["path"], item["message"])
+            for item in manifest_errors
+        )
+        return
+
+    schema_errors = _schema_errors(manifest_data, "test-bundle.schema.json")
+    if schema_errors:
+        errors.extend(
+            _issue("SPEC_MANIFEST_INVALID", item["path"], item["message"])
+            for item in schema_errors
+        )
+        return
+
+    covered: set[str] = set()
+    for test in manifest_data["tests"]:
+        if test["gate"] in GOLD_COVERAGE_GATES:
+            covered.update(test["req_ids"])
+
+    for index, requirement in enumerate(spec_data["requirements"]):
+        if requirement["level"] in {"MUST", "MUST NOT"} and requirement["id"] not in covered:
+            errors.append(
+                _issue(
+                    "SPEC_REQUIREMENT_UNCOVERED",
+                    f"/requirements/{index}/id",
+                    f"requirement {requirement['id']!r} has no task or s7_only coverage",
+                )
+            )
+
+
+def lint_spec(
+    source: str | Path | dict[str, Any],
+    gold: bool = False,
+    manifest: str | Path | dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Validate Spec IR structure, references, evidence, and derived relations."""
 
     data, errors = _read_json(source)
@@ -137,7 +206,27 @@ def lint_spec(source: str | Path | dict[str, Any]) -> dict[str, Any]:
             if derived is not None and derived.get("kind") != "length_of":
                 errors.append(_issue("SPEC_DERIVED_UNSUPPORTED", f"{field_base}/derived/kind", "only length_of is permitted"))
 
-    return _report(errors)
+    warnings: list[dict[str, str]] = []
+    if gold:
+        if manifest is None:
+            warnings.append(
+                _issue(
+                    "SPEC_COVERAGE_SKIPPED",
+                    "/",
+                    "gold coverage requires a Test Bundle manifest",
+                )
+            )
+        else:
+            _lint_spec_manifest_coverage(data, manifest, errors)
+    elif manifest is not None:
+        warnings.append(
+            _issue(
+                "SPEC_COVERAGE_SKIPPED",
+                "/",
+                "Test Bundle manifest is used only with --gold",
+            )
+        )
+    return _report(errors, warnings)
 
 
 def lint_target(source: str | Path | dict[str, Any], spec: str | Path | dict[str, Any] | None = None) -> dict[str, Any]:
@@ -168,4 +257,138 @@ def lint_target(source: str | Path | dict[str, Any], spec: str | Path | dict[str
                 if role not in spec_roles:
                     errors.append(_issue("TARGET_ROLE_NOT_IN_SPEC", f"/roles/{index}", f"role {role!r} is not declared by Spec IR"))
 
+    return _report(errors)
+
+
+def _nodeid_layer(nodeid: str) -> str | None:
+    test_path = nodeid.split("::", 1)[0]
+    parts = test_path.split("/")
+    if len(parts) < 3 or parts[0] != "tests":
+        return None
+    match = re.fullmatch(r"(l[0-3])_[^/]+", parts[1])
+    return match.group(1) if match else None
+
+
+def lint_test_bundle(
+    source: str | Path | dict[str, Any],
+    spec: str | Path | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate declarative Test Bundle metadata without collecting or running tests."""
+
+    data, errors = _read_json(source)
+    if errors:
+        return _report(errors)
+    errors.extend(_schema_errors(data, "test-bundle.schema.json"))
+    if not isinstance(data, dict):
+        return _report(errors)
+
+    bundle = data.get("bundle")
+    tests = data.get("tests")
+    if isinstance(bundle, dict):
+        default_variants = bundle.get("default_build_variant_ids")
+        if isinstance(default_variants, list):
+            for index, variant in enumerate(default_variants):
+                if isinstance(variant, str) and variant not in BUILTIN_BUILD_VARIANTS:
+                    errors.append(
+                        _issue(
+                            "TEST_BUILD_VARIANT_UNSUPPORTED",
+                            f"/bundle/default_build_variant_ids/{index}",
+                            f"build variant {variant!r} is not provided by the built-in C99 rules",
+                        )
+                    )
+
+    requirements: dict[str, dict[str, Any]] | None = None
+    if spec is not None:
+        spec_data, spec_errors = _read_json(spec)
+        if spec_errors:
+            errors.extend(
+                _issue("TEST_SPEC_INVALID", item["path"], item["message"])
+                for item in spec_errors
+            )
+        else:
+            spec_schema_errors = _schema_errors(spec_data, "specs-requirements.schema.json")
+            if spec_schema_errors:
+                errors.extend(
+                    _issue("TEST_SPEC_INVALID", item["path"], item["message"])
+                    for item in spec_schema_errors
+                )
+            elif isinstance(spec_data, dict):
+                requirements = {item["id"]: item for item in spec_data["requirements"]}
+
+    if isinstance(tests, list):
+        seen_nodeids: dict[str, int] = {}
+        for index, test in enumerate(tests):
+            if not isinstance(test, dict):
+                continue
+            base = f"/tests/{index}"
+            nodeid = test.get("nodeid")
+            if isinstance(nodeid, str):
+                if nodeid in seen_nodeids:
+                    errors.append(
+                        _issue(
+                            "TEST_NODEID_DUPLICATE",
+                            f"{base}/nodeid",
+                            f"nodeid duplicates test at /tests/{seen_nodeids[nodeid]}/nodeid",
+                        )
+                    )
+                else:
+                    seen_nodeids[nodeid] = index
+
+                nodeid_layer = _nodeid_layer(nodeid)
+                layer = test.get("layer")
+                if nodeid_layer is not None and isinstance(layer, str) and nodeid_layer != layer:
+                    errors.append(
+                        _issue(
+                            "TEST_NODEID_LAYER_MISMATCH",
+                            f"{base}/layer",
+                            f"layer {layer!r} does not match nodeid directory layer {nodeid_layer!r}",
+                        )
+                    )
+                elif nodeid_layer is None and isinstance(layer, str) and layer in TEST_LAYERS:
+                    errors.append(
+                        _issue(
+                            "TEST_NODEID_LAYER_MISMATCH",
+                            f"{base}/nodeid",
+                            "nodeid must use a tests/l<N>_*/ directory matching layer",
+                        )
+                    )
+
+            gate = test.get("gate")
+            if isinstance(gate, str) and gate not in TEST_GATES:
+                errors.append(
+                    _issue(
+                        "TEST_GATE_UNSUPPORTED",
+                        f"{base}/gate",
+                        f"gate {gate!r} is not one of {sorted(TEST_GATES)!r}",
+                    )
+                )
+
+            if requirements is not None and isinstance(test.get("req_ids"), list):
+                for req_index, req_id in enumerate(test["req_ids"]):
+                    if isinstance(req_id, str) and req_id not in requirements:
+                        errors.append(
+                            _issue(
+                                "TEST_REQUIREMENT_UNKNOWN",
+                                f"{base}/req_ids/{req_index}",
+                                f"unknown requirement {req_id!r}",
+                            )
+                        )
+
+            variants = test.get("build_variant_ids")
+            if isinstance(variants, list):
+                for variant_index, variant in enumerate(variants):
+                    if isinstance(variant, str) and variant not in BUILTIN_BUILD_VARIANTS:
+                        errors.append(
+                            _issue(
+                                "TEST_BUILD_VARIANT_UNSUPPORTED",
+                                f"{base}/build_variant_ids/{variant_index}",
+                                f"build variant {variant!r} is not provided by the built-in C99 rules",
+                            )
+                        )
+
+    if not errors:
+        try:
+            canonical_json_bytes(data)
+        except (TypeError, ValueError) as exc:
+            errors.append(_issue("TEST_CANONICAL_JSON_INVALID", "/", str(exc)))
     return _report(errors)
