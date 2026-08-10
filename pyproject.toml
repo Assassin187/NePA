@@ -5,7 +5,18 @@ requires-python = ">=3.11"
 dependencies = [
   "jsonschema>=4.23,<5",
   "pytest>=8,<9",
+  "pyyaml>=6,<7",
 ]
 
+[project.scripts]
+nepa = "nepa.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [tool.uv]
-package = false
+package = true
+
+[tool.setuptools.packages.find]
+include = ["nepa*"]

@@ -1,0 +1,58 @@
+protocol:
+  name: MQTT
+  version: "3.1.1"
+target:
+  roles:
+    - server
+  language:
+    name: C
+    version: C99
+included:
+  packets:
+    - CONNECT
+    - CONNACK
+    - "PUBLISH (QoS 0)"
+    - SUBSCRIBE
+    - SUBACK
+    - UNSUBSCRIBE
+    - UNSUBACK
+    - PINGREQ
+    - PINGRESP
+    - DISCONNECT
+  connection_semantics:
+    - "clean_session=1 (no session persistence)"
+    - "when keep_alive is nonzero, disconnect after 1.5x keep_alive without any packet"
+    - "when keep_alive=0, do not disconnect due to inactivity"
+  publish_subscribe:
+    - literal topic exact matching
+    - multiple subscriptions per connection
+    - QoS 0 forwarding
+  error_handling:
+    - "malformed packet or illegal first byte -> disconnect"
+    - "illegal protocol_level -> CONNACK rc=1, then disconnect"
+    - "duplicate CONNECT -> disconnect"
+  transport:
+    - plaintext TCP
+    - IPv4
+    - single-threaded
+excluded:
+  packets:
+    - PUBACK
+    - PUBREC
+    - PUBREL
+    - PUBCOMP
+    - "QoS 1/2 packet family"
+  connection_semantics:
+    - "clean_session=0"
+    - session restoration
+    - Will message
+    - username/password authentication
+  publish_subscribe:
+    - "wildcard topics (+/#)"
+    - retain
+    - "$SYS topics"
+  error_handling: []
+  transport:
+    - TLS
+    - WebSocket
+    - IPv6
