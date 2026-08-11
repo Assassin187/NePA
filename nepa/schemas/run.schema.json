@@ -8,7 +8,12 @@
     "schema_version": {"const": "3.0"},
     "run_id": {"type": "string", "minLength": 1},
     "entry": {"enum": ["spec-run", "doc-run"]},
-    "created_at": {"type": "string", "minLength": 1},
+    "created_at": {
+      "type": "string",
+      "minLength": 1,
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?Z$"
+    },
     "inputs": {"$ref": "#/$defs/inputs"},
     "config_snapshot": {"type": "object"},
     "config_snapshot_sha256": {"$ref": "#/$defs/sha256"},
@@ -70,12 +75,113 @@
       }
     },
     {
-      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"enum": ["completed", "controlled_exit"]}}},
-      "then": {"required": ["outcome"]}
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"const": "completed"}}},
+      "then": {
+        "required": ["outcome"],
+        "properties": {
+          "outcome": {"const": "success"},
+          "exit_code": {"const": 0}
+        },
+        "not": {"required": ["termination_request"]}
+      }
     },
     {
-      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"enum": ["completed", "planned_stop"]}}},
-      "then": {"not": {"required": ["termination_request"]}}
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"const": "planned_stop"}}},
+      "then": {
+        "properties": {"exit_code": {"const": 0}},
+        "not": {"anyOf": [{"required": ["termination_request"]}, {"required": ["outcome"]}]}
+      }
+    },
+    {
+      "if": {"required": ["termination_kind"], "properties": {"termination_kind": {"const": "internal_error"}}},
+      "then": {
+        "properties": {"exit_code": {"const": 1}},
+        "not": {"required": ["outcome"]}
+      }
+    },
+    {
+      "if": {"not": {"required": ["termination_kind"]}},
+      "then": {"not": {"anyOf": [{"required": ["outcome"]}, {"required": ["exit_code"]}]}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s1"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s1": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s2"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s2": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s3"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s3": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s4"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s4": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s5"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s5": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s6"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s6": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s7"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s7": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
+    },
+    {
+      "if": {
+        "required": ["termination_kind", "termination_request"],
+        "properties": {
+          "termination_kind": {"const": "controlled_exit"},
+          "termination_request": {"properties": {"stage": {"const": "s8"}}}
+        }
+      },
+      "then": {"properties": {"stages": {"properties": {"s8": {"properties": {"status": {"enum": ["failed", "pending"]}}}}}}}
     }
   ],
   "$defs": {

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
@@ -67,17 +68,45 @@ def _read_json(source: str | Path | dict[str, Any]) -> tuple[Any | None, list[di
         return None, [_issue("INPUT_INVALID", "/", str(exc))]
 
 
+def _read_json_with_raw(source: str | Path | dict[str, Any]) -> tuple[Any | None, bytes | None, list[dict[str, str]]]:
+    if isinstance(source, dict):
+        return source, None, []
+    try:
+        raw = Path(source).read_bytes()
+        return json.loads(raw), raw, []
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, None, [_issue("INPUT_INVALID", "/", str(exc))]
+
+
 def _schema_errors(data: Any, schema_name: str) -> list[dict[str, str]]:
     schema_path = SCHEMA_DIR / schema_name
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        validator = Draft202012Validator(schema)
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
     except (OSError, json.JSONDecodeError) as exc:
         return [_issue("SCHEMA_INVALID", "/", str(exc))]
 
     errors = []
     for error in sorted(validator.iter_errors(data), key=lambda item: tuple(item.absolute_path)):
         errors.append(_issue("SCHEMA_INVALID", _path(list(error.absolute_path)), error.message))
+    if schema_name == "run.schema.json" and isinstance(data, dict):
+        created_at = data.get("created_at")
+        if isinstance(created_at, str) and re.fullmatch(
+            r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?Z",
+            created_at,
+        ):
+            try:
+                datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            except ValueError:
+                errors.append(
+                    _issue(
+                        "SCHEMA_INVALID",
+                        "/created_at",
+                        "created_at must be a valid UTC ISO8601 datetime",
+                    )
+                )
+    if schema_name == "test-summary.schema.json" and not errors and isinstance(data, dict):
+        errors.extend(_test_summary_semantic_errors(data))
     return errors
 
 
@@ -119,11 +148,20 @@ def _lint_spec_manifest_coverage(
         )
         return
 
-    covered: set[str] = set()
-    for test in manifest_data["tests"]:
-        if test["gate"] in GOLD_COVERAGE_GATES:
-            covered.update(test["req_ids"])
+    _check_requirement_coverage(spec_data, manifest_data, errors)
 
+
+def _check_requirement_coverage(
+    spec_data: dict[str, Any],
+    manifest_data: dict[str, Any],
+    errors: list[dict[str, str]],
+) -> None:
+    covered: set[str] = {
+        req_id
+        for test in manifest_data["tests"]
+        if test["gate"] in GOLD_COVERAGE_GATES
+        for req_id in test["req_ids"]
+    }
     for index, requirement in enumerate(spec_data["requirements"]):
         if requirement["level"] in {"MUST", "MUST NOT"} and requirement["id"] not in covered:
             errors.append(
@@ -260,6 +298,87 @@ def lint_target(source: str | Path | dict[str, Any], spec: str | Path | dict[str
     return _report(errors)
 
 
+def _round_order(round_id: str) -> tuple[Any, ...]:
+    match = re.fullmatch(r"(.*?)(\d+)$", round_id)
+    if match:
+        return (0, match.group(1), int(match.group(2)))
+    return (1, round_id)
+
+
+def _test_summary_semantic_errors(data: dict[str, Any]) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+
+    seen_variants: dict[str, int] = {}
+    for index, build_result in enumerate(data["build_results"]):
+        variant_id = build_result["variant_id"]
+        if variant_id in seen_variants:
+            errors.append(
+                _issue(
+                    "TEST_SUMMARY_VARIANT_DUPLICATE",
+                    f"/build_results/{index}/variant_id",
+                    f"variant_id duplicates build result at /build_results/{seen_variants[variant_id]}/variant_id",
+                )
+            )
+        else:
+            seen_variants[variant_id] = index
+
+    seen_nodeids: dict[str, int] = {}
+    for index, case in enumerate(data["cases"]):
+        nodeid = case["nodeid"]
+        if nodeid in seen_nodeids:
+            errors.append(
+                _issue(
+                    "TEST_SUMMARY_NODEID_DUPLICATE",
+                    f"/cases/{index}/nodeid",
+                    f"nodeid duplicates case at /cases/{seen_nodeids[nodeid]}/nodeid",
+                )
+            )
+        else:
+            seen_nodeids[nodeid] = index
+
+    current_order = _round_order(data["round_id"])
+    parent_round_id = data["parent_round_id"]
+    if current_order[0] == 0 and current_order[2] == 1:
+        if parent_round_id is not None:
+            errors.append(
+                _issue(
+                    "TEST_SUMMARY_PARENT_ROUND_INVALID",
+                    "/parent_round_id",
+                    "the first round must have parent_round_id null",
+                )
+            )
+    elif parent_round_id is None:
+        errors.append(
+            _issue(
+                "TEST_SUMMARY_PARENT_ROUND_INVALID",
+                "/parent_round_id",
+                "a non-first round must have a parent_round_id",
+            )
+        )
+    elif _round_order(parent_round_id) >= current_order:
+        errors.append(
+            _issue(
+                "TEST_SUMMARY_PARENT_ROUND_INVALID",
+                "/parent_round_id",
+                "parent_round_id must be less than round_id",
+            )
+        )
+
+    return errors
+
+
+def lint_test_summary(source: str | Path | dict[str, Any]) -> dict[str, Any]:
+    """Validate Test Summary structure and its deterministic cross-item relations."""
+
+    data, errors = _read_json(source)
+    if errors:
+        return _report(errors)
+    errors.extend(_schema_errors(data, "test-summary.schema.json"))
+    if errors or not isinstance(data, dict):
+        return _report(errors)
+    return _report(errors)
+
+
 def _nodeid_layer(nodeid: str) -> str | None:
     test_path = nodeid.split("::", 1)[0]
     parts = test_path.split("/")
@@ -275,10 +394,11 @@ def lint_test_bundle(
 ) -> dict[str, Any]:
     """Validate declarative Test Bundle metadata without collecting or running tests."""
 
-    data, errors = _read_json(source)
+    data, raw_bytes, errors = _read_json_with_raw(source)
     if errors:
         return _report(errors)
-    errors.extend(_schema_errors(data, "test-bundle.schema.json"))
+    schema_errors = _schema_errors(data, "test-bundle.schema.json")
+    errors.extend(schema_errors)
     if not isinstance(data, dict):
         return _report(errors)
 
@@ -298,6 +418,7 @@ def lint_test_bundle(
                     )
 
     requirements: dict[str, dict[str, Any]] | None = None
+    spec_data_for_coverage: dict[str, Any] | None = None
     if spec is not None:
         spec_data, spec_errors = _read_json(spec)
         if spec_errors:
@@ -314,6 +435,7 @@ def lint_test_bundle(
                 )
             elif isinstance(spec_data, dict):
                 requirements = {item["id"]: item for item in spec_data["requirements"]}
+                spec_data_for_coverage = spec_data
 
     if isinstance(tests, list):
         seen_nodeids: dict[str, int] = {}
@@ -386,9 +508,21 @@ def lint_test_bundle(
                             )
                         )
 
+        if spec_data_for_coverage is not None and not schema_errors:
+            _check_requirement_coverage(spec_data_for_coverage, data, errors)
+
     if not errors:
         try:
-            canonical_json_bytes(data)
+            canonical = canonical_json_bytes(data)
         except (TypeError, ValueError) as exc:
             errors.append(_issue("TEST_CANONICAL_JSON_INVALID", "/", str(exc)))
+        else:
+            if raw_bytes is not None and raw_bytes != canonical:
+                errors.append(
+                    _issue(
+                        "TEST_CANONICAL_JSON_NONCANONICAL",
+                        "/",
+                        "input bytes must equal canonical JSON bytes",
+                    )
+                )
     return _report(errors)

@@ -18,10 +18,12 @@
     "build_results": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {"$ref": "#/$defs/buildResult"}
     },
     "cases": {
       "type": "array",
+      "uniqueItems": true,
       "items": {"$ref": "#/$defs/case"}
     },
     "req_matrix": {

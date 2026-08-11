@@ -1,0 +1,30 @@
+dockerfile: docker/sandbox.Dockerfile
+tag: nepa-sandbox:m0
+image_id: sha256:c157b86196b6c42dd81847240d884890db7c55e2bb0707f2763037ecd4f16417
+iidfile: .m0-sandbox-image-id
+build_command: >-
+  docker build --iidfile .m0-sandbox-image-id -f docker/sandbox.Dockerfile
+  -t nepa-sandbox:m0 .
+build_exit_code: 0
+verification_command: >-
+  docker run --rm --network=none nepa-sandbox:m0 sh -lc 'set -eu; command -v gcc
+  >/dev/null; gcc --version >/dev/null; command -v make >/dev/null; make
+  --version >/dev/null; command -v python3 >/dev/null; python3 --version
+  >/dev/null; python3 -c "import pytest, paho.mqtt.client"; command -v mosquitto
+  >/dev/null; command -v mosquitto_pub >/dev/null; command -v mosquitto_sub
+  >/dev/null; printf "int main(void){return 0;}\n" >
+  /tmp/m0-sanitize-probe.c; gcc -x c -fsanitize=address,undefined -o
+  /tmp/m0-sanitize-probe /tmp/m0-sanitize-probe.c; /tmp/m0-sanitize-probe'
+network: none
+verification_exit_code: 0
+checks:
+  gcc: passed
+  make: passed
+  python3: passed
+  pytest: passed
+  paho_mqtt: passed
+  mosquitto: passed
+  mosquitto_pub: passed
+  mosquitto_sub: passed
+  asan_ubsan_compile_and_execute: passed
+status: passed

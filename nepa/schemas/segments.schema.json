@@ -44,7 +44,7 @@
         }
       }
     },
-    "coverage_ratio": {"type": "number", "minimum": 0}
+    "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}

@@ -44,6 +44,12 @@
       "required": ["commit_sha", "repair_evidence_ref"]
     }
   ],
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["accepted", "rolled_back"]}}},
+      "then": {"required": ["regression_summary_ref"]}
+    }
+  ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
     "gitSha": {"type": "string", "pattern": "^[A-Fa-f0-9]{40}$"},
