@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-14
+goal: Deliver the independently verifiable M1-1 runtime foundation without
+  implementing M1-2 or later capabilities.

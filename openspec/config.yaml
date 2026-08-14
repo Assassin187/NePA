@@ -1,47 +1,51 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
-
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
 context: |
   NePA 的唯一规范性设计来源是 project_docs/system_design.md。
-  实现前必须阅读当前 change 指向的设计章节和对应 DoD。
-  当前 change 必须明确所属里程碑，禁止实现其范围之外的后续工作。
-  设计文档与代码或 OpenSpec 工件冲突时，停止并报告，不得自行猜测。
+  NePA 的目标是把应用层网络协议文档转换为结构化 Spec，并进一步自动生成、构建、独立验证和有界修复客户端、服务端、代理或协议库；系统服务科研验证，强调可复现、可追溯和机器可判，不追求工业级性能、高可用、安全加固、通用软件生成或 GUI 产品化。
+  系统采用 S1～S9 有界流水线；确定性控制器掌握流程、状态、预算、提交点和失败语义，LLM 只在阶段内完成受 Schema、上下文和文件边界约束的判断或生成。
+  项目遵循验证优先、小步反馈、显式计划、按需上下文、角色分离、有界循环、工件落盘和结构化输出原则。不得以模型自述、人工目测或“代码已写完”替代设计文档规定的验证证据。
+  通用框架、prompt、Delivery Compiler、布局与机械模板必须保持应用层协议中立；协议事实和协议专属名称只能来自冻结输入、结构化工件及已声明的系统规则，禁止在通用代码中按 MQTT 或其他协议身份增加分支。
+  每个 change 默认只覆盖一个里程碑工作项或其中一个可独立验收的子项；跨工作项或跨里程碑时必须证明它们构成不可分割的端到端闭环，并逐项满足各自入口条件。
+  实现前必须阅读当前 change 指向的设计章节、依赖、数据契约、阶段行为和 DoD，检查已有代码资产，并区分已确认事实与假设。
+  OpenSpec 工件用于把设计裁剪成可执行 change，不得替代、覆盖或静默重新解释 system_design.md；设计文档与代码或 OpenSpec 工件冲突时，停止并报告，不得自行猜测。
+  里程碑状态、依赖满足情况和负责人批准必须来自可核验记录；OpenSpec 工件或智能体不得自行假定已经满足、降低门槛或代替签字。
   完成必须以设计文档规定的机器验证或负责人签字为准。
 
 rules:
   proposal:
-    - 标出 M0 工作项编号、设计文档章节、依赖、范围与非范围。
-    - 写出对应 DoD 和负责人签字项。
+    - 标出所属里程碑和工作项、设计文档章节、前置依赖及其已验证或未验证状态。
+    - 明确范围、非范围、受影响的现有代码路径和最小完整交付边界。
+    - 写出对应 DoD、机器验证方式和必须由负责人签字的门；不得用自动检查代替签字。
+    - 列出对上下游阶段、冻结工件、公共行为和已有 change 的影响；禁止提前实现后续里程碑能力。
+    - 对跨工作项或跨里程碑 change 解释为何不能安全拆分，否则应拆成独立 change。
   specs:
     - 只写可验证的工件行为与失败语义，不写实现方案。
+    - 每条 requirement 至少包含一个可判定的 Scenario，并引用对应设计章节或 DoD。
+    - 明确合法输入、处理结果、持久状态、输出、边界条件和受控失败；只增加设计明确要求的校验。
+    - 不得把当前代码行为当作规格来源，也不得引入设计文档没有定义的兼容、回退或扩展行为。
+  design:
+    - 说明输入、处理、持久状态、输出及上下游影响，优先复用仓库既有代码路径。
+    - 记录关键技术决定及其设计章节依据；不得通过 change 静默修改或重新解释 system_design.md。
+    - 按当前工作项说明确定性代码与 LLM 的职责边界，以及适用的 Schema、上下文、文件所有权、协议中立和验证约束。
+    - 涉及持久状态或副作用时，明确原子提交点、receipt/hash 绑定、resume/reconciliation 和失败语义；涉及循环时明确预算与停止条件。
+    - 说明如何保持既有公共行为，并记录必要但尚未验证的假设、风险和限制。
   tasks:
-    - 每项任务必须关联 requirement、设计章节和验证命令。
+    - 每项任务必须关联 requirement、设计章节、预期涉及的代码路径和验证命令。
+    - 按依赖顺序拆成可独立实现和验证的小步；不得把整个里程碑或多个可分离模块写成一个实现任务。
+    - 任务必须闭合输入、处理、状态变化、输出和受影响调用方，不得只实现孤立局部。
+    - 将负责人签字写成独立门禁任务，且不得由智能体标记为已批准。
+    - 最后一项必须检查完整 diff、运行当前 change 的全部验证，并核对未实现非范围内容。
+
+operations:
+  apply:
+    guidance:
+      - 开始实现前核对所属里程碑入口条件、当前 change 依赖和 OpenSpec 工件状态；条件未满足时停止并报告。
+      - 只实现当前 change 的 tasks，保留无关的用户修改，不顺带重构或增加未来能力。
+      - 遇到设计文档的严重歧义或与实现冲突时停止；未经负责人明确授权不得修改 system_design.md。
+      - 优先完成既有架构中的最小正确代码路径；不增加推测性抽象、兼容层、回退、重试、配置或依赖。
+      - 每完成一个任务即运行其局部验证；结束前检查完整 diff 并运行 change 级验证。只有 requirement、端到端路径和对应 DoD 都满足后才可完成 change。
+  archive:
+    guidance:
+      - 仅在全部机器验收通过、所需负责人签字已真实取得且没有未完成任务时归档。
+      - 归档前确认增量 spec 与实际实现一致，并说明其对应的里程碑工作项、DoD 证据、剩余限制和未实现非范围。

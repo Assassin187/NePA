@@ -1152,7 +1152,7 @@ Delivery Compiler 根据 Spec IR、Target Profile、系统内置生成规则和�
 
 ##### 5\.6.5.5 冻结输入描述
 
-`inputs/target.json` 是源 Target Profile 通过固定双字段 Schema 校验后的 canonical 副本，内容仍只能是 `roles` 与 `language`，禁止解析器补入任何元数据。`inputs/test_bundle.json` 是本 run 内冻结的 Test Bundle 前置规格解析描述，包含其 `schema_version`、`id/version`、`manifest_sha256` 及 5.3 定义的清单字段；M0/M1 不包含尚未生成的测试资产树哈希。不存在 `inputs/language.json`。
+`inputs/target.json` 是源 Target Profile 通过固定双字段 Schema 校验后的 canonical 副本，内容仍只能是 `roles` 与 `language`，禁止解析器补入任何元数据。`inputs/test_bundle.json` 是源 Test Bundle 文件的字节级拷贝，保持与 M0 test-bundle.schema.json 一致的 `schema_version`、`bundle: {id, version, default_build_variant_ids}` 及 `tests[]` 清单字段；M0/M1 不包含尚未生成的测试资产树哈希。`run.json.inputs.test_bundle` 记录源文件路径、原始字节 SHA-256、以及从 `bundle` 对象提取的 `id/version`；`manifest_sha256` 不存储在 Test Bundle 文件内部，而是在需要时从 `inputs/test_bundle.json` 的 canonical 字节重算（例如 Test Summary v2 的交叉校验）。不存在 `inputs/language.json`。
 
 #### 5\.6.6 S4 内部检查点
 
@@ -1313,7 +1313,7 @@ M1 按稳定 work package id **串行**展开；控制器接口可以未来并�
 
 控制器依次：
 
-1. 重验 Run v3/config snapshot hash、三项冻结输入的 Schema/文件哈希，以及 Test Bundle 的 `manifest_sha256`，运行 `spec_lint`；
+1. 重验 Run v3/config snapshot hash、三项冻结输入的 Schema/文件哈希，从 `inputs/test_bundle.json` 重算 `manifest_sha256` 并与 Test Summary 引用一致性校验，运行 `spec_lint`；
 2. 建立 type/message/requirement 引用图、REQ→test 索引与系统内置 build variant 索引；
 3. 编译 Delivery Constraints；
 4. 生成 `planning_index.json`：去除架构阶段不需要的 `source_ref.quote`，但保留全部元素 id、requirement 的 id/level/text、类型/报文结构依赖、Target Profile 的角色/语言和测试的 req/gate/build\-variant 元数据；
@@ -1525,7 +1525,7 @@ S6 admission 分 fresh 与 resume 两条确定性路径，但分支由**持久�
 - **fresh admission**：仅当 `plan_state.json` 不存在、HEAD 恰为 S5 首提交且 workspace clean 时成立；立即按 5.2.4 用 **S4 seal 中的 Plan hash** 初始化。状态初始化发生在检查全局剩余预算、决定是否执行第一个 task **之前**；因此即使预算为零而直接转 S9，也有全 pending 的合法 Plan State。state 缺失但 HEAD 已越过 S5 基线属于工件损坏，禁止猜测。
 - **resume admission**：只要 Plan State 已存在就走此路径。先运行 snapshot lint，再对 Plan State、HEAD、commit trailers、证据和工作树做 reconciliation，而不是先要求 clean。`in_progress` 且没有与当前 task/attempt/evidence/tree 全部匹配的有效 commit 时，恢复该 attempt 的基线快照并清除无有效 commit trailer 引用的孤儿证据；存在完全匹配的合法 task commit 而 state 仍 `in_progress` 时前向补记 `done`；`done` 却缺 commit/证据、trailer 或内容 hash 不符时判工件损坏。reconciliation 完成后才执行 clean gate。
 
-随后两条路径共同运行 `execution_state_lint`：核对 Plan v4/三项 refs、config snapshot hash、S4 seal、Blueprint、S5 各 output ref、Test Bundle `manifest_sha256`、git ancestry 与工作区清洁状态。错位属于输入工件错误，不进入代码修复循环。S6 在每次 resume、每个任务 commit 前后与阶段出口复核封存 Plan/config hash；任何变化均以 `PLAN_MUTATED_AFTER_SEAL` 受控失败。
+随后两条路径共同运行 `execution_state_lint`：核对 Plan v4/三项 refs、config snapshot hash、S4 seal、Blueprint、S5 各 output ref、从 `inputs/test_bundle.json` 重算的 `manifest_sha256` 与历史 Test Summary 的引用一致性、git ancestry 与工作区清洁状态。错位属于输入工件错误，不进入代码修复循环。S6 在每次 resume、每个任务 commit 前后与阶段出口复核封存 Plan/config hash；任何变化均以 `PLAN_MUTATED_AFTER_SEAL` 受控失败。
 
 #### 6\.6.1 单任务循环
 
@@ -1602,7 +1602,7 @@ Coder 与 Fixer 共用同一输出 Schema：`{"micro_plan": ["..."], "files": [{
 
 主流程：
 
-1. 先做工件完整性 gate：Plan SHA\-256 与 S4 seal/Plan State 一致，config snapshot hash 与 S4 seal 一致；Test Bundle `manifest_sha256` 与冻结清单一致，M2 生成测试资产的树哈希与 M2\-0 定义的描述工件一致；Blueprint 与 Plan 一致；artifact manifest、internal contract map 及 workspace 首提交与 S5 output receipt 一致；Plan State 与首次 S7 的 workspace HEAD 匹配 S6 receipt，且其 evidence refs 的内容哈希有效。由 S8 回调时，当前 HEAD 必须是 S6 基线加已登记 repair commit 的合法后代。工作区必须干净；工件错误不得伪装成测试失败。
+1. 先做工件完整性 gate：Plan SHA\-256 与 S4 seal/Plan State 一致，config snapshot hash 与 S4 seal 一致；从 `inputs/test_bundle.json` 重算 `manifest_sha256` 与冻结清单一致，M2 生成测试资产的树哈希与 M2\-0 定义的描述工件一致；Blueprint 与 Plan 一致；artifact manifest、internal contract map 及 workspace 首提交与 S5 output receipt 一致；Plan State 与首次 S7 的 workspace HEAD 匹配 S6 receipt，且其 evidence refs 的内容哈希有效。由 S8 回调时，当前 HEAD 必须是 S6 基线加已登记 repair commit 的合法后代。工作区必须干净；工件错误不得伪装成测试失败。
 2. Test Bundle runner 按 M2\-0 批准的接口及系统内置语言规则的构建变体构建和启动 workspace 目标；默认组合仍执行 `make` 与 `make SAN=1`。未完成 M2\-0 设计、测试生成、一致性检查和参考实现验证不得启动 S7。
 3. Test Bundle 按自身层级与 oracle 执行**全部启用测试**，不按 task acceptance 或最早 gate 裁剪；默认 MQTT Bundle 仍依序运行 L0 → L1 → L2 → L3。参考目标只用于 M2 的测试自验证及显式参考对照，不得成为 S7 的受测目标；`gate` 只控制 M2 启用增量测试后的最早快验点。
 4. 由调用者决定 Test Summary v2 的 trigger：正常进入 S7 时为 `s7_full`，S8 发起的全量回归为 `s8_regression`；摘要包含逐用例结果、按 REQ 聚合矩阵及 Plan/Blueprint/Test Bundle 摘要（M2 起含测试资产树哈希）。
