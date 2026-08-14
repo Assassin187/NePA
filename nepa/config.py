@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .speclib.lint import canonical_json_bytes
 
@@ -36,6 +36,24 @@ class ModelConfig(_Model):
     model: str
     temperature: float = 0.0
     max_tokens: int = Field(gt=0)
+
+
+class ModelPrice(_Model):
+    input_usd_per_million_tokens: float = Field(ge=0)
+    output_usd_per_million_tokens: float = Field(ge=0)
+
+
+class PricingConfig(_Model):
+    models: dict[str, ModelPrice]
+
+    @field_validator("models")
+    @classmethod
+    def canonical_model_keys(cls, values: dict[str, ModelPrice]) -> dict[str, ModelPrice]:
+        for key in values:
+            parts = key.split("/")
+            if len(parts) != 2 or not all(parts):
+                raise ValueError("pricing model keys must be canonical <provider>/<model> strings")
+        return values
 
 
 class TierConfig(ModelConfig):
@@ -96,6 +114,7 @@ class ResolvedConfig(_Model):
     calibration_models: dict[str, ModelConfig]
     tiers: dict[str, TierConfig]
     roles: dict[str, RoleConfig]
+    pricing: PricingConfig
     budgets: BudgetConfig
     planning: PlanningConfig
     run: RunConfig
@@ -141,6 +160,7 @@ _DEFAULTS: dict[str, Any] = {
         "T3": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 4000},
     },
     "roles": {},
+    "pricing": {"models": {}},
     "budgets": {
         "wall_clock_hours": 4,
         "max_cost_usd": 20,
@@ -240,3 +260,11 @@ def verify_config_snapshot(snapshot: Mapping[str, Any], expected_sha256: str) ->
         raise ConfigSnapshotDrift(
             f"configuration snapshot hash mismatch: expected {expected_sha256}, got {actual}"
         )
+
+
+def configured_model_price(config: ResolvedConfig, provider: str, model: str) -> ModelPrice:
+    key = f"{provider}/{model}"
+    try:
+        return config.pricing.models[key]
+    except KeyError as exc:
+        raise ConfigError(f"missing configured price for {key}") from exc

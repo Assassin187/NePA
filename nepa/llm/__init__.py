@@ -1,0 +1,43 @@
+"""Provider-neutral LLM runtime primitives for M1-2."""
+
+from .client import (
+    CapabilityProbeResult,
+    DecodingError,
+    EvidenceStorageError,
+    LLMCallContext,
+    LLMClient,
+    LLMConfigurationError,
+    LLMError,
+    LLMRequest,
+    LLMRequestError,
+    LLMResponse,
+    ParameterSupportState,
+    Provider,
+    ProviderError,
+    StructuredOutputError,
+    TransportError,
+    ValidationState,
+    extract_first_json_value,
+    structured_validation_errors,
+)
+
+__all__ = [
+    "CapabilityProbeResult",
+    "DecodingError",
+    "EvidenceStorageError",
+    "LLMCallContext",
+    "LLMClient",
+    "LLMConfigurationError",
+    "LLMError",
+    "LLMRequest",
+    "LLMRequestError",
+    "LLMResponse",
+    "ParameterSupportState",
+    "Provider",
+    "ProviderError",
+    "StructuredOutputError",
+    "TransportError",
+    "ValidationState",
+    "extract_first_json_value",
+    "structured_validation_errors",
+]

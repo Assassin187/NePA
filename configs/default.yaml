@@ -37,6 +37,9 @@ roles:
   fixer: {tier: T2, escalate_to: T1}
   reporter: {tier: T3}
 
+pricing:
+  models: {}
+
 budgets:
   wall_clock_hours: 4
   max_cost_usd: 20

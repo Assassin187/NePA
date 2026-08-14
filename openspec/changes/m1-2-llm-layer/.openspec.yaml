@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-14
+goal: Deliver the audited LLM runtime boundary required by M1-3 and later stages
+  without implementing agents or stage logic.

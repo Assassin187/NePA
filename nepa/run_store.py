@@ -231,6 +231,22 @@ class RunStore:
             raise RunValidationError(f"JSON artifact is not canonical: {exc}") from exc
         return self.publish_immutable_bytes(relative_path, data)
 
+    def read_verified_bytes(self, relative_path: str, expected_sha256: str | None = None) -> bytes:
+        """Read a confined immutable artifact and optionally verify its raw-byte hash."""
+
+        path = self._confined(relative_path)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise RunValidationError(f"missing artifact {relative_path}") from exc
+        if expected_sha256 is not None:
+            actual = sha256_bytes(data)
+            if actual != expected_sha256:
+                raise RunValidationError(
+                    f"artifact hash mismatch for {relative_path}: expected {expected_sha256}, got {actual}"
+                )
+        return data
+
     def verify_ref(self, ref: ArtifactRef | Mapping[str, Any], *, schema_name: str | None = None) -> None:
         parsed = ArtifactRef.from_value(ref)
         path = self._confined(parsed.path)
@@ -273,6 +289,53 @@ class RunStore:
             handle.flush()
             os.fsync(handle.fileno())
         self._directory_fsync(path.parent)
+
+    def append_llm_trace(self, event: Mapping[str, object]) -> None:
+        """Append one canonical LLM trace row to the dedicated evidence stream."""
+
+        try:
+            data = canonical_json_bytes(dict(event)) + b"\n"
+        except (TypeError, ValueError) as exc:
+            raise RunStoreError(f"LLM trace event is not canonical JSON: {exc}") from exc
+        path = self._confined("trace/llm_calls.ndjson")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("ab") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        self._directory_fsync(path.parent)
+
+    def next_llm_call_sequence(self) -> int:
+        """Return the next numeric evidence id, including orphan prompt/output files."""
+
+        highest = 0
+        trace_path = self._confined("trace/llm_calls.ndjson")
+        if trace_path.exists():
+            try:
+                rows = trace_path.read_text(encoding="utf-8").splitlines()
+                for line in rows:
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    for field in ("prompt_path", "output_path"):
+                        value = row.get(field)
+                        if isinstance(value, str):
+                            highest = max(highest, self._numeric_artifact_id(value))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise RunStoreError("cannot inspect existing LLM trace sequence") from exc
+        for directory in ("trace/prompts", "trace/outputs"):
+            path = self._confined(directory)
+            if not path.exists():
+                continue
+            for artifact in path.iterdir():
+                if artifact.is_file():
+                    highest = max(highest, self._numeric_artifact_id(artifact.name))
+        return highest + 1
+
+    @staticmethod
+    def _numeric_artifact_id(value: str) -> int:
+        stem = Path(value).name.split(".", 1)[0]
+        return int(stem) if stem.isdigit() else 0
 
     @contextmanager
     def controller_lock(self) -> Iterator[None]:
