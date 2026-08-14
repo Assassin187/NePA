@@ -122,6 +122,7 @@ def test_schema_positive_run_terminal_conditions():
     )
     controlled_exit_failed = copy.deepcopy(controlled_exit)
     controlled_exit_failed["stages"]["s1"]["status"] = "failed"
+    controlled_exit["stages"]["s1"]["status"] = "pending"
 
     assert validator.is_valid(completed)
     assert validator.is_valid(planned_stop)
@@ -145,6 +146,33 @@ def test_schema_negative_controlled_exit_requires_failed_or_pending_stage():
     invalid["stages"]["s1"]["status"] = "done"
 
     assert not validator.is_valid(invalid)
+
+
+def test_runtime_schema_initial_spec_run_skips_pre_runtime_stages():
+    validator = Draft202012Validator(_schema("run.schema.json"))
+    value = _example("run.example.json")
+
+    assert value["stages"]["s1"]["status"] == "skipped"
+    assert value["stages"]["s2"]["status"] == "skipped"
+    assert value["stages"]["s3"]["status"] == "skipped"
+    assert all(value["stages"][stage]["status"] == "pending" for stage in ("s4", "s5", "s6", "s7", "s8", "s9"))
+    assert validator.is_valid(value)
+
+
+def test_runtime_schema_rejects_unbound_output_reference():
+    validator = Draft202012Validator(_schema("run.schema.json"))
+    value = _example("run.example.json")
+    value["stages"]["s4"]["output_refs"] = {"plan": {"path": "plan/plan.json", "sha256": "not-a-sha"}}
+
+    assert not validator.is_valid(value)
+
+
+def test_report_availability_requires_reason_for_missing_value():
+    validator = Draft202012Validator(_schema("report.schema.json"))
+    value = _example("report.example.json")
+    value["req_coverage"] = {"status": "unavailable", "value": None}
+
+    assert not validator.is_valid(value)
 
 
 def test_schema_negative_run_created_at_must_be_utc_iso8601():

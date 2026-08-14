@@ -228,7 +228,10 @@
         "started_at": {"type": ["string", "null"]},
         "ended_at": {"type": ["string", "null"]},
         "error": {"type": ["string", "null"]},
-        "output_refs": {"type": "object"}
+        "output_refs": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/ref"}
+        }
       }
     },
     "budget": {
