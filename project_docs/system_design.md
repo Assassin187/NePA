@@ -1,7 +1,7 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：2.3.0\
+> 设计版本：2.3.1\
 > 最后更新：2026\-08\-14\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
@@ -1070,6 +1070,8 @@ C99 规则由 NePA 代码与随代码维护的模板直接提供，至少包括�
 
 这些规则是 NePA 实现的一部分，不是独立运行输入。**禁止**为后端或模板增加 `id`、`version`、`hash` 字段，也禁止把这类元数据写入 Target Profile、`run.json`、Plan 或解析描述。模板通过固定的仓库相对路径由实现代码引用；其变更只随 NePA 源代码的版本控制历史追溯，不在运行工件中增加专用字段。
 
+这里的“模板固定”是指 **NePA 内置一套协议中立的应用层代码结构与机械模板**，不是把 MQTT 的目录、符号、报文或状态语义固化为模板。模板只能消费 Spec IR、Target Profile、Delivery Constraints/Blueprint、Plan、派生命名和 internal contract；模板源码禁止包含 MQTT 报文名、topic/subscription 语义、`mqtt_*` 标识符、MQTT REQ id、固定端口 1883，或任何按协议名称/身份选择代码结构的分支。同一套模板源码必须能够在不修改模板的前提下，根据输入实例化 HTTP、CoAP、SMTP 等应用层协议的项目结构；协议专属的报文、状态机、承载方式和角色差异必须来自上述结构化输入及系统已声明支持的语言/角色规则。某协议是否已获得端到端支持仍由对应里程碑的 Spec、角色/传输规则和测试验收决定，不能仅凭模板可渲染就宣称支持。
+
 **C99 命名派生函数**固定如下。输入字符串先去除首尾空白；每个 ASCII 大写字母转为小写；每段连续的不属于 `[A-Za-z0-9]` 的字符替换为一个下划线；删除首尾下划线；若结果以数字开头则前置 `p_`。结果为空时以 `DERIVED_IDENTIFIER_EMPTY` 失败。`protocol.name` 经该函数得到 `symbol_prefix`，`messages[].id` 和 `types[].id` 分别经该函数得到 `message_id` 和 `type_id`。同一命名空间内两个源 id 归一化为同一结果时以 `DERIVED_IDENTIFIER_COLLISION` 失败，禁止追加序号消歧。
 
 C99 Blueprint 的 `naming` 必须逐值写出以下确定结果，不得只写自然语言摘要：
@@ -1134,7 +1136,7 @@ Delivery Compiler 根据 Spec IR、Target Profile、系统内置生成规则和�
 | `net-source` | `source` | `layout_template` | `s6_owned` | `src/net/<prefix>_net.c` | `none` |
 | `server-entry-source` | `app` | `layout_template` | `s6_owned` | `apps/<prefix>_server_main.c` | `none` |
 
-该表是第 7.2 节 MQTT 路径的通用产生函数；S4/S5 不得从第 7 章示例反向猜路径，也不得增加 client 或 codec CLI 槽位。
+该表是第 7.2 节实例路径的通用产生函数；`session`、`net`、`codec` 是应用层实现的通用职责槽位，不等同于 MQTT 会话、订阅或报文语义。S4/S5 不得从第 7 章 MQTT 展开结果反向猜路径，也不得增加 client 或 codec CLI 槽位。
 
 每个机械生成契约至少包含 `{input_kinds[], template_path, output_rule_ids[]}`，可带只含字符串常量的 `template_context`。`input_kinds` 只允许从 `{spec_types, spec_messages, derived_naming, language_type_mappings, resource_limits}` 选择；每个 `producer=mechanical_spec` rule 必须被恰一个机械契约输出。机械模板禁止读取测试实现、环境、Plan 运行状态或协议身份分支。
 
@@ -1494,7 +1496,7 @@ S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足
 3. 把重算出的 constraints/blueprint 传给 stage full `plan_lint`；只有 full lint 0 error 后才允许第一个 workspace 副作用。
 4. S5 作为 scaffold **唯一生产阶段**，按 blueprint 物化所有目录、构建文件、`s5_frozen` 机械文件和 `s6_owned` 可构建存根。构建文件只消费 Blueprint 已展开的 build artifact/link source set，机械文件只消费对应机械契约白名单中的输入域；协议事实只从 Spec IR 读取，禁止重新决定 Plan 的架构、owner、contract 或以文件名推断链接关系。
 5. 确定性生成带 blueprint hash 的 `artifact_manifest.json` 与 `contract_map.json`：前者区分 `created_by_stage` 与 `owner_task_id`，并逐项记录 deliverable→artifact→expanded link sources；后者只物化 Plan 的 internal contract。
-6. 默认组合通过系统内置布局与机械模板复现第 7.2/7.3 裁决的 server 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；通用 S5 代码不得按 MQTT 名称分支。公开类型与 codec ABI 来自机械生成规则，server session/net 内部 ABI 来自角色布局规则；S5 必须逐值核对内置资源上限、Blueprint internal contract 及 `s5_frozen`/`s6_owned` 分类。
+6. 默认组合通过协议中立的系统内置应用层布局与机械模板，按 MQTT 输入机械展开并复现第 7.2/7.3 裁决的 server 文件、接口及返回 `MQTT_ERR_NOT_IMPLEMENTED` 的 `.c` 空实现；模板源码与通用 S5 代码不得包含 MQTT 常量或按协议名称分支。公开类型与 codec ABI 来自机械生成规则，server session/net 内部 ABI 来自角色布局规则；S5 必须逐值核对内置资源上限、Blueprint internal contract 及 `s5_frozen`/`s6_owned` 分类。替换为 HTTP、CoAP、SMTP 等合规应用层 Spec 时，S5 必须沿用同一布局/模板代码路径，只允许输入派生的前缀、类型、报文、接口和职责内容变化。
 7. `git init`、首提交；在沙箱执行系统内置语言规则的默认构建。M2\-0 裁决公开测试边界前，S5 不执行 `gate=s5` Test Bundle 用例。
 8. 重读并校验全部输出，最后原子把 S5 标为 done，同时在 `run.json.stages.s5.output_refs` 封存 artifact manifest、contract map 的 `{path, sha256}` 及 workspace 首提交 SHA。
 
@@ -1540,7 +1542,8 @@ for task in 拓扑序(plan.tasks):
     while state.attempts < total_limit:
         tier = T2 if state.attempts < t2_limit else T1
         原子迁移 state→in_progress，attempts += 1   # 先持久化，崩溃也已消耗本次
-        out = Coder(ctx, tier)                   # 输出：完整文件集 JSON
+        role = Coder if state.attempts == 1 else Fixer
+        out = role(ctx, tier)                    # 首次 Coder，后续 Fixer；输出同一完整文件集 JSON
         校验 out.files 路径 ⊆ task.deliverable_files，违规则拒绝、把原因计入 ctx 并 continue
         校验目标均为该 task 唯一拥有的 s6_owned 文件；写入文件
         build = 沙箱运行 task.acceptance.build_variant_ids
@@ -1557,16 +1560,17 @@ for task in 拓扑序(plan.tasks):
 
 阶段级规则：
 
+- 每个任务恰有一次首次 Coder 调用；只要首次 attempt 未完成，后续全部 attempt（包括 T2 重试与最后一次 T1 升级）都调用 Fixer，禁止重新调用 Coder。Diagnoser 只生成诊断反馈、不写文件；Fixer 在相同任务边界内消费当前文件、最近一次失败证据以及存在时的 Diagnoser 结论完成修复；
 - blocked 任务只阻塞其下游依赖链，无关分支继续执行（尽量多交付）；
 - 每次文件写入前建立可恢复快照，attempt 失败必须恢复到该任务最近一次已验证提交；中间态不提交；
 - success 的跨介质顺序固定为"绑定 git tree 的证据落盘 → 带 evidence hash trailer 的 git commit → state done"。resume 只允许把三者完全吻合、但 state 仍 in\_progress 的窗口前向补记为 done；state=done 但提交或证据缺失视为损坏。attempts 以 Plan State 已持久化值为准，resume 不重获 3\+1 预算；
-- Coder 可以为当前任务形成临时 micro\-plan，但它只存在于本次结构化输出/trace，禁止改变工作包、任务、依赖、文件白名单、acceptance 或新增任务；
+- Coder/Fixer 可以为当前任务形成临时 micro\-plan，但它只存在于本次结构化输出/trace，禁止改变工作包、任务、依赖、文件白名单、acceptance 或新增任务；
 - 若执行发现问题来自正式宏计划而非代码，立即恢复工作树并以 `PLAN_INVALID_AT_EXECUTION` 结束 S6；M1 不允许模型静默改 Plan。未来重规划必须设计显式 Plan revision、影响失效与回滚协议后另行启用。
 - 所有可执行任务达到终态后，运行最终 `execution_state_lint`，并在把 S6 标为 done 的同一次 `run.json` 原子更新中封存 Plan State 的 `{path, sha256}` 与 workspace HEAD；Plan State 已传递性绑定各验收证据内容，S7 的首次入口以此 receipt 为基线。
 
 #### 6\.6.2 上下文包组装规则
 
-Coder 的上下文按固定顺序组装，总量受 `coder_context_max_tokens`（默认 24k）约束，超限按低优先级先裁：
+Coder/Fixer 的上下文按固定顺序组装，总量受 `coder_context_max_tokens`（默认 24k）约束，超限按低优先级先裁。Fixer 额外消费表中第 7 项的最近一次失败反馈与 Diagnoser 结论，其余来源、顺序和裁剪规则与 Coder 相同：
 
 | 序   | 内容                                                         | 来源      | 裁剪优先级           |
 | ---- | ------------------------------------------------------------ | --------- | -------------------- |
@@ -1578,11 +1582,11 @@ Coder 的上下文按固定顺序组装，总量受 `coder_context_max_tokens`�
 | 6    | 待修改文件的当前内容                                         | workspace | 中                   |
 | 7    | 当前任务状态与最近一次失败反馈/诊断结论                       | plan state / 本循环 | 高（只保留最近一次） |
 
-**禁止**进入 Coder 上下文的内容：原始文档文本（P4）、Test Bundle 的测试/runner/oracle/适配器实现（P1）、与本任务无关的 spec 章节、其他任务的对话历史（P5）。
+**禁止**进入 Coder/Fixer 上下文的内容：原始文档文本（P4）、Test Bundle 的测试/runner/oracle/适配器实现（P1）、与本任务无关的 spec 章节、其他任务的对话历史（P5）。
 
 #### 6\.6.3 输出契约
 
-Coder 输出 JSON：`{"micro_plan": ["..."], "files": [{"path": "...", "content": "完整文件内容"}], "notes": "假设与待办说明"}`。`files` 可以是 `task.deliverable_files` 的非空子集；白名单是本任务可修改上界，不要求从未创建或本次无需修改的路径必须出现。提交边界只暂存实际变更集，仍必须先证明该集合完全落在白名单内。`micro_plan` 只描述本次 task 内部步骤并进入 trace，不是 Plan amendment。**必须**输出完整文件而非 diff——补丁应用的脆弱性是弱模型的高频失败模式，完整文件牺牲少量 token 换取确定性。`notes` 写入对应 Plan State 项，由 S9 汇入报告；任何试图修改宏计划的说明触发 `PLAN_INVALID_AT_EXECUTION`，不得只当普通 notes 忽略。
+Coder 与 Fixer 共用同一输出 Schema：`{"micro_plan": ["..."], "files": [{"path": "...", "content": "完整文件内容"}], "notes": "假设与待办说明"}`。`files` 可以是 `task.deliverable_files` 的非空子集；白名单是本任务可修改上界，不要求从未创建或本次无需修改的路径必须出现。提交边界只暂存实际变更集，仍必须先证明该集合完全落在白名单内。`micro_plan` 只描述本次 task 内部步骤并进入 trace，不是 Plan amendment；Fixer 的 micro\-plan 必须针对最近一次失败与诊断，不得重新规划任务。**必须**输出完整文件而非 diff——补丁应用的脆弱性是弱模型的高频失败模式，完整文件牺牲少量 token 换取确定性。`notes` 写入对应 Plan State 项，由 S9 汇入报告；任何试图修改宏计划的说明触发 `PLAN_INVALID_AT_EXECUTION`，不得只当普通 notes 忽略。
 
 ### 6\.7 S7 集成与一致性测试
 
@@ -1678,22 +1682,26 @@ S8 可以读取 Plan State 判断相关任务是否曾完成，但禁止修改 P
 
 ### 7\.2 生成项目标准布局
 
+本节先给出固定模板的**协议中立形式**。`<prefix>` 必须由 5.6.5.2 的 `protocol.name` 归一化函数机械产生，`{message_id}` 必须由 5.6.5.3 按报文展开；两者都不是模板作者手写的协议常量：
+
 ```text
 workspace/
 ├── Makefile
 ├── README.md                 # 脚手架生成：构建与运行方法
-├── include/mqtt/
-│   ├── mqtt_types.h          # 机械派生：报文枚举、错误码、报文结构体（S5，非 LLM）
-│   ├── mqtt_codec.h          # 编解码接口声明（机械派生）
-│   ├── mqtt_session.h        # server session/core 内部 ABI
-│   └── mqtt_net.h            # conn_id 定向 batch 应用边界
+├── include/<prefix>/
+│   ├── <prefix>_types.h      # 机械派生：报文枚举、错误码、报文结构体（S5，非 LLM）
+│   ├── <prefix>_codec.h      # 编解码接口声明（机械派生）
+│   ├── <prefix>_session.h    # server connection/session/core 内部 ABI
+│   └── <prefix>_net.h        # 传输适配与应用边界
 ├── src/
-│   ├── codec/                # 每报文一个文件：codec_connect.c、codec_publish.c …
-│   ├── session/              # per-connection 状态与共享 server 订阅/转发 core
-│   └── net/                  # socket 封装、select 事件循环
+│   ├── codec/                # 每报文一个文件：codec_{message_id}.c
+│   ├── session/              # 连接/请求状态与共享 server core
+│   └── net/                  # 承载适配与事件循环
 └── apps/
-    └── mqtt_server_main.c    # server 可执行入口
+    └── <prefix>_server_main.c # server 可执行入口
 ```
+
+对本章默认实例，`protocol.name="MQTT"` 机械得到 `<prefix>=mqtt`，因此上述路径精确展开为 `include/mqtt/mqtt_types.h`、`include/mqtt/mqtt_codec.h`、`include/mqtt/mqtt_session.h`、`include/mqtt/mqtt_net.h`、逐报文 `src/codec/codec_connect.c` 等文件，以及 `apps/mqtt_server_main.c`。这些 MQTT 字面量只能出现在由输入渲染后的实例中，不能出现在布局或机械模板源码中。HTTP、CoAP、SMTP 等应用层协议沿用同一目录职责与模板代码路径，并由各自 Spec/Blueprint 派生前缀、报文、接口、状态与承载内容；若新增协议需要当前系统规则尚未声明的角色或承载能力，必须先按里程碑修订并验证对应规则，而不是在模板中增加协议特例。
 
 注意：M0/M1 没有具体协议测试资产。M2 生成的测试不得写入受测 workspace；其存放位置及访问 server 的公开边界由 M2\-0 裁决。
 
@@ -1864,6 +1872,8 @@ sandbox:
   mem_gb: 4
 ```
 
+当前 Claude/Anthropic Provider 的请求目标**必须严格使用**上例中人工配置的 `providers.anthropic.base_url`，即 `https://www.sotamodel.net/v1/chat/completions`。该字段在当前 `anthropic` adapter 中表示完整请求地址，不是供实现追加路径的主机前缀；实现不得改用 Anthropic 官方默认地址、不得再拼接 `/v1/messages` 或其他路径，也不得根据 provider 名或模型名推断/替换端点。API 密钥环境变量及 Claude 模型名称以本节配置为准。
+
 运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。其中 temperature 等采样值是客户端**请求配置**，不是 provider 已应用的承诺；实际能力状态按 8.4/5.5 逐调用记录。`calibration_models` 只用于 M1\-4a2/M1\-4a3 的隔离实验，不把三个模型同时路由进正式 S4。S4 各项预算的正式默认值按 4.7 与 6.4.8 由实测冻结，示例中的数值不构成已验证默认值。
 
 **scope 配置**（`configs/scope-<protocol>.yaml`，doc\-run 必需）：字段为 `protocol`、`version`、`features_included[]`、`features_excluded[]: {feature, reason, message_names?[], sections?[]}`、`assumptions[]`。S2 以它过滤提取范围（6.2），但不把 scope 复制进 Spec IR；S3 按 6.3 的三条机械规则检查产物没有越出 scope，范围身份与哈希由 `run.json` 保留。目标实现角色只由 Target Profile 表达，不在 scope 中重复。`features_excluded[]` 的可选 `message_names[]`/`sections[]` 是让排除项参与机械判定的唯一途径；只写自然语言 `feature` 的排除项会被列入 `unchecked_scope_exclusions[]`。
@@ -1897,7 +1907,7 @@ class Provider(Protocol):
 
 实现要点：
 
-1. **两个内置 provider 覆盖所有 API 型号**：`openai_compat`（任何 OpenAI 兼容端点：OpenAI、DeepSeek、Qwen、Kimi、vLLM 自部署等，只换 `base_url`）与 `anthropic`（原生）。新 provider 只需实现 `complete`。
+1. **两个内置 provider 覆盖所有 API 型号**：`openai_compat`（任何 OpenAI 兼容端点：OpenAI、DeepSeek、Qwen、Kimi、vLLM 自部署等，只换 `base_url`）与 `anthropic`（Claude 专用 adapter；请求目标严格使用 8.3 配置的完整 `base_url`，当前即 `https://www.sotamodel.net/v1/chat/completions`）。新 provider 只需实现 `complete`。
 2. **结构化输出统一策略**（P8）：优先用 provider 原生的 JSON/schema 模式；不支持则退化为"schema 内嵌提示词 \+ 抽取首个 JSON \+ `jsonschema` 校验"。校验失败自动发一次修复调用（把错误清单馈给模型），仍失败则向上报错——行为对所有 provider 一致。
 3. **重试与限流**：网络/5xx/限流错误指数退避重试 ≤ 3 次；重试不计入阶段预算（区分"模型失败"与"基础设施失败"）。
 4. **参数能力记账与 probe 证据标准**：adapter 不得静默丢弃请求参数。若 provider 响应或 provider 专属 capability 端点明确报告某参数已应用或被忽略，分别记录 `reported_applied/reported_ignored`；若 API 不能证明其实际行为则记录 `unknown`。Capability probe 使用关闭缓存的最小非结构化请求，逐项记录请求值、请求是否被接受、返回模型、token/成本/延迟、错误与能力状态；请求被接受只证明 API 在语法层接受该参数，证据种类记为 `request_accepted_only`，**禁止**据此升级为 `reported_applied`。输出差异或多次采样的统计推断也不得升级能力状态；请求失败时相关参数仍为 `unknown`。只有上述 provider 显式报告才使用 `provider_report` 证据并写两个 `reported_*` 状态。测试期 `deepseek-reasoner` 若无此类显式证据，其 temperature 在 probe 后仍诚实保持 `unknown`；temperature 0 不能单独作为确定性或可复现性承诺。
@@ -1973,7 +1983,7 @@ nepa report <run_id> [--open]            # 重新生成/查看报告
 9. 输入分节定界符明确，避免模型把错误日志当成指令；
 10. 给模型留 `notes`/`assumptions` 字段承接说明性内容，防止它把话写进代码字段。
 
-协议中立硬门适用于 M1 的全部通用框架与 prompt，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径和接口常量。用一个非 MQTT 最小 fixture 渲染后，任何 MQTT 名称/路径/接口残留必须为 0。MQTT 运行的最终 prompt 只可在**输入数据区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map 或接口文件，不能来自模板或框架常量。M1\-4a2 的共享 ArchitecturePlanner prompt 还必须扫描模型名称和 provider 名称，禁止模型专属条件块。
+协议中立硬门适用于 M1 的全部通用框架、prompt、S5 布局代码与机械模板，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。框架、prompt 与模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径、接口常量、端口与 topic/subscription 语义。用一个非 MQTT 最小应用层 fixture（可取 HTTP、CoAP 或 SMTP）渲染完整 S5 scaffold 后，任何 MQTT 名称/路径/接口残留必须为 0，且所有路径、符号与逐报文文件都能由同一归一化、六模式和展开规则重算；该门证明模板协议中立，不替代 M6 的端到端跨协议能力验收。MQTT 运行的最终 prompt 与 scaffold 只可在**输入派生区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map、接口文件或 5.6.5 已声明的语言/角色规则，不能来自模板或框架中的 MQTT 常量。M1\-4a2 的共享 ArchitecturePlanner prompt 还必须扫描模型名称和 provider 名称，禁止模型专属条件块。
 
 S4 额外规则：生产 `layered` 角色禁止任何单个 prompt 同时要求模型完成全局架构、所有工作包任务展开、最终编号/coverage 和运行状态。ArchitecturePlanner、TaskPlanner、PlanCritic 使用独立模板与新鲜上下文；Critic 只能返回 issue list，不能重写整份 Plan。A9 唯一例外是专用 `FlatPlanBaseline`：它可一次生成完整语义草稿，但仍禁止最终 id/hash/coverage/review/state，且只在显式 `planning.strategy=flat` 时注册，绝不是生产 fallback。
 
@@ -2191,17 +2201,17 @@ flowchart LR
 | id    | 工作项                                                       | 详见               |
 | ----- | ------------------------------------------------------------ | ------------------ |
 | M1\-1 | 运行框架：Run v3、config、run\_store（原子写）、orchestrator（阶段状态机、预算、resume），以及 S4～S6 预算/流程错误受控早退所需的最小 S9 core/Report v2 部分报告 | 4\.7、4\.8、5\.4、5\.6.2、8\.2、8\.3 |
-| M1\-2 | LLM 层：Claude、Qwen、DeepSeek 所需 provider、结构化输出统一策略、重试限流、缓存、采样参数 capability probe/能力状态记账、telemetry/trace | 8\.3、8\.4、5\.5         |
+| M1\-2 | LLM 层：Claude、Qwen、DeepSeek 所需 provider（Anthropic 严格使用 8.3 配置的完整请求地址）、结构化输出统一策略、重试限流、缓存、采样参数 capability probe/能力状态记账、telemetry/trace | 8\.3、8\.4、5\.5         |
 | M1\-3 | Agent 通用框架：调用器及 ArchitecturePlanner / TaskPlanner / PlanCritic、A9 专用 FlatPlanBaseline 与编码/修复角色的注册接口和模板骨架；ArchitecturePlanner 的生产 Schema、共享 prompt 开发与冻结分别归 M1\-4a1/M1\-4a2/M1\-4a3，禁止在本项另行定制 | 4\.5、8\.8 |
 | M1\-4a1 | 通用计划架构基础设施：三输入冻结、Test Bundle 清单摘要、Test Manifest S4 元数据、planning index、窄切片 Delivery Constraints、ArchitectureDraft Schema、生产 `ARCH_VALIDATE`、可重算 trial/report、三模型隔离并行驱动与协议中立检查 | 4\.2、5\.3、5\.6.5、6\.4.1、6\.4.3、6\.4.4、6\.4.8.1、8\.3、8\.4 |
 | M1\-4a2 | `ArchitecturePlanner` 共享 prompt 优化：Qwen/Claude/DeepSeek 对同一模型无关、协议中立 prompt 按 V0/V1/可选 V2 有界迭代；仅允许 prompt 变化，以逐门证据选择正式校准候选 | 6\.4.8.2、8\.8 |
 | M1\-4a3 | 正式架构校准与生产模型裁决：三个模型并行各 N\=20，按模型计算 `p0/p1/p2` 和逐门结果；全部达到 B1 才自动通过，任一未达到即输出三模型比较并暂停等待负责人选型；随后按 B1/B2/B3/B4 完成资格门并冻结决策 | 4\.6、4\.7、6\.4.8.3、8\.3、9\.1.5 |
 | M1\-4b | 确定性编译资产：复用 M1\-4a1 的 Delivery Constraints/Schema/validator 路径，扩展系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message` 文件展开、角色支持门、Plan/Plan State Schema、完整 Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
 | M1\-4c | 完整 S4 控制器：layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、原子 seal 与正式发布；**必须**在 M1\-4a3 签字且 M1\-4b 完成后开工，消费最终生产模型、共享 prompt、ARCHITECT 调用形态和预算 | 4\.8、6\.4.2、6\.4.4～6\.4.8 |
-| M1\-5 | S5 实现：内置可表达 server 扇出的 session/net 布局与机械模板；重算 Blueprint、独占脚手架、机械派生、双轴工件所有权、内部契约映射、默认构建、首提交与 output receipt | 5\.6、6\.5、7\.2、7\.3 |
-| M1\-6 | S6 实现：Plan State admission 初始化/迁移 API、单任务 micro\-plan/编码循环、白名单、task evidence/commit trailers、commit/state reconciliation、S6 receipt 与升级路径 | 5\.2、5\.4、6\.6 |
+| M1\-5 | S5 实现：内置可表达 server 扇出的协议中立应用层 session/net 布局与机械模板；用同一模板代码路径渲染 MQTT 与非 MQTT fixture；重算 Blueprint、独占脚手架、机械派生、双轴工件所有权、内部契约映射、默认构建、首提交与 output receipt | 5\.6、6\.5、7\.2、7\.3 |
+| M1\-6 | S6 实现：Plan State admission 初始化/迁移 API、首次 Coder/后续 Fixer 的单任务 micro\-plan/编码循环、白名单、task evidence/commit trailers、commit/state reconciliation、S6 receipt 与升级路径 | 5\.2、5\.4、6\.6 |
 | M1\-7 | CLI：`run --spec [--until s6]` / `resume` / `status` / `lint`；`--until s6` 写 `planned_stop` 且不进入 S7/S9 | 4\.7、5\.6.2、8\.7 |
-| M1\-8 | NePA 自身单测与 CI（ruff \+ mypy \+ pytest \+ schema 示例校验 \+ gold lint \+ target lint \+ Test Bundle canonical/Schema/引用检查 \+ 通用 prompt 协议中立 lint） | 8\.1、8\.8、10\.8 |
+| M1\-8 | NePA 自身单测与 CI（ruff \+ mypy \+ pytest \+ schema 示例校验 \+ gold lint \+ target lint \+ Test Bundle canonical/Schema/引用检查 \+ Anthropic 完整端点路由 \+ S6 首次 Coder/后续 Fixer 路由 \+ prompt/template 协议中立 lint） | 8\.1、8\.8、10\.8 |
 
 **DoD**（D1.0 的判定对象是 6.4.8 的提示词开发与隔离架构校准；D1.1～D1.11 的判定对象均为 gold 规格上的正式 spec\-run）：
 
@@ -2213,12 +2223,12 @@ flowchart LR
 | D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立。这是 S4～S6 全联合链稳定性与 M1\-4a3 所选生产模型/预算的正式复核，**禁止**由 6.4.8 的隔离校准替代 | 脚本化执行并核对 run.json、Plan、Plan State（M2\-6 后改用 `nepa eval runs`） |
 | D1.4  | 断点恢复：在 S4 架构后/工作包展开中/critic 后，S5 物化中/首提交后/receipt 前，以及 S6 attempt 中/commit-state 间/S6 receipt 前注入 kill，`nepa resume` 均可完成且满足 D1.1 | 故障注入脚本 |
 | D1.5  | 零人工修改：workspace 的 git 历史全部为 NePA 生成的提交      | `git log` 审计脚本                           |
-| D1.6  | trace 完整：每次 LLM 调用有 trace 行、请求参数及 `reported_applied/reported_ignored/unknown` 能力状态、S4 phase/work package 标识，且 prompt/output 全文存在 | trace 审计脚本 |
+| D1.6  | trace 完整：每次 LLM 调用有 trace 行、请求参数及 `reported_applied/reported_ignored/unknown` 能力状态、S4 phase/work package 标识，且 prompt/output 全文存在；S6 每个任务 attempt 1 的执行角色恰为 Coder、所有 attempt > 1 的执行角色恰为 Fixer | trace 审计脚本 |
 | D1.7  | 默认生成物按 5.6.5.2 的 `mqtt` 前缀与六条模式、5.6.5.3 的 `per_message` 展开及四项资源默认值，精确复现第 7 章裁决的 server 布局、内部 ABI 与构建基线；S5 重算 Blueprint 与 S4 seal 相同，artifact/internal contract map 自身 hash 与 S5 receipt 相同 | 命名/逐报文路径/资源值/布局回归测试 \+ 工件校验 |
 | D1.8  | 默认配置实际走 layered；Plan 无 scaffold/运行字段，PlanCritic 无未解决 blocker/major，S4 发布后 Plan hash 不变 | trace \+ full lint \+ hash 审计 |
 | D1.9  | Run、部分 Report 分支、Plan/Plan State、Test Manifest/Test Summary、round index/pending WAL 各 Schema 通过示例互校、gold lint 与正反单测 | M1\-8 CI 门 |
 | D1.10 | 在 S4/S6 分别注入全局预算耗尽与 LLM 结构化输出二次校验失败，并在 S5 注入冻结输入/Blueprint 漂移；这些预期流程错误均路由 S9，产出 Schema 合法的部分 report、正确 `termination_kind/outcome/exit_code`，且 `internal_error_count=0`。S5 模板/确定性工具错误另按 `internal_error` 测试，不混入本门 | 故障注入 \+ report 自检 |
-| D1.11 | M1 通用规划/校准框架与 ArchitecturePlanner/TaskPlanner/PlanCritic/FlatPlanBaseline/Coder/Diagnoser/Fixer 模板不含 MQTT 专有常量或按协议名分支；共享 ArchitecturePlanner prompt 不含模型/provider 专属条件。用非 MQTT fixture 渲染后 MQTT 名称/路径/接口残留为 0；默认 MQTT 运行中的每个具体符号与 codec 路径均可由冻结输入、Spec 标识符、5.6.5.2 六模式和 5.6.5.3 展开规则逐步重算 | 框架/prompt 静态扫描 \+ 双 fixture 渲染 \+ 命名来源审计 |
+| D1.11 | M1 通用规划/校准框架、S5 布局/机械模板与 ArchitecturePlanner/TaskPlanner/PlanCritic/FlatPlanBaseline/Coder/Diagnoser/Fixer 模板不含 MQTT 专有常量或按协议名分支；共享 ArchitecturePlanner prompt 不含模型/provider 专属条件。用非 MQTT 应用层 fixture（HTTP、CoAP 或 SMTP）渲染完整 scaffold 后 MQTT 名称/路径/接口残留为 0，且与 MQTT fixture 共用同一模板代码路径；默认 MQTT 运行中的每个具体符号与 codec 路径均可由冻结输入、Spec 标识符、5.6.5.2 六模式和 5.6.5.3 展开规则逐步重算 | 框架/prompt/template 静态扫描 \+ 双 fixture scaffold 渲染 \+ 命名来源审计 |
 
 ### 10\.3 M2：一致性验证与受控修复
 
@@ -2496,3 +2506,4 @@ flowchart LR
 | 2\.2.0 | 2026\-07\-31 | 明确开工前只需三份 gold 前置规格；M0/M1 只校验和消费 Test Bundle 清单，不生成或执行协议测试；测试资产、runner、oracle、adapter 与公开边界统一延后至 M2 设计并由智能体生成；同步输入哈希、M0/M2 工作项与 DoD，并将规范文档目录统一为 `protocol_document/` | 负责人 |
 | 2\.2.1 | 2026\-07\-31 | 澄清 canonical 化仅作用于 `test_bundle.json` 且先于三文件哈希冻结；Test Bundle 摘要从 M2 起增加测试资产树哈希；统一示例与默认 MQTT Bundle 的 `san` 构建策略，并明确 release 仅承担 M1 编译门 | 负责人 |
 | 2\.3.0 | 2026\-08\-14 | 将原 M1\-4a 拆为通用计划架构基础设施、三模型共享 ArchitecturePlanner prompt 有界优化、正式架构校准三个连续阶段；Qwen/Claude/DeepSeek 使用同一协议中立 prompt 并行各跑 N\=20，任一未达 B1 即输出对比并暂停负责人选型；补充 `p0/p1/p2`、B2 两次修复资格门、模型选择不豁免资格门，以及框架/prompt 禁止 MQTT 定制的验收规则 | 负责人 |
+| 2\.3.1 | 2026\-08\-14 | 明确 Anthropic Provider 严格使用配置中的完整请求地址及已同步的 API/模型命名；固定 S6 为首次 Coder、后续 Fixer；将固定生成模板明确为协议中立的应用层结构，7.2 改用派生前缀展示并补充 HTTP/CoAP/SMTP 适配边界、静态扫描与非 MQTT scaffold 验收 | 负责人 |
