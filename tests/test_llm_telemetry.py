@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from nepa.config import load_config
-from nepa.llm.client import LLMCallContext, LLMClient, LLMRequest, LLMResponse, ProviderError, ParameterSupportState
+from nepa.llm.client import LLMCallContext, LLMClient, LLMRequest, LLMRequestError, LLMResponse, ProviderError, ParameterSupportState
 from nepa.orchestrator import CrashInjected
 from nepa.llm.telemetry import LLMTelemetry
 from nepa.run_store import RunStore
@@ -62,6 +62,65 @@ def _context():
         attempt=2,
         trace_fields={"compiler_phase": "prepare", "ignored": "drop"},
     )
+
+
+def test_success_trace_admits_valid_template_provenance(tmp_path):
+    calls = []
+    client, store = _client(tmp_path, _Provider(calls))
+    template_hash = "a" * 64
+    context = LLMCallContext(
+        run_id="run-1",
+        stage="S4",
+        tier="T1",
+        trace_fields={"prompt_template_sha256": template_hash, "compiler_phase": "ignored-for-this-check"},
+    )
+    client.complete(_request(), provider_name="fixture", model="model", context=context)
+    row = json.loads((store.root / "trace/llm_calls.ndjson").read_text(encoding="utf-8").splitlines()[0])
+    assert row["prompt_template_sha256"] == template_hash
+
+
+def test_invalid_template_provenance_is_rejected_before_cache_or_provider(tmp_path):
+    calls = []
+    client, store = _client(tmp_path, _Provider(calls))
+    with pytest.raises(LLMRequestError):
+        client.complete(
+            _request(),
+            provider_name="fixture",
+            model="model",
+            context=LLMCallContext(
+                run_id="run-1",
+                stage="S4",
+                tier="T1",
+                trace_fields={"prompt_template_sha256": "not-a-sha"},
+            ),
+        )
+    assert calls == []
+    assert not (store.root / "trace/llm_calls.ndjson").exists()
+
+
+def test_failure_trace_copies_only_template_provenance_from_context(tmp_path):
+    calls = []
+    client, store = _client(
+        tmp_path,
+        _Provider(calls, failure=ProviderError("provider failure", provider="fixture", status_code=400)),
+    )
+    template_hash = "b" * 64
+    context = LLMCallContext(
+        run_id="run-1",
+        stage="S4",
+        tier="T1",
+        trace_fields={
+            "prompt_template_sha256": template_hash,
+            "compiler_phase": "must-not-be-copied",
+            "work_package_id": "must-not-be-copied",
+        },
+    )
+    with pytest.raises(ProviderError):
+        client.complete(_request(), provider_name="fixture", model="model", context=context)
+    row = json.loads((store.root / "trace/llm_calls.ndjson").read_text(encoding="utf-8").splitlines()[0])
+    assert row["prompt_template_sha256"] == template_hash
+    assert "compiler_phase" not in row
+    assert "work_package_id" not in row
 
 
 def test_success_trace_publishes_prompt_output_hash_and_optional_fields(tmp_path):

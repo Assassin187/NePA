@@ -32,6 +32,7 @@ class LLMTelemetry:
         "finish_reason",
         "local_repair_budget_hit",
         "global_repair_budget_hit",
+        "prompt_template_sha256",
     }
 
     def __init__(
@@ -226,6 +227,8 @@ class LLMTelemetry:
             "provider_prompt_paths": [ref.path for ref in prompt_refs],
             "provider_output_paths": [ref.path for ref in response_refs],
         }
+        if context is not None and "prompt_template_sha256" in context.trace_fields:
+            trace["prompt_template_sha256"] = self._redact(context.trace_fields["prompt_template_sha256"])
         if capability_probe is not None:
             trace["capability_probe"] = self._redact(dict(capability_probe))
         self._fault("llm_trace_before_append")

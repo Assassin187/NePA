@@ -75,7 +75,7 @@ def test_openai_compat_uses_native_schema_payload_only_when_explicit(monkeypatch
     assert b'"json_schema"' in payloads[0]
 
 
-def test_openai_compat_missing_secret_fails_before_http():
+def test_openai_compat_missing_secret_fails_before_http(monkeypatch):
     called = False
 
     def handler(request):
@@ -84,6 +84,7 @@ def test_openai_compat_missing_secret_fails_before_http():
         return httpx.Response(200, json={})
 
     config = load_config()
+    monkeypatch.delenv("NEPA_QWEN_API_KEY", raising=False)
     with pytest.raises(LLMConfigurationError):
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))

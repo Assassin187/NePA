@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-15
+goal: Deliver the reusable Agent boundary consumed by M1-4 and M1-6 without
+  defining production planning Schemas, tuning prompts, running calibration, or
+  implementing stage controllers.

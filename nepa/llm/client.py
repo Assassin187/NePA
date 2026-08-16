@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 import json
+import re
 import time
 from typing import Any, Mapping, Protocol
 
@@ -285,6 +286,14 @@ class LLMClient:
             raise LLMRequestError(f"invalid JSON Schema: {exc.message}") from exc
 
     @staticmethod
+    def _validate_template_provenance(context: LLMCallContext | None) -> None:
+        if context is None or "prompt_template_sha256" not in context.trace_fields:
+            return
+        value = context.trace_fields["prompt_template_sha256"]
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise LLMRequestError("prompt_template_sha256 must be lowercase 64-character hexadecimal text")
+
+    @staticmethod
     def _fallback_request(request: LLMRequest) -> LLMRequest:
         if request.json_schema is None:
             return request
@@ -360,6 +369,7 @@ class LLMClient:
         self.validate_target(provider_name, model)
         if request.json_schema is not None:
             self._validate_schema(request.json_schema)
+        self._validate_template_provenance(context)
         try:
             price = configured_model_price(self.config, provider_name, model)
         except ConfigError as exc:
