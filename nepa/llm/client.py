@@ -8,7 +8,7 @@ import re
 import time
 from typing import Any, Mapping, Protocol
 
-from jsonschema import Draft7Validator, SchemaError
+from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..config import ConfigError, ResolvedConfig, configured_model_price
@@ -281,7 +281,7 @@ class LLMClient:
     @staticmethod
     def _validate_schema(schema: dict[str, Any]) -> None:
         try:
-            Draft7Validator.check_schema(schema)
+            Draft202012Validator.check_schema(schema)
         except SchemaError as exc:
             raise LLMRequestError(f"invalid JSON Schema: {exc.message}") from exc
 
@@ -447,6 +447,8 @@ class LLMClient:
                 try:
                     repair_raw = self._transport_complete(repair_provider_request, provider_name=provider_name, model=model)
                 except LLMError as exc:
+                    setattr(exc, "responses", [charged])
+                    setattr(exc, "prior_responses", [charged])
                     if self.telemetry is not None:
                         self.telemetry.publish_failure(
                             provider_name=provider_name,
@@ -636,7 +638,7 @@ def extract_first_json_value(text: str) -> Any:
 
 
 def structured_validation_errors(schema: dict[str, Any], value: Any) -> list[dict[str, Any]]:
-    validator = Draft7Validator(schema)
+    validator = Draft202012Validator(schema)
     errors = []
     for error in validator.iter_errors(value):
         path = "$"

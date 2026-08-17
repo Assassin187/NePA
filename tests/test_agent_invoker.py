@@ -22,7 +22,7 @@ from nepa.run_store import RunStore
 
 SCHEMA = {"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}}}
 EXAMPLE = {"answer": "ok"}
-INPUTS = {"planning_index": {"name": "OrbitNet"}, "delivery_constraints": {"limit": 3}}
+INPUTS = {"planning_index": {"name": "OrbitNet"}, "delivery_constraints": {"limit": 3}, "repair_context": None}
 
 
 def _config():

@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "verdict": "pass",
+  "parent_refs": {
+    "architecture_draft": {"path": "architecture-draft.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "planning_index": {"path": "planning-index.json", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    "manifest_metadata": {"path": "manifest.json", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+    "delivery_constraints": {"path": "delivery-constraints.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+  },
+  "gates": [
+    {"id": "arch_01", "verdict": "pass", "issue_codes": []}, {"id": "arch_02", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_03", "verdict": "pass", "issue_codes": []}, {"id": "arch_04", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_05", "verdict": "pass", "issue_codes": []}, {"id": "arch_06", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_07", "verdict": "pass", "issue_codes": []}, {"id": "arch_08", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_09", "verdict": "pass", "issue_codes": []}, {"id": "arch_10", "verdict": "pass", "issue_codes": []}
+  ],
+  "issues": []
+}

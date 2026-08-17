@@ -1,0 +1,1 @@
+{"bundle":{"default_build_variant_ids":["san"],"id":"orbitnet-tests","version":"1.0.0"},"schema_version":"3.0","tests":[{"description":"Heartbeat frame is accepted.","gate":"task","layer":"l1","nodeid":"tests/l1_orbit/test_heartbeat.py::test_heartbeat","req_ids":["REQ-ORBIT-001","REQ-ORBIT-002"]}]}

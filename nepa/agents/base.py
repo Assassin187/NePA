@@ -9,7 +9,7 @@ from importlib import resources
 from typing import Any
 
 from jinja2 import Environment, StrictUndefined, meta
-from jsonschema import Draft7Validator, SchemaError
+from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..config import ResolvedConfig
@@ -167,12 +167,12 @@ class PromptRenderer:
     @staticmethod
     def _validate_contract(output_schema: dict[str, Any], output_example: Any) -> None:
         try:
-            Draft7Validator.check_schema(output_schema)
+            Draft202012Validator.check_schema(output_schema)
         except SchemaError as exc:
             raise AgentContractError(f"invalid JSON Schema: {exc.message}") from exc
         try:
             errors = sorted(
-                Draft7Validator(output_schema).iter_errors(output_example),
+                Draft202012Validator(output_schema).iter_errors(output_example),
                 key=lambda error: (tuple(error.absolute_path), error.validator or "", error.message),
             )
         except (TypeError, ValueError) as exc:
@@ -370,7 +370,13 @@ class AgentInvoker:
             tier=route.tier,
             task_id=task_id,
             attempt=attempt,
-            trace_fields={"prompt_template_sha256": rendered.raw_template_sha256},
+            trace_fields={
+                "prompt_template_sha256": rendered.raw_template_sha256,
+                "effective_prompt_sha256": rendered.effective_prompt_sha256,
+                "requested_provider": route.provider,
+                "requested_model": route.model,
+                "use_cache": use_cache,
+            },
         )
         response = self.llm_client.complete(
             request,

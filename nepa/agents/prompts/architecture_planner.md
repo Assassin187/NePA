@@ -13,6 +13,10 @@ You are the architecture planner. Build a coherent, bounded planning proposal fr
 {{ inputs.delivery_constraints }}
 </INPUT>
 
+<INPUT name="repair_context">
+{{ inputs.repair_context }}
+</INPUT>
+
 ## Output Contract
 
 Return a result that is self-describing under the caller-supplied contract.

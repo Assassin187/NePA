@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/architecture-validation.schema.json",
+  "title": "NePA Architecture Validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "verdict", "parent_refs", "gates", "issues"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "verdict": {"enum": ["pass", "fail"]},
+    "parent_refs": {"$ref": "#/$defs/parents"},
+    "gates": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/gate"}},
+    "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
+  },
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "parents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture_draft", "planning_index", "manifest_metadata", "delivery_constraints"],
+      "properties": {
+        "architecture_draft": {"$ref": "#/$defs/ref"},
+        "planning_index": {"$ref": "#/$defs/ref"},
+        "manifest_metadata": {"$ref": "#/$defs/ref"},
+        "delivery_constraints": {"$ref": "#/$defs/ref"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "verdict", "issue_codes"],
+      "properties": {
+        "id": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10"]},
+        "verdict": {"enum": ["pass", "fail"]},
+        "issue_codes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "contextRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {"kind": {"enum": ["requirement", "message", "type", "interface_file"]}, "id": {"type": "string", "minLength": 1}}
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "code", "path", "message", "context_refs"],
+      "properties": {
+        "gate": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10"]},
+        "code": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "context_refs": {"type": "array", "items": {"$ref": "#/$defs/contextRef"}}
+      }
+    }
+  }
+}

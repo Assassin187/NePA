@@ -33,6 +33,10 @@ class LLMTelemetry:
         "local_repair_budget_hit",
         "global_repair_budget_hit",
         "prompt_template_sha256",
+        "effective_prompt_sha256",
+        "requested_provider",
+        "requested_model",
+        "use_cache",
     }
 
     def __init__(
@@ -90,6 +94,14 @@ class LLMTelemetry:
             "text": response.text,
             "parsed": response.parsed,
             "model": response.model,
+            "tokens_in": response.tokens_in,
+            "tokens_out": response.tokens_out,
+            "cost_usd": response.cost_usd,
+            "transport_attempts": response.transport_attempts,
+            "parameter_support": {
+                key: item.value if hasattr(item, "value") else item
+                for key, item in response.parameter_support.items()
+            },
             "provider_metadata": response.provider_metadata,
         }
         self._fault("llm_output_before_publish")
@@ -145,6 +157,7 @@ class LLMTelemetry:
             "task_id": getattr(context, "task_id", None),
             "attempt": getattr(context, "attempt", 1),
             "model": model,
+            "provider": provider_name,
             "params_requested": {"temperature": request.temperature, "max_tokens": request.max_tokens},
             "parameter_support": {key: value.value if hasattr(value, "value") else value for key, value in response.parameter_support.items()},
             "prompt_sha256": hashlib.sha256(primary_prompt).hexdigest(),
@@ -207,6 +220,7 @@ class LLMTelemetry:
             "task_id": getattr(context, "task_id", None),
             "attempt": getattr(context, "attempt", 1),
             "model": f"{provider_name}/{last_response.model if last_response is not None else 'unknown'}",
+            "provider": provider_name,
             "params_requested": {"temperature": request.temperature, "max_tokens": request.max_tokens},
             "parameter_support": {
                 key: value.value if hasattr(value, "value") else value
@@ -228,7 +242,18 @@ class LLMTelemetry:
             "provider_output_paths": [ref.path for ref in response_refs],
         }
         if context is not None and "prompt_template_sha256" in context.trace_fields:
-            trace["prompt_template_sha256"] = self._redact(context.trace_fields["prompt_template_sha256"])
+            failure_fields = {
+                "prompt_template_sha256",
+                "effective_prompt_sha256",
+                "requested_provider",
+                "requested_model",
+                "use_cache",
+            }
+            trace.update({
+                key: self._redact(value)
+                for key, value in context.trace_fields.items()
+                if key in failure_fields
+            })
         if capability_probe is not None:
             trace["capability_probe"] = self._redact(dict(capability_probe))
         self._fault("llm_trace_before_append")

@@ -12,7 +12,7 @@ ROLE_REGISTRY: dict[str, RoleDefinition] = {
         role="architecture_planner",
         stages=("S4",),
         template_path="architecture_planner.md",
-        required_inputs=("planning_index", "delivery_constraints"),
+        required_inputs=("planning_index", "delivery_constraints", "repair_context"),
     ),
     "task_planner": RoleDefinition(
         role="task_planner",

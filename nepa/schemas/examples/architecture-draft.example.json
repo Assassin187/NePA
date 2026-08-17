@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "decisions": [
+    {
+      "id": "decision-boundary",
+      "topic": "module-boundary",
+      "statement": "Keep the application boundary separate from transport adaptation.",
+      "context_refs": []
+    }
+  ],
+  "assumptions": ["The declared target role owns the application entry point."],
+  "contracts": [
+    {
+      "id": "contract-interface",
+      "purpose": "Expose the stable internal application interface.",
+      "owner": "module-core",
+      "interface_files": ["include/core/interface.h"],
+      "ready_gate": "task",
+      "provider": "module-core",
+      "consumers": ["module-adapter"]
+    }
+  ],
+  "modules": [
+    {
+      "id": "module-core",
+      "name": "Core",
+      "purpose": "Own the protocol-independent application core.",
+      "responsibilities": ["Provide the internal interface."],
+      "non_goals": ["Do not own external I/O."],
+      "owns_files": ["include/core/interface.h", "src/core/core.c"],
+      "provides_contracts": ["contract-interface"],
+      "consumes_contracts": []
+    },
+    {
+      "id": "module-adapter",
+      "name": "Adapter",
+      "purpose": "Adapt application messages to the core interface.",
+      "responsibilities": ["Consume the internal interface."],
+      "non_goals": ["Do not redefine core ownership."],
+      "owns_files": ["src/adapter/adapter.c"],
+      "provides_contracts": [],
+      "consumes_contracts": ["contract-interface"]
+    }
+  ],
+  "work_packages": [
+    {
+      "id": "wp-core",
+      "title": "Core interface",
+      "goal": "Implement the core interface.",
+      "module": "module-core",
+      "kind": "implementation",
+      "context_refs": [],
+      "requirement_responsibilities": [],
+      "allowed_files": ["include/core/interface.h", "src/core/core.c"],
+      "provides_contracts": ["contract-interface"],
+      "consumes_contracts": [],
+      "depends_on": [],
+      "acceptance": {"outcome": "The interface is available to its consumer."}
+    },
+    {
+      "id": "wp-adapter",
+      "title": "Adapter integration",
+      "goal": "Integrate the adapter with the core.",
+      "module": "module-adapter",
+      "kind": "implementation",
+      "context_refs": [],
+      "requirement_responsibilities": [],
+      "allowed_files": ["src/adapter/adapter.c"],
+      "provides_contracts": [],
+      "consumes_contracts": ["contract-interface"],
+      "depends_on": ["wp-core"],
+      "acceptance": {"outcome": "The adapter consumes the interface."}
+    }
+  ]
+}

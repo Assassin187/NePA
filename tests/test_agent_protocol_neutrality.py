@@ -36,6 +36,7 @@ def test_synthetic_non_mqtt_identifiers_enter_only_through_delimited_inputs():
         inputs={
             "planning_index": {"protocol": "OrbitNet", "message": "HELLO_FRAME", "field": "frame_nonce"},
             "delivery_constraints": {"port": 4711, "interface": "send_orbit"},
+            "repair_context": None,
         },
         output_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
         output_example={"answer": "ok"},
