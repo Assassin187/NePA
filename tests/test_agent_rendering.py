@@ -1,4 +1,5 @@
 import hashlib
+import re
 from importlib import resources
 
 import pytest
@@ -49,6 +50,24 @@ def test_rendering_is_deterministic_and_hashes_raw_template_bytes():
     assert '"ordered":[2,1]' in first.user
     assert '"properties":{"answer":{"type":"string"}}' in first.user
     assert '{"answer":"ok"}' in first.user
+
+
+def test_every_template_has_source_only_chinese_maintenance_comments():
+    for definition in ROLE_REGISTRY.values():
+        text = resources.files("nepa.agents.prompts").joinpath(definition.template_path).read_text(encoding="utf-8")
+        comments = re.findall(r"\{#(.*?)#\}", text, flags=re.DOTALL)
+        assert len(comments) >= 5, definition.template_path
+        assert all(re.search(r"[\u4e00-\u9fff]", comment) for comment in comments), definition.template_path
+        comment_text = "\n".join(comments)
+        assert all(name in comment_text for name in definition.required_inputs), definition.template_path
+
+        rendered = render_prompt(
+            definition,
+            inputs=_inputs(definition.role),
+            output_schema=SCHEMA,
+            output_example=EXAMPLE,
+        )
+        assert "中文维护注释" not in rendered.user
 
 
 @pytest.mark.parametrize("role", tuple(ROLE_REGISTRY))
