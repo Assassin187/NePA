@@ -1,0 +1,8 @@
+{
+  "candidate-a": "v2/qwen/candidates/trial_002_p1.json",
+  "candidate-b": "v0/deepseek/candidates/trial_004_p1.json",
+  "candidate-c": "v0/deepseek/candidates/trial_002_p1.json",
+  "candidate-d": "v2/deepseek/candidates/trial_001_p1.json",
+  "candidate-e": "v2/qwen/candidates/trial_001_p1.json",
+  "candidate-f": "v2/deepseek/candidates/trial_004_p1.json"
+}

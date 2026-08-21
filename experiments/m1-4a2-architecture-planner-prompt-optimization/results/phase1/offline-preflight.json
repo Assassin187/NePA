@@ -1,0 +1,112 @@
+{
+  "example_schema_valid": true,
+  "ledger_counts": {
+    "non_definition_req_ids": 54,
+    "definition_req_ids": 56,
+    "s5_frozen_paths": 6,
+    "s6_owned_paths": 13,
+    "required_internal_interface_slots": 2,
+    "task_test_requirement_sets": 23
+  },
+  "context_preflight": {
+    "prompt-control-v2.md:raw:current": {
+      "input_tokens": 15549,
+      "input_byte_length": 62194,
+      "input_byte_upper_bound": 62194,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-control-v2.md:raw:aligned": {
+      "input_tokens": 15674,
+      "input_byte_length": 62696,
+      "input_byte_upper_bound": 62696,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-control-v2.md:ledger:current": {
+      "input_tokens": 17546,
+      "input_byte_length": 70183,
+      "input_byte_upper_bound": 70183,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-control-v2.md:ledger:aligned": {
+      "input_tokens": 17672,
+      "input_byte_length": 70685,
+      "input_byte_upper_bound": 70685,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-exact-algorithm.md:raw:current": {
+      "input_tokens": 16149,
+      "input_byte_length": 64596,
+      "input_byte_upper_bound": 64596,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-exact-algorithm.md:raw:aligned": {
+      "input_tokens": 16275,
+      "input_byte_length": 65098,
+      "input_byte_upper_bound": 65098,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-exact-algorithm.md:ledger:current": {
+      "input_tokens": 18147,
+      "input_byte_length": 72585,
+      "input_byte_upper_bound": 72585,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    },
+    "prompt-exact-algorithm.md:ledger:aligned": {
+      "input_tokens": 18272,
+      "input_byte_length": 73087,
+      "input_byte_upper_bound": 73087,
+      "requested_output_tokens": 65536,
+      "safety_margin_ratio": 0.15,
+      "effective_boundaries": {
+        "deepseek": 108800,
+        "qwen": 108800
+      }
+    }
+  },
+  "hashes": {
+    "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/artifacts/prompt-control-v2.md": "55fecd0a6f4f20a9df66b1dac9ab047b4cc9e7479c6bf99d777e47460c7837ba",
+    "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/artifacts/prompt-exact-algorithm.md": "d5c24f1939f3a767f2cd1d7a116124d4b5ea32552391664052a93f24f1914b85",
+    "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/artifacts/example-aligned.json": "ef6eb76fd224294489029a70e9dfa6bf0bbda5b09cc06f204b724cfbada6ce05",
+    "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/artifacts/deterministic-ledgers.json": "492ecbfeb85d1ad06040a1196cd9cfe861db730966f05ea41be9ebf1c8975e1c",
+    "nepa/schemas/architecture-draft.schema.json": "c2eef5715c64f7d77770bdbe1b93ff56b9beb285b9c9315d997b9d7003e43a0c",
+    "nepa/speclib/architecture.py": "7075c38aa67ac81ee53caaba8922fc69f84a8f4f79a98b31c5b9f8ba9da375f1",
+    "gold_file/specIR.json": "a0ec9616eb06c206416a93220e1ea630d04166eb17e102bc9d9476fe2694aa09",
+    "gold_file/target.json": "efa8dc8fc0914d5b563a1da1aeaad1a7a277b4b161b89893b8efa75d6818b49b",
+    "gold_file/test_bundle.json": "8f77eb4c5a15ef0ee02979240fbcd4eebdf585d5ad023d130de9468e791d343c"
+  }
+}

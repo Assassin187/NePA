@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "verdict": "pass",
+  "parent_refs": {
+    "architecture_draft": {
+      "path": "<memory>/architecture_draft.json",
+      "sha256": "384e2d4db740fa3d5bdcd1364f7b0fe7ce6ad2edb1a94e153af5cd8d03bccf9a"
+    },
+    "planning_index": {
+      "path": "<memory>/planning_index.json",
+      "sha256": "d7e9f8dacc724d83605cf2c61ce0b36ef4069af2eeeaf9e0c2837b4fe0a5622b"
+    },
+    "manifest_metadata": {
+      "path": "<memory>/manifest_metadata.json",
+      "sha256": "90e1bb916c63bc7d13637afb1ae77f9814472e8543ed62e60e2d0f19bb286894"
+    },
+    "delivery_constraints": {
+      "path": "<memory>/delivery_constraints.json",
+      "sha256": "a59e5ecdb22a80b7d1f1e3716db829912dc958b620fe1dab6c95d18ed77e5d61"
+    }
+  },
+  "gates": [
+    {
+      "id": "arch_01",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_02",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_03",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_04",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_05",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_06",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_07",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_08",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_09",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_10",
+      "verdict": "pass",
+      "issue_codes": []
+    }
+  ],
+  "issues": []
+}

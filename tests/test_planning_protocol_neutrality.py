@@ -89,8 +89,8 @@ def test_alternate_application_fixture_reaches_architecture_validation_and_linea
     draft = {"schema_version": "1.0", "decisions": [], "assumptions": ["application facts come from the fixture"], "contracts": contracts, "modules": modules, "work_packages": work_packages}
     validation = validate_architecture(draft, index, manifest, constraints)
     assert validation["verdict"] == "pass"
-    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 128, "context_window_tokens": 10000} for name in ("claude", "qwen", "deepseek")}
-    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("claude", "qwen", "deepseek")}}})
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "deepseek")}
+    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "deepseek")}}})
     lineage = build_lineage_manifest(prepared, index, manifest, constraints, config=config, model_targets=targets)
     schema, example = architecture_draft_contract()
     rendered = PromptRenderer.render(get_role("architecture_planner"), inputs={"planning_index": index, "delivery_constraints": constraints, "repair_context": None}, output_schema=schema, output_example=example)

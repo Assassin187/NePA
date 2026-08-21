@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/calibration-development-protocol.schema.json",
+  "title": "M1-4a2 prompt development protocol",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lineage_id", "status", "model_ids", "versions", "semantic_depth", "base_trial_count", "extension_trial_count", "config_ref", "context_limits_ref", "api_key_env", "metric_definition", "screening", "fallback_order", "components"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "lineage_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["initialized", "selected", "selection-tie", "blocked"]},
+    "model_ids": {"const": ["qwen", "deepseek"]},
+    "versions": {"const": ["v0", "v1", "v2"]},
+    "semantic_depth": {"const": 1}, "base_trial_count": {"const": 5}, "extension_trial_count": {"const": 5},
+    "config_ref": {"$ref": "#/$defs/ref"}, "context_limits_ref": {"$ref": "#/$defs/ref"},
+    "api_key_env": {"$ref": "#/$defs/api_keys"},
+    "metric_definition": {"const": "m1-4a1-architecture-calibration-metrics-v1"},
+    "screening": {"type": "object", "additionalProperties": false, "required": ["schema_after_format_repair_rate", "p1", "semantic_first_pass_rate", "max_truncations", "repeated_gate_failures"], "properties": {"schema_after_format_repair_rate": {"const": 1.0}, "p1": {"const": 1.0}, "semantic_first_pass_rate": {"const": 0.8}, "max_truncations": {"const": 0}, "repeated_gate_failures": {"const": 1}}},
+    "fallback_order": {"const": ["min_model_p1", "min_model_arch_semantic_first_pass", "min_model_schema_after_format_repair", "lower_total_cost"]},
+    "components": {"type": "object", "additionalProperties": false, "minProperties": 1, "patternProperties": {"^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/ref"}}}
+  },
+  "$defs": {
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "api_keys": {"type": "object", "additionalProperties": false, "required": ["qwen", "deepseek"], "properties": {"qwen": {"const": "NEPA_QWEN_API_KEY"}, "deepseek": {"const": "NEPA_DS_API_KEY"}}}
+  }
+}

@@ -1,0 +1,6 @@
+e04dffb2b8b5fc551a0151ccb51f029023b8dbfd8d0560e7c144f5a665893bf3  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-a.json
+e9dca6c62ddcceaf6c9fa1367b6bafb5ebe03c07ddb31fd19c08d5e2a6ad6109  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-b.json
+135608b49b39baa6ef73cf21ea486dd9dfb513dae0b9ff59582baaaef1d93c8a  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-c.json
+6b667cac4f3d6a763f1ebc8f420a2ee5234962718d0aa049e1a3a0a0b4a14c87  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-d.json
+89fedb228a90e8a77b3fc1ae7cfddab8ad1608b9298eddd2d420b4e7a795ca9d  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-e.json
+92a7569c0028850824829ed7e66c88266c08eb0d28149f92ee5fdc8f92ae90b7  experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-f.json

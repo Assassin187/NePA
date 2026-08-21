@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 18
+    assert len(schema_paths) == 42
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -60,6 +60,30 @@ def test_schema_contract_audit():
         "trial-response-ref.schema.json",
         "trial-validation.schema.json",
         "calibration-report.schema.json",
+        "calibration-development-protocol.schema.json",
+        "calibration-prompt-version.schema.json",
+        "calibration-prompt-snapshot.schema.json",
+        "calibration-prompt-revision.schema.json",
+        "calibration-attempt-declaration.schema.json",
+        "calibration-attempt-outcome.schema.json",
+        "calibration-development-extension.schema.json",
+        "calibration-development-assessment.schema.json",
+        "calibration-development-outcome.schema.json",
+        "calibration-development-selection.schema.json",
+        "calibration-recovery-authorization.schema.json",
+        "calibration-recovery-provenance.schema.json",
+        "calibration-recovery-predecessor-attestation.schema.json",
+        "calibration-recovery-protocol.schema.json",
+        "calibration-recovery-prompt-snapshot.schema.json",
+        "calibration-recovery-revision.schema.json",
+        "calibration-recovery-attempt-declaration.schema.json",
+        "calibration-recovery-attempt-outcome.schema.json",
+        "calibration-recovery-repair-diff.schema.json",
+        "calibration-recovery-report.schema.json",
+        "calibration-recovery-assessment.schema.json",
+        "calibration-recovery-quality-audit.schema.json",
+        "calibration-recovery-terminal.schema.json",
+        "calibration-recovery-handoff.schema.json",
     }
     assert {path.name for path in SCHEMA_DIR.glob("*.schema.json")} == expected
 

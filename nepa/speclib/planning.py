@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -350,7 +351,12 @@ def preflight_architecture_planner_context(
         raise PlanningContextError("context safety margin must be between 0 and 1", code="PLAN_CONTEXT_INVALID")
     if not isinstance(system_prompt, str):
         raise PlanningContextError("system prompt must be text", code="PLAN_CONTEXT_INVALID")
-    input_bound = len((system_prompt + "\n" + rendered_prompt).encode("utf-8"))
+    prompt_bytes = (system_prompt + "\n" + rendered_prompt).encode("utf-8")
+    input_byte_length = len(prompt_bytes)
+    # Context limits and output reserves are provider token units.  Preserve
+    # the exact rendered bytes for evidence, but do not compare byte length
+    # directly with a token budget.
+    input_bound = ceil(input_byte_length / 4)
     effective: dict[str, int] = {}
     for model_id, limit in sorted(model_limits.items()):
         if not isinstance(limit, int) or limit <= 0:
@@ -362,7 +368,9 @@ def preflight_architecture_planner_context(
                 code="PLAN_CONTEXT_TOO_LARGE",
             )
     return {
-        "input_byte_upper_bound": input_bound,
+        "input_tokens": input_bound,
+        "input_byte_length": input_byte_length,
+        "input_byte_upper_bound": input_byte_length,
         "requested_output_tokens": requested_output_tokens,
         "safety_margin_ratio": safety_margin_ratio,
         "effective_boundaries": effective,
@@ -379,20 +387,31 @@ def architecture_planner_context_preflight(
     output_schema: dict[str, Any] | None = None,
     output_example: Any | None = None,
     repair_context: Any = None,
+    template_bytes: bytes | None = None,
 ) -> dict[str, Any]:
-    """Render the production-shaped request and apply the byte-bound check."""
+    """Render the production-shaped request and apply the token-bound check."""
 
     from ..agents.base import AGENT_SYSTEM_INSTRUCTION
     from ..schemas import architecture_draft_contract
 
     schema = output_schema or architecture_draft_contract()[0]
     example = output_example if output_example is not None else architecture_draft_contract()[1]
-    rendered = PromptRenderer.render(
-        get_role("architecture_planner"),
-        inputs={"planning_index": planning_index, "delivery_constraints": delivery_constraints, "repair_context": repair_context},
-        output_schema=schema,
-        output_example=example,
-    )
+    definition = get_role("architecture_planner")
+    if template_bytes is None:
+        rendered = PromptRenderer.render(
+            definition,
+            inputs={"planning_index": planning_index, "delivery_constraints": delivery_constraints, "repair_context": repair_context},
+            output_schema=schema,
+            output_example=example,
+        )
+    else:
+        rendered = PromptRenderer.render_template_bytes(
+            definition,
+            template=template_bytes,
+            inputs={"planning_index": planning_index, "delivery_constraints": delivery_constraints, "repair_context": repair_context},
+            output_schema=schema,
+            output_example=example,
+        )
     return preflight_architecture_planner_context(
         rendered.user,
         model_limits=model_limits,

@@ -1,0 +1,56 @@
+{
+  "status": "schema-invalid",
+  "candidate_id": "candidate-a",
+  "error": "structured output contains no complete JSON value",
+  "errors": [
+    {
+      "path": "$",
+      "code": "JSON_DECODE_ERROR",
+      "message": "no complete JSON value found"
+    }
+  ],
+  "responses": [
+    {
+      "text": "",
+      "parsed": null,
+      "tokens_in": 23556,
+      "tokens_out": 5000,
+      "cost_usd": 0.0,
+      "model": "deepseek-v4-flash",
+      "cached": false,
+      "parameter_support": {
+        "temperature": "unknown"
+      },
+      "provider_metadata": {
+        "finish_reason": "length",
+        "provider": "deepseek",
+        "native_structured_output": false,
+        "transport_attempts": 1
+      },
+      "validation": "pass",
+      "transport_attempts": 1,
+      "repair_attempts": 0
+    },
+    {
+      "text": "",
+      "parsed": null,
+      "tokens_in": 23834,
+      "tokens_out": 5000,
+      "cost_usd": 0.0,
+      "model": "deepseek-v4-flash",
+      "cached": false,
+      "parameter_support": {
+        "temperature": "unknown"
+      },
+      "provider_metadata": {
+        "finish_reason": "length",
+        "provider": "deepseek",
+        "native_structured_output": false,
+        "transport_attempts": 1
+      },
+      "validation": "pass",
+      "transport_attempts": 1,
+      "repair_attempts": 0
+    }
+  ]
+}

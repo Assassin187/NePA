@@ -1,0 +1,751 @@
+{
+  "assumptions": [
+    "The target role is server-only; client-only behavioral requirements such as REQ-DISCONNECT-005 and REQ-DISCONNECT-006 are exercised through codec wire-shape tests and assigned to the codec work package.",
+    "The generated headers include/mqtt/mqtt_types.h, include/mqtt/mqtt_codec.h, include/mqtt/mqtt_session.h, and include/mqtt/mqtt_net.h are produced by templates, are frozen at s5, and are consumed through contracts rather than owned by runtime modules.",
+    "The s6_owned source slots are the only files owned by modules; Makefile and README.md are frozen layout-template artifacts and are not module-owned.",
+    "Resource limits from the delivery constraints define the connection cap, output batch cap, and per-item byte cap for the network layer."
+  ],
+  "contracts": [
+    {
+      "consumers": [
+        "module-session"
+      ],
+      "id": "contract-codec",
+      "interface_files": [
+        "src/codec/codec_connack.c"
+      ],
+      "owner": "module-codec",
+      "provider": "module-codec",
+      "purpose": "Expose the generated MQTT type declarations and per-message codec entry points to the session module.",
+      "ready_gate": "task"
+    },
+    {
+      "consumers": [
+        "module-app"
+      ],
+      "id": "contract-session",
+      "interface_files": [
+        "src/session/mqtt_session.c"
+      ],
+      "owner": "module-session",
+      "provider": "module-session",
+      "purpose": "Expose the server-side session API for connection, bytes, disconnect, and tick events.",
+      "ready_gate": "task"
+    },
+    {
+      "consumers": [
+        "module-app"
+      ],
+      "id": "contract-net",
+      "interface_files": [
+        "src/net/mqtt_net.c"
+      ],
+      "owner": "module-net",
+      "provider": "module-net",
+      "purpose": "Expose the network event source and caller-provided output batch interface to the application.",
+      "ready_gate": "task"
+    }
+  ],
+  "decisions": [
+    {
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_codec.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        }
+      ],
+      "id": "decision-module-boundaries",
+      "statement": "Keep codec as pure wire translation, session as the protocol state machine, net as the I/O event source, and app as the composition root.",
+      "topic": "module-boundaries"
+    },
+    {
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_types.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_codec.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        }
+      ],
+      "id": "decision-contract-readiness",
+      "statement": "Generated headers are frozen at s5, but implementation contracts become ready when their owning module's work package completes, so contract ready_gate is task.",
+      "topic": "contract-readiness"
+    },
+    {
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_types.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_codec.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        }
+      ],
+      "id": "decision-generated-interface-ownership",
+      "statement": "Runtime modules own only s6_owned source slots; generated headers are consumed through contracts and are not included in module file ownership.",
+      "topic": "generated-interface-ownership"
+    },
+    {
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        }
+      ],
+      "id": "decision-event-wiring",
+      "statement": "Net emits connect, bytes, disconnect, and tick events; the application dispatches them into the session API, and session-produced output batches are transmitted by net.",
+      "topic": "event-wiring"
+    },
+    {
+      "context_refs": [
+        {
+          "id": "REQ-FRAME-001",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-SESSION-001",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-TRANSPORT-001",
+          "kind": "requirement"
+        }
+      ],
+      "id": "decision-requirement-ownership",
+      "statement": "Wire-shape and primitive validation requirements belong to codec; server lifecycle, session, and error-close requirements belong to session; transport requirements belong to net.",
+      "topic": "requirement-ownership"
+    },
+    {
+      "context_refs": [],
+      "id": "decision-build-artifacts",
+      "statement": "Makefile and README.md are produced by the layout template at s5 and are excluded from runtime module ownership.",
+      "topic": "frozen-artifacts"
+    }
+  ],
+  "modules": [
+    {
+      "consumes_contracts": [],
+      "id": "module-codec",
+      "name": "Codec",
+      "non_goals": [
+        "Do not own sockets or network I/O.",
+        "Do not own session state or subscription routing.",
+        "Do not decide server behavior after reporting a decode error."
+      ],
+      "owns_files": [
+        "src/codec/codec_connack.c",
+        "src/codec/codec_connect.c",
+        "src/codec/codec_disconnect.c",
+        "src/codec/codec_pingreq.c",
+        "src/codec/codec_pingresp.c",
+        "src/codec/codec_publish.c",
+        "src/codec/codec_suback.c",
+        "src/codec/codec_subscribe.c",
+        "src/codec/codec_unsuback.c",
+        "src/codec/codec_unsubscribe.c"
+      ],
+      "provides_contracts": [
+        "contract-codec"
+      ],
+      "purpose": "Own wire-format type declarations, per-message codec entry points, and MQTT wire primitives.",
+      "responsibilities": [
+        "Implement per-message encode/decode entry points for CONNACK, CONNECT, DISCONNECT, PINGREQ, PINGRESP, PUBLISH, SUBACK, SUBSCRIBE, UNSUBACK, and UNSUBSCRIBE.",
+        "Implement MQTT Variable Byte Integer, MQTT UTF-8 string, and big-endian integer wire primitives.",
+        "Enforce fixed-header flags, forbidden packet types, UTF-8 string validity, PUBLISH topic constraints, and requested-QoS wire constraints."
+      ]
+    },
+    {
+      "consumes_contracts": [
+        "contract-codec"
+      ],
+      "id": "module-session",
+      "name": "Session",
+      "non_goals": [
+        "Do not read or write sockets directly.",
+        "Do not implement wire encoding primitives.",
+        "Do not own the application event loop."
+      ],
+      "owns_files": [
+        "src/session/mqtt_session.c"
+      ],
+      "provides_contracts": [
+        "contract-session"
+      ],
+      "purpose": "Own the server-side protocol state machine: connection lifecycle, session state, subscriptions, keep-alive, and message forwarding.",
+      "responsibilities": [
+        "Complete the CONNECT handshake and emit CONNACK with session-present and return-code rules.",
+        "Maintain per-client session state, clean-session lifecycle, subscriptions, and keep-alive timers.",
+        "Process SUBSCRIBE and UNSUBSCRIBE and emit SUBACK and UNSUBACK.",
+        "Route PUBLISH application messages to matching subscriptions with RETAIN=0.",
+        "Respond to PINGREQ with PINGRESP.",
+        "Close connections on protocol violations, transient errors, and valid DISCONNECT."
+      ]
+    },
+    {
+      "consumes_contracts": [],
+      "id": "module-net",
+      "name": "Network",
+      "non_goals": [
+        "Do not interpret MQTT packets.",
+        "Do not own session state.",
+        "Do not implement protocol timers beyond delivering tick events."
+      ],
+      "owns_files": [
+        "src/net/mqtt_net.c"
+      ],
+      "provides_contracts": [
+        "contract-net"
+      ],
+      "purpose": "Own the ordered lossless byte-stream transport boundary and output batching for the server.",
+      "responsibilities": [
+        "Track client connections up to max_connections and emit connect, bytes, disconnect, and tick events.",
+        "Provide the caller-owned output batch API with connection id, bytes, length, and close flags.",
+        "Enforce output batch and per-item resource limits."
+      ]
+    },
+    {
+      "consumes_contracts": [
+        "contract-session",
+        "contract-net"
+      ],
+      "id": "module-app",
+      "name": "Server Application",
+      "non_goals": [
+        "Do not interpret MQTT packets.",
+        "Do not own session state or codec internals.",
+        "Do not implement transport internals."
+      ],
+      "owns_files": [
+        "apps/mqtt_server_main.c"
+      ],
+      "provides_contracts": [],
+      "purpose": "Compose the network event source with the session server API and run the server entry point.",
+      "responsibilities": [
+        "Initialize the opaque server instance.",
+        "Dispatch net connect, bytes, disconnect, and tick events to session handlers.",
+        "Flush session-produced output batches through the net output API and run the main loop."
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "work_packages": [
+    {
+      "acceptance": {
+        "outcome": "All ten per-message codec sources compile against the generated headers and pass the L1 codec reference tests, including Remaining Length and UTF-8 boundaries."
+      },
+      "allowed_files": [
+        "src/codec/codec_connack.c",
+        "src/codec/codec_connect.c",
+        "src/codec/codec_disconnect.c",
+        "src/codec/codec_pingreq.c",
+        "src/codec/codec_pingresp.c",
+        "src/codec/codec_publish.c",
+        "src/codec/codec_suback.c",
+        "src/codec/codec_subscribe.c",
+        "src/codec/codec_unsuback.c",
+        "src/codec/codec_unsubscribe.c"
+      ],
+      "consumes_contracts": [],
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_types.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_codec.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "connack",
+          "kind": "message"
+        },
+        {
+          "id": "connect",
+          "kind": "message"
+        },
+        {
+          "id": "disconnect",
+          "kind": "message"
+        },
+        {
+          "id": "pingreq",
+          "kind": "message"
+        },
+        {
+          "id": "pingresp",
+          "kind": "message"
+        },
+        {
+          "id": "publish",
+          "kind": "message"
+        },
+        {
+          "id": "suback",
+          "kind": "message"
+        },
+        {
+          "id": "subscribe",
+          "kind": "message"
+        },
+        {
+          "id": "unsuback",
+          "kind": "message"
+        },
+        {
+          "id": "unsubscribe",
+          "kind": "message"
+        },
+        {
+          "id": "mqtt_requested_qos",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_suback_return_code",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_suback_return_codes",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_subscription_entry",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_subscription_list",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_topic_filter_list",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_utf8_string",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_varint",
+          "kind": "type"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Implement all per-message encode/decode functions and MQTT wire primitives.",
+      "id": "wp-codec",
+      "kind": "implementation",
+      "module": "module-codec",
+      "provides_contracts": [
+        "contract-codec"
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-CONNACK-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-FRAME-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-STRING-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-STRING-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBACK-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-009",
+          "role": "primary"
+        }
+      ],
+      "title": "MQTT wire codec implementation"
+    },
+    {
+      "acceptance": {
+        "outcome": "The session source implements the mqtt_session.h API and passes the L2 behavior tests, including malformed packet isolation and keep-alive behavior."
+      },
+      "allowed_files": [
+        "src/session/mqtt_session.c"
+      ],
+      "consumes_contracts": [
+        "contract-codec"
+      ],
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "connack",
+          "kind": "message"
+        },
+        {
+          "id": "connect",
+          "kind": "message"
+        },
+        {
+          "id": "disconnect",
+          "kind": "message"
+        },
+        {
+          "id": "pingreq",
+          "kind": "message"
+        },
+        {
+          "id": "pingresp",
+          "kind": "message"
+        },
+        {
+          "id": "publish",
+          "kind": "message"
+        },
+        {
+          "id": "suback",
+          "kind": "message"
+        },
+        {
+          "id": "subscribe",
+          "kind": "message"
+        },
+        {
+          "id": "unsuback",
+          "kind": "message"
+        },
+        {
+          "id": "unsubscribe",
+          "kind": "message"
+        },
+        {
+          "id": "mqtt_requested_qos",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_suback_return_codes",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_subscription_list",
+          "kind": "type"
+        },
+        {
+          "id": "mqtt_topic_filter_list",
+          "kind": "type"
+        }
+      ],
+      "depends_on": [
+        "wp-codec"
+      ],
+      "goal": "Implement the session API that drives connection, subscription, keep-alive, and forwarding behavior.",
+      "id": "wp-session",
+      "kind": "implementation",
+      "module": "module-session",
+      "provides_contracts": [
+        "contract-session"
+      ],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-CONNACK-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-008",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-009",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-011",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-013",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-014",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-015",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-016",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-017",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-018",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-KEEPALIVE-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-KEEPALIVE-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PING-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-010",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SESSION-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBACK-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-008",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-009",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-007",
+          "role": "primary"
+        }
+      ],
+      "title": "Server session state machine"
+    },
+    {
+      "acceptance": {
+        "outcome": "The network source implements the mqtt_net.h event and output-batch API with the declared resource limits."
+      },
+      "allowed_files": [
+        "src/net/mqtt_net.c"
+      ],
+      "consumes_contracts": [],
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "REQ-TRANSPORT-001",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-TRANSPORT-002",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-TRANSPORT-003",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-TRANSPORT-004",
+          "kind": "requirement"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Implement the connection tracking, event source, and output batching declared in mqtt_net.h.",
+      "id": "wp-net",
+      "kind": "implementation",
+      "module": "module-net",
+      "provides_contracts": [
+        "contract-net"
+      ],
+      "requirement_responsibilities": [],
+      "title": "Network event and output batch layer"
+    },
+    {
+      "acceptance": {
+        "outcome": "The application entry point wires net events to session handlers and flushes output batches."
+      },
+      "allowed_files": [
+        "apps/mqtt_server_main.c"
+      ],
+      "consumes_contracts": [
+        "contract-session",
+        "contract-net"
+      ],
+      "context_refs": [
+        {
+          "id": "include/mqtt/mqtt_net.h",
+          "kind": "interface_file"
+        },
+        {
+          "id": "include/mqtt/mqtt_session.h",
+          "kind": "interface_file"
+        }
+      ],
+      "depends_on": [
+        "wp-session",
+        "wp-net"
+      ],
+      "goal": "Compose the network event source with the session server API and provide the main loop.",
+      "id": "wp-app",
+      "kind": "implementation",
+      "module": "module-app",
+      "provides_contracts": [],
+      "requirement_responsibilities": [],
+      "title": "Server application entry point"
+    }
+  ]
+}

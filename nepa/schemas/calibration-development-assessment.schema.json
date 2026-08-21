@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/calibration-development-assessment.schema.json",
+  "title": "Prompt development assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lineage_id", "version", "trial_count", "attempt", "status", "models", "screening_pass", "ambiguity"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "lineage_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "version": {"enum": ["v0", "v1", "v2"]},
+    "trial_count": {"enum": [5, 10]},
+    "attempt": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["complete", "invalid"]},
+    "screening_pass": {"type": "boolean"},
+    "ambiguity": {"enum": ["none", "single_sample_sensitive", "metric_conflict"]},
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qwen", "deepseek"],
+      "properties": {
+        "qwen": {"$ref": "#/$defs/model"},
+        "deepseek": {"$ref": "#/$defs/model"}
+      }
+    }
+  },
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calls", "tokens_in", "tokens_out", "cost_usd", "latency_ms", "finish_reasons", "truncated"],
+      "properties": {
+        "calls": {"type": "integer", "minimum": 0},
+        "tokens_in": {"type": "integer", "minimum": 0},
+        "tokens_out": {"type": "integer", "minimum": 0},
+        "cost_usd": {"type": "number", "minimum": 0},
+        "latency_ms": {"type": "integer", "minimum": 0},
+        "finish_reasons": {"type": "object"},
+        "truncated": {"type": "integer", "minimum": 0}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_ref", "p1", "schema_after_format_repair_rate", "arch_semantic_first_pass_rate", "truncations", "infrastructure_invalid", "repeated_gate_failures", "screening_pass", "initial_gate_failures", "identity_stable", "provider", "requested_model", "returned_versions", "parameter_support", "usage", "gates", "repairs", "tuple", "trial_ids"],
+      "properties": {
+        "report_ref": {"$ref": "#/$defs/ref"},
+        "p1": {"type": "number", "minimum": 0, "maximum": 1},
+        "schema_after_format_repair_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "arch_semantic_first_pass_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "truncations": {"type": "integer", "minimum": 0},
+        "infrastructure_invalid": {"type": "boolean"},
+        "repeated_gate_failures": {"type": "array", "items": {"type": "string", "pattern": "^arch_[0-9]{2}$"}},
+        "screening_pass": {"type": "boolean"},
+        "initial_gate_failures": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10"],
+          "properties": {
+            "arch_01": {"$ref": "#/$defs/trial_ids"}, "arch_02": {"$ref": "#/$defs/trial_ids"},
+            "arch_03": {"$ref": "#/$defs/trial_ids"}, "arch_04": {"$ref": "#/$defs/trial_ids"},
+            "arch_05": {"$ref": "#/$defs/trial_ids"}, "arch_06": {"$ref": "#/$defs/trial_ids"},
+            "arch_07": {"$ref": "#/$defs/trial_ids"}, "arch_08": {"$ref": "#/$defs/trial_ids"},
+            "arch_09": {"$ref": "#/$defs/trial_ids"}, "arch_10": {"$ref": "#/$defs/trial_ids"}
+          }
+        },
+        "identity_stable": {"type": "boolean"},
+        "provider": {"type": ["string", "null"]},
+        "requested_model": {"type": ["string", "null"]},
+        "returned_versions": {"type": "array", "items": {"type": "string"}},
+        "parameter_support": {"type": "object"},
+        "usage": {"$ref": "#/$defs/usage"},
+        "gates": {"type": "object"},
+        "repairs": {"type": "object"},
+        "tuple": {"type": "array", "minItems": 4, "maxItems": 4},
+        "trial_ids": {"$ref": "#/$defs/trial_ids"}
+      }
+    },
+    "trial_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^trial_[0-9]{3}$"}
+    }
+  }
+}

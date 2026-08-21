@@ -1,0 +1,11 @@
+{
+  "source": "reviewer-deepseek-deduplicated.json",
+  "validated_projection": [
+    "reviews",
+    "ranking",
+    "ranking_rationale"
+  ],
+  "schema": "reviewer-schema.json",
+  "schema_valid": true,
+  "error_count": 0
+}

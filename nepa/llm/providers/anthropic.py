@@ -9,8 +9,8 @@ from typing import Any
 import httpx
 
 from ...config import ProviderConfig
-from ..client import DecodingError, LLMConfigurationError, LLMRequest, LLMResponse, ProviderError, TransportError
-from .openai_compat import OpenAICompatibleProvider, normalise_chat_response
+from ..client import LLMConfigurationError, LLMRequest, LLMResponse
+from .openai_compat import DEFAULT_HTTP_TIMEOUT, OpenAICompatibleProvider, _complete_chat_stream
 
 
 class AnthropicProvider:
@@ -30,7 +30,7 @@ class AnthropicProvider:
             raise LLMConfigurationError(f"provider {provider_name} is not anthropic")
         self.provider_name = provider_name
         self.config = config
-        self.client = client or httpx.Client()
+        self.client = client or httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT)
         self._env_lookup = env_lookup
 
     @property
@@ -49,31 +49,12 @@ class AnthropicProvider:
 
     def complete(self, request: LLMRequest, *, model: str, native_schema: bool = False) -> LLMResponse:
         api_key = self._api_key()
-        payload = OpenAICompatibleProvider._payload(request, model, native_schema)
-        try:
-            response = self.client.post(
-                self.endpoint,
-                headers={"x-api-key": api_key, "Content-Type": "application/json"},
-                json=payload,
-            )
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.RequestError) as exc:
-            raise TransportError(
-                f"{self.provider_name} request failed: {exc.__class__.__name__}",
-                provider=self.provider_name,
-            ) from exc
-        if response.status_code >= 400:
-            raise ProviderError(
-                f"{self.provider_name} returned HTTP {response.status_code}",
-                provider=self.provider_name,
-                status_code=response.status_code,
-            )
-        try:
-            response_payload = response.json()
-        except (ValueError, httpx.DecodingError) as exc:
-            raise DecodingError(f"{self.provider_name} returned a malformed successful response") from exc
-        return normalise_chat_response(
-            response_payload,
-            provider_name=self.provider_name,
-            selected_model=model,
+        return _complete_chat_stream(
+            self.client,
+            endpoint=self.endpoint,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            request=request,
+            model=model,
             native_schema=native_schema,
+            provider_name=self.provider_name,
         )

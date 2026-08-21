@@ -1,0 +1,530 @@
+{
+  "assumptions": [
+    "The declared target role owns the application entry point.",
+    "Mechanical generation templates for types and codec headers are available and correct.",
+    "The underlying TCP transport provides ordered, lossless byte streams as required by MQTT 3.1.1."
+  ],
+  "contracts": [
+    {
+      "consumers": [
+        "module-codec",
+        "module-session",
+        "module-net",
+        "module-app"
+      ],
+      "id": "contract-types",
+      "interface_files": [
+        "include/mqtt/mqtt_types.h"
+      ],
+      "owner": "s5",
+      "provider": "s5",
+      "purpose": "Expose generated MQTT type declarations.",
+      "ready_gate": "s5"
+    },
+    {
+      "consumers": [
+        "module-session",
+        "module-app"
+      ],
+      "id": "contract-codec",
+      "interface_files": [
+        "include/mqtt/mqtt_codec.h"
+      ],
+      "owner": "s5",
+      "provider": "s5",
+      "purpose": "Expose generated MQTT codec declarations.",
+      "ready_gate": "s5"
+    },
+    {
+      "consumers": [
+        "module-app"
+      ],
+      "id": "contract-session",
+      "interface_files": [
+        "include/mqtt/mqtt_session.h"
+      ],
+      "owner": "s5",
+      "provider": "s5",
+      "purpose": "Expose the session management interface.",
+      "ready_gate": "s5"
+    },
+    {
+      "consumers": [
+        "module-app"
+      ],
+      "id": "contract-net",
+      "interface_files": [
+        "include/mqtt/mqtt_net.h"
+      ],
+      "owner": "s5",
+      "provider": "s5",
+      "purpose": "Expose the network abstraction interface.",
+      "ready_gate": "s5"
+    }
+  ],
+  "decisions": [
+    {
+      "context_refs": [],
+      "id": "decision-boundary",
+      "statement": "Separate network I/O from session state and protocol codec to ensure transient network errors do not corrupt session logic.",
+      "topic": "module-boundary"
+    },
+    {
+      "context_refs": [],
+      "id": "decision-codec-generation",
+      "statement": "Use mechanical generation for types and codec headers to ensure strict protocol compliance and eliminate manual wire-format errors.",
+      "topic": "mechanical-generation"
+    },
+    {
+      "context_refs": [
+        {
+          "id": "REQ-ERROR-003",
+          "kind": "requirement"
+        }
+      ],
+      "id": "decision-session-isolation",
+      "statement": "Isolate session state per connection so that a protocol violation on one client only closes that specific connection.",
+      "topic": "error-handling"
+    }
+  ],
+  "modules": [
+    {
+      "consumes_contracts": [
+        "contract-types"
+      ],
+      "id": "module-codec",
+      "name": "Codec",
+      "non_goals": [
+        "Do not manage connection state or session lifecycle."
+      ],
+      "owns_files": [
+        "src/codec/codec_connack.c",
+        "src/codec/codec_connect.c",
+        "src/codec/codec_disconnect.c",
+        "src/codec/codec_pingreq.c",
+        "src/codec/codec_pingresp.c",
+        "src/codec/codec_publish.c",
+        "src/codec/codec_suback.c",
+        "src/codec/codec_subscribe.c",
+        "src/codec/codec_unsuback.c",
+        "src/codec/codec_unsubscribe.c"
+      ],
+      "provides_contracts": [],
+      "purpose": "Own the MQTT message encoding and decoding logic.",
+      "responsibilities": [
+        "Implement per-message codec functions.",
+        "Validate wire-format constraints during decoding."
+      ]
+    },
+    {
+      "consumes_contracts": [
+        "contract-types",
+        "contract-codec"
+      ],
+      "id": "module-session",
+      "name": "Session",
+      "non_goals": [
+        "Do not perform raw byte parsing or network I/O."
+      ],
+      "owns_files": [
+        "src/session/mqtt_session.c"
+      ],
+      "provides_contracts": [],
+      "purpose": "Own the MQTT session state and business logic.",
+      "responsibilities": [
+        "Manage client subscriptions and session lifecycle.",
+        "Enforce keep-alive and topic matching rules."
+      ]
+    },
+    {
+      "consumes_contracts": [
+        "contract-types"
+      ],
+      "id": "module-net",
+      "name": "Network",
+      "non_goals": [
+        "Do not interpret MQTT protocol semantics."
+      ],
+      "owns_files": [
+        "src/net/mqtt_net.c"
+      ],
+      "provides_contracts": [],
+      "purpose": "Own the network abstraction layer.",
+      "responsibilities": [
+        "Provide an interface for sending and receiving byte streams.",
+        "Manage connection identifiers."
+      ]
+    },
+    {
+      "consumes_contracts": [
+        "contract-types",
+        "contract-codec",
+        "contract-session",
+        "contract-net"
+      ],
+      "id": "module-app",
+      "name": "Application",
+      "non_goals": [
+        "Do not implement protocol-specific state machines."
+      ],
+      "owns_files": [
+        "apps/mqtt_server_main.c"
+      ],
+      "provides_contracts": [],
+      "purpose": "Own the server entry point and build configuration.",
+      "responsibilities": [
+        "Wire together network, session, and codec modules.",
+        "Handle top-level error reporting and resource limits."
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "work_packages": [
+    {
+      "acceptance": {
+        "outcome": "Codecs correctly round-trip MQTT packets and reject malformed wire formats."
+      },
+      "allowed_files": [
+        "src/codec/codec_connack.c",
+        "src/codec/codec_connect.c",
+        "src/codec/codec_disconnect.c",
+        "src/codec/codec_pingreq.c",
+        "src/codec/codec_pingresp.c",
+        "src/codec/codec_publish.c",
+        "src/codec/codec_suback.c",
+        "src/codec/codec_subscribe.c",
+        "src/codec/codec_unsuback.c",
+        "src/codec/codec_unsubscribe.c"
+      ],
+      "consumes_contracts": [
+        "contract-types"
+      ],
+      "context_refs": [
+        {
+          "id": "connect",
+          "kind": "message"
+        },
+        {
+          "id": "connack",
+          "kind": "message"
+        },
+        {
+          "id": "publish",
+          "kind": "message"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Implement encoding and decoding for all MQTT 3.1.1 control packets.",
+      "id": "wp-codec",
+      "kind": "implementation",
+      "module": "module-codec",
+      "provides_contracts": [],
+      "requirement_responsibilities": [],
+      "title": "Message Codecs"
+    },
+    {
+      "acceptance": {
+        "outcome": "Session state is correctly maintained and isolated per connection."
+      },
+      "allowed_files": [
+        "src/session/mqtt_session.c"
+      ],
+      "consumes_contracts": [
+        "contract-types",
+        "contract-codec"
+      ],
+      "context_refs": [
+        {
+          "id": "REQ-SESSION-001",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-KEEPALIVE-001",
+          "kind": "requirement"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Implement MQTT session state, subscriptions, and keep-alive logic.",
+      "id": "wp-session",
+      "kind": "implementation",
+      "module": "module-session",
+      "provides_contracts": [],
+      "requirement_responsibilities": [],
+      "title": "Session Management"
+    },
+    {
+      "acceptance": {
+        "outcome": "Network layer provides ordered, lossless byte stream abstraction."
+      },
+      "allowed_files": [
+        "src/net/mqtt_net.c"
+      ],
+      "consumes_contracts": [
+        "contract-types"
+      ],
+      "context_refs": [
+        {
+          "id": "REQ-TRANSPORT-001",
+          "kind": "requirement"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Implement the network interface for TCP byte stream management.",
+      "id": "wp-net",
+      "kind": "implementation",
+      "module": "module-net",
+      "provides_contracts": [],
+      "requirement_responsibilities": [],
+      "title": "Network Abstraction"
+    },
+    {
+      "acceptance": {
+        "outcome": "Server builds successfully and handles client connections and protocol violations."
+      },
+      "allowed_files": [
+        "apps/mqtt_server_main.c"
+      ],
+      "consumes_contracts": [
+        "contract-types",
+        "contract-codec",
+        "contract-session",
+        "contract-net"
+      ],
+      "context_refs": [
+        {
+          "id": "REQ-ERROR-001",
+          "kind": "requirement"
+        },
+        {
+          "id": "REQ-CONNECT-001",
+          "kind": "requirement"
+        }
+      ],
+      "depends_on": [],
+      "goal": "Wire modules together in the server entry point and configure the build.",
+      "id": "wp-app",
+      "kind": "implementation",
+      "module": "module-app",
+      "provides_contracts": [],
+      "requirement_responsibilities": [
+        {
+          "req_id": "REQ-CONNACK-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNACK-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-008",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-009",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-011",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-013",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-014",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-015",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-016",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-017",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-CONNECT-018",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-DISCONNECT-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-ERROR-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-FRAME-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-KEEPALIVE-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-KEEPALIVE-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PING-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-PUBLISH-010",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SESSION-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-STRING-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-STRING-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBACK-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBACK-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-003",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-008",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-SUBSCRIBE-009",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-001",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-004",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-TOPIC-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-002",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-005",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-006",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-007",
+          "role": "primary"
+        },
+        {
+          "req_id": "REQ-UNSUBSCRIBE-009",
+          "role": "primary"
+        }
+      ],
+      "title": "Application Integration"
+    }
+  ]
+}

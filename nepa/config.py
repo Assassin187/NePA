@@ -150,9 +150,8 @@ _DEFAULTS: dict[str, Any] = {
         },
     },
     "calibration_models": {
-        "claude": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 16000},
-        "qwen": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 16000},
-        "deepseek": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.0, "max_tokens": 16000},
+        "qwen": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 65536},
+        "deepseek": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.0, "max_tokens": 65536},
     },
     "tiers": {
         "T1": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 16000},

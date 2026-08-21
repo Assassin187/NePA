@@ -23,7 +23,7 @@ from jsonschema import Draft202012Validator
 from ..agents.base import AGENT_SYSTEM_INSTRUCTION, AgentInvoker, AgentResult, PromptRenderer
 from ..agents.roles import get_role
 from ..config import ResolvedConfig, load_config
-from ..llm.client import LLMClient, LLMRequest, LLMResponse, StructuredOutputError, TransportError, ProviderError, extract_first_json_value, structured_validation_errors
+from ..llm.client import DecodingError, LLMClient, LLMRequest, LLMResponse, StructuredOutputError, TransportError, ProviderError, extract_first_json_value, structured_validation_errors
 from ..llm.telemetry import LLMTelemetry
 from ..run_store import ArtifactRef, RunStore, RunStoreError
 from ..schemas import architecture_draft_contract, load_schema
@@ -39,7 +39,173 @@ from ..speclib.planning import (
 )
 
 
-MODEL_IDS = ("claude", "qwen", "deepseek")
+MODEL_IDS = ("qwen", "deepseek")
+FIXED_API_KEY_ENVS = {
+    "qwen": "NEPA_QWEN_API_KEY",
+    "deepseek": "NEPA_DS_API_KEY",
+}
+METRIC_DEFINITION = "m1-4a1-architecture-calibration-metrics-v1"
+RECOVERY_METRIC_DEFINITION = "m1-4a2r-recovery-metrics-v1"
+REPAIR_IMPACT_POLICY_VERSION = "repair-impact-v1"
+
+# Closed gate dependency policy used only to audit the existing full-draft
+# semantic repair.  It does not change ARCH_VALIDATE or make an invalid draft
+# acceptable.  Prefixes use the stable-id form produced by
+# ``architecture_draft_changed_paths``.
+REPAIR_IMPACT_POLICY: dict[str, tuple[str, ...]] = {
+    "arch_01": ("/decisions", "/contracts", "/modules", "/work_packages"),
+    "arch_02": ("/modules", "/work_packages"),
+    "arch_03": ("/contracts", "/modules", "/work_packages"),
+    "arch_04": ("/contracts", "/modules", "/work_packages"),
+    "arch_05": ("/contracts", "/modules", "/work_packages"),
+    "arch_06": ("/modules", "/work_packages"),
+    "arch_07": ("/contracts", "/modules", "/work_packages"),
+    "arch_08": ("/contracts", "/work_packages"),
+    "arch_09": ("/contracts", "/modules", "/work_packages"),
+    "arch_10": ("/work_packages",),
+}
+
+
+def recovery_component_bytes() -> bytes:
+    return canonical_json_bytes({
+        "metric_definition": RECOVERY_METRIC_DEFINITION,
+        "repair_policy_version": REPAIR_IMPACT_POLICY_VERSION,
+        "repair_policy": REPAIR_IMPACT_POLICY,
+        "quality_audit": "m1-4a2r-quality-audit-v1",
+    })
+
+
+def _json_pointer_token(value: object) -> str:
+    return str(value).replace("~", "~0").replace("/", "~1")
+
+
+def _stable_array_key(path: str, item: object) -> str | None:
+    if not isinstance(item, Mapping):
+        return None
+    if path in {"/decisions", "/contracts", "/modules", "/work_packages"}:
+        value = item.get("id")
+        return str(value) if isinstance(value, str) else None
+    if path.endswith("/requirement_responsibilities"):
+        value = item.get("req_id")
+        return str(value) if isinstance(value, str) else None
+    if path.endswith("/context_refs"):
+        kind, value = item.get("kind"), item.get("id")
+        return f"{kind}:{value}" if isinstance(kind, str) and isinstance(value, str) else None
+    return None
+
+
+def architecture_draft_changed_paths(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[str]:
+    """Return canonical semantic JSON Pointer paths for a draft repair.
+
+    Contract arrays with stable identifiers are compared as keyed sets, so a
+    harmless reordering does not become a repair. Other arrays retain ordinary
+    positional semantics because their order/duplicates can carry meaning.
+    """
+
+    changed: set[str] = set()
+
+    def walk(left: object, right: object, path: str) -> None:
+        if isinstance(left, Mapping) and isinstance(right, Mapping):
+            for key in sorted(set(left) | set(right), key=lambda item: str(item).encode("utf-8")):
+                child = f"{path}/{_json_pointer_token(key)}"
+                if key not in left or key not in right:
+                    changed.add(child)
+                else:
+                    walk(left[key], right[key], child)
+            return
+        if isinstance(left, list) and isinstance(right, list):
+            keyed_left = {_stable_array_key(path, item): item for item in left}
+            keyed_right = {_stable_array_key(path, item): item for item in right}
+            keyed = (
+                len(keyed_left) == len(left)
+                and len(keyed_right) == len(right)
+                and None not in keyed_left
+                and None not in keyed_right
+            )
+            if keyed:
+                for key in sorted(set(keyed_left) | set(keyed_right), key=lambda item: str(item).encode("utf-8")):
+                    child = f"{path}/{_json_pointer_token(key)}"
+                    if key not in keyed_left or key not in keyed_right:
+                        changed.add(child)
+                    else:
+                        walk(keyed_left[key], keyed_right[key], child)
+                return
+            for index in range(max(len(left), len(right))):
+                child = f"{path}/{index}"
+                if index >= len(left) or index >= len(right):
+                    changed.add(child)
+                else:
+                    walk(left[index], right[index], child)
+            return
+        if left != right:
+            changed.add(path or "/")
+
+    walk(before, after, "")
+    return sorted(changed, key=lambda item: item.encode("utf-8"))
+
+
+def repair_impact_closure(issues: list[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """Compute the closed issue-to-path attribution policy for one repair."""
+
+    result: dict[str, set[str]] = {}
+    for issue in issues:
+        gate = issue.get("gate") or issue.get("gate_id")
+        code = issue.get("code")
+        path = issue.get("path")
+        if gate not in REPAIR_IMPACT_POLICY:
+            raise CalibrationEvidenceError(f"repair issue has unsupported gate: {gate!r}")
+        issue_key = f"{gate}:{code}" if isinstance(code, str) and code else str(gate)
+        prefixes = result.setdefault(issue_key, set(REPAIR_IMPACT_POLICY[str(gate)]))
+        if isinstance(path, str) and path.startswith("/"):
+            prefixes.add(path)
+        if code == "ARCH_TEST_READINESS_UNCLOSED":
+            prefixes.update(("/work_packages", "/work_packages/*/depends_on", "/work_packages/*/requirement_responsibilities"))
+    return {key: sorted(values, key=lambda item: item.encode("utf-8")) for key, values in sorted(result.items())}
+
+
+def assess_repair_locality(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    issues: list[Mapping[str, Any]],
+    before_validation: Mapping[str, Any],
+    after_validation: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Publish the deterministic repair diff, attribution and regression gate."""
+
+    changed = architecture_draft_changed_paths(before, after)
+    closure = repair_impact_closure(issues)
+
+    def admitted(path: str, prefix: str) -> bool:
+        if "/*/" in prefix:
+            start, end = prefix.split("/*/", 1)
+            return path.startswith(start + "/") and ("/" + end) in path[len(start):]
+        return path == prefix or path.startswith(prefix.rstrip("/") + "/")
+
+    attribution = {
+        path: [key for key, prefixes in closure.items() if any(admitted(path, prefix) for prefix in prefixes)]
+        for path in changed
+    }
+    before_gates = {item.get("id"): item.get("verdict") for item in before_validation.get("gates", []) if isinstance(item, Mapping)}
+    after_gates = {item.get("id"): item.get("verdict") for item in after_validation.get("gates", []) if isinstance(item, Mapping)}
+    improved = sorted(gate for gate in before_gates if before_gates[gate] == "fail" and after_gates.get(gate) == "pass")
+    regressed = sorted(gate for gate in before_gates if before_gates[gate] == "pass" and after_gates.get(gate) == "fail")
+    unchanged = sorted(gate for gate in before_gates if before_gates[gate] == after_gates.get(gate))
+    unattributed = [path for path, keys in attribution.items() if not keys]
+    passed = bool(changed) and not unattributed and not regressed
+    return {
+        "schema_version": "1.0",
+        "policy_version": REPAIR_IMPACT_POLICY_VERSION,
+        "before_sha256": _sha(canonical_json_bytes(before)),
+        "after_sha256": _sha(canonical_json_bytes(after)),
+        "changed_paths": changed,
+        "impact_closure": closure,
+        "attribution": attribution,
+        "unattributed_paths": unattributed,
+        "improved_gates": improved,
+        "unchanged_gates": unchanged,
+        "regressed_gates": regressed,
+        "locality_pass": passed,
+    }
 
 
 class CalibrationError(RuntimeError):
@@ -105,6 +271,10 @@ class CalibrationBatchDeclaration:
     fault_hook: Callable[[str], None] | None = None
     max_semantic_repairs: int | None = None
     attempt: int = 1
+    batch_kind: str = "base"
+    trial_start: int = 1
+    trial_ids: tuple[str, ...] | None = None
+    root_relative_path: str | None = None
 
     @property
     def semantic_depth(self) -> int:
@@ -141,7 +311,22 @@ class CalibrationBatchDeclaration:
         _validate_prompt_version(self.prompt_version)
         if self.attempt <= 0:
             raise CalibrationDeclarationError("attempt must be positive")
+        if self.batch_kind not in {"base", "extension"}:
+            raise CalibrationDeclarationError("batch_kind must be base or extension")
+        if self.trial_start <= 0:
+            raise CalibrationDeclarationError("trial_start must be positive")
+        names = self.trial_ids or tuple(f"trial_{index:03d}" for index in range(self.trial_start, self.trial_start + self.trial_count))
+        if len(names) != self.trial_count or len(set(names)) != len(names) or any(re.fullmatch(r"trial_[0-9]{3}", name) is None for name in names):
+            raise CalibrationDeclarationError("trial_ids must be a unique fixed sample matching trial_count")
+        if self.root_relative_path is not None:
+            if self.root_relative_path.startswith("/") or "\\" in self.root_relative_path or ".." in Path(self.root_relative_path).parts:
+                raise CalibrationDeclarationError("root_relative_path must be confined below the lineage root")
         return targets
+
+    def trial_names(self) -> tuple[str, ...]:
+        return self.trial_ids or tuple(
+            f"trial_{index:03d}" for index in range(self.trial_start, self.trial_start + self.trial_count)
+        )
 
 
 def _sha(value: bytes) -> str:
@@ -233,6 +418,17 @@ _CONTROLLED_COMPONENT_FILES: dict[str, tuple[str, ...]] = {
     ),
     "statistics": (
         "nepa/calibration/s4_architecture.py",
+        "nepa/calibration/s4_prompt_development.py",
+        "nepa/schemas/calibration-development-protocol.schema.json",
+        "nepa/schemas/calibration-prompt-version.schema.json",
+        "nepa/schemas/calibration-prompt-snapshot.schema.json",
+        "nepa/schemas/calibration-prompt-revision.schema.json",
+        "nepa/schemas/calibration-attempt-declaration.schema.json",
+        "nepa/schemas/calibration-attempt-outcome.schema.json",
+        "nepa/schemas/calibration-development-extension.schema.json",
+        "nepa/schemas/calibration-development-assessment.schema.json",
+        "nepa/schemas/calibration-development-outcome.schema.json",
+        "nepa/schemas/calibration-development-selection.schema.json",
     ),
 }
 
@@ -296,6 +492,7 @@ def build_lineage_manifest(
     components: Mapping[str, Any] | None = None,
     statistics: Mapping[str, Any] | None = None,
     component_bytes: Mapping[str, Any] | None = None,
+    calibration: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a lineage manifest whose id excludes all prompt identity."""
 
@@ -350,8 +547,36 @@ def build_lineage_manifest(
         if price is None:
             raise CalibrationDeclarationError(f"lineage pricing is not configured: {key}")
         pricing[model_id] = price.model_dump(mode="json")
-    semantic_stats = dict(statistics or {"trial_count": 1, "semantic_depth": 0})
+    supplied_statistics = dict(statistics or {})
+    forbidden_statistics = {"trial_count", "semantic_depth"}.intersection(supplied_statistics)
+    if forbidden_statistics:
+        raise CalibrationDeclarationError(
+            "lineage statistics cannot contain batch controls: " + ", ".join(sorted(forbidden_statistics))
+        )
+    unknown_statistics = set(supplied_statistics) - {"metric_definition", "implementation_sha256"}
+    if unknown_statistics:
+        raise CalibrationDeclarationError(
+            "lineage statistics contains unknown fields: " + ", ".join(sorted(unknown_statistics))
+        )
+    expected_implementation_hash = _sha(Path(__file__).read_bytes())
+    semantic_stats = {
+        "metric_definition": METRIC_DEFINITION,
+        "implementation_sha256": expected_implementation_hash,
+    }
+    semantic_stats.update(supplied_statistics)
+    if semantic_stats["metric_definition"] not in {METRIC_DEFINITION, RECOVERY_METRIC_DEFINITION} or semantic_stats["implementation_sha256"] != expected_implementation_hash:
+        raise CalibrationDeclarationError("lineage metric-definition contract or implementation hash drift")
     semantic_stats_bytes = canonical_json_bytes(semantic_stats)
+    calibration_projection = {
+        "api_key_env": dict(FIXED_API_KEY_ENVS),
+        "model_ids": list(MODEL_IDS),
+    }
+    if calibration is not None:
+        supplied_calibration = dict(calibration)
+        if set(supplied_calibration) != set(calibration_projection):
+            raise CalibrationDeclarationError("lineage calibration projection has unknown or missing fields")
+        if supplied_calibration != calibration_projection:
+            raise CalibrationDeclarationError("lineage fixed API-key environment-variable mapping drift")
     projection = {
         "schema_version": "1.0",
         "inputs": {
@@ -372,6 +597,7 @@ def build_lineage_manifest(
         "providers": providers,
         "models": target_projection,
         "pricing": pricing,
+        "calibration": calibration_projection,
         "statistics": {**semantic_stats, "sha256": _sha(semantic_stats_bytes)},
     }
     lineage_id = _sha(canonical_json_bytes(projection))
@@ -461,13 +687,17 @@ def _render_architecture_prompt(
     repair_context: Any,
     schema: Mapping[str, Any],
     example: Any,
+    template_bytes: bytes | None = None,
 ):
-    return PromptRenderer.render(
-        get_role("architecture_planner"),
-        inputs={"planning_index": planning, "delivery_constraints": constraints, "repair_context": repair_context},
-        output_schema=dict(schema),
-        output_example=example,
-    )
+    definition = get_role("architecture_planner")
+    kwargs = {
+        "inputs": {"planning_index": planning, "delivery_constraints": constraints, "repair_context": repair_context},
+        "output_schema": dict(schema),
+        "output_example": example,
+    }
+    if template_bytes is None:
+        return PromptRenderer.render(definition, **kwargs)
+    return PromptRenderer.render_template_bytes(definition, template=template_bytes, **kwargs)
 
 
 class ArchitecturePlannerContractBinding:
@@ -487,6 +717,7 @@ class ArchitecturePlannerContractBinding:
         task_id: str,
         attempt: int,
         use_cache: bool = False,
+        template_bytes: bytes | None = None,
     ) -> AgentResult:
         return self.invoker.invoke(
             role="architecture_planner",
@@ -498,6 +729,7 @@ class ArchitecturePlannerContractBinding:
             task_id=task_id,
             attempt=attempt,
             use_cache=use_cache,
+            template_bytes=template_bytes,
         )
 
 
@@ -640,7 +872,7 @@ def _failure_attempt_record(
 
 
 class ArchitectureCalibrationDriver:
-    """Run three isolated model workers and atomically commit trial evidence."""
+    """Run two isolated model workers and atomically commit trial evidence."""
 
     def __init__(
         self,
@@ -650,11 +882,23 @@ class ArchitectureCalibrationDriver:
         provider_factory: Any | None = None,
         providers: Any | None = None,
         fault_hook: Callable[[str], None] | None = None,
+        prompt_bytes: bytes | None = None,
+        prompt_source_guard: Callable[[], None] | None = None,
+        publish_reports: bool = True,
+        lineage_statistics: Mapping[str, Any] | None = None,
+        lineage_component_bytes: Mapping[str, Any] | None = None,
     ) -> None:
         self.config = config or load_config()
         self.runs_root = Path(runs_root).resolve()
         self.provider_factory = provider_factory if provider_factory is not None else providers
         self.fault_hook = fault_hook
+        if prompt_bytes is not None and not isinstance(prompt_bytes, bytes):
+            raise CalibrationDeclarationError("prompt snapshot must be raw bytes")
+        self.prompt_bytes = prompt_bytes
+        self.prompt_source_guard = prompt_source_guard
+        self.publish_reports = publish_reports
+        self.lineage_statistics = dict(lineage_statistics or {})
+        self.lineage_component_bytes = dict(lineage_component_bytes or {})
         self._adapter_lock = threading.Lock()
         self._adapter_owners: dict[int, tuple[str, str]] = {}
         self._adapter_objects: dict[int, Any] = {}
@@ -695,21 +939,24 @@ class ArchitectureCalibrationDriver:
 
     @staticmethod
     def _validate_batch_lineage_binding(batch: Mapping[str, Any], lineage: Mapping[str, Any]) -> None:
-        statistics = lineage.get("statistics")
         models = lineage.get("models")
         model_id = batch.get("model_id")
-        if not isinstance(statistics, Mapping) or not isinstance(models, Mapping) or not isinstance(model_id, str):
+        if not isinstance(models, Mapping) or not isinstance(model_id, str):
             raise CalibrationEvidenceError("lineage is missing controlled batch projections")
         model = models.get(model_id)
-        expected_trial_count = statistics.get("trial_count")
-        expected_depth = statistics.get("semantic_depth")
-        expected_trials = [f"trial_{index:03d}" for index in range(1, int(expected_trial_count) + 1)] if isinstance(expected_trial_count, int) else None
+        trial_count = batch.get("trial_count")
+        depth = batch.get("semantic_depth")
+        trials = batch.get("trials")
+        trial_start = batch.get("trial_start", 1)
+        batch_kind = batch.get("batch_kind", "base")
+        expected_trials = [f"trial_{index:03d}" for index in range(int(trial_start), int(trial_start) + int(trial_count))] if isinstance(trial_count, int) and trial_count > 0 and isinstance(trial_start, int) and trial_start > 0 else None
         checks = (
             (batch.get("lineage_id") == lineage.get("lineage_id"), "lineage id drift"),
-            (batch.get("trial_count") == expected_trial_count, "trial count is not bound to lineage statistics"),
-            (batch.get("trials") == expected_trials, "trial ids are not bound to lineage statistics"),
-            (batch.get("semantic_depth") == expected_depth, "semantic repair depth is not bound to lineage statistics"),
+            (expected_trials is not None and trials == expected_trials, "batch trial ids do not match its declared trial count"),
+            (isinstance(depth, int) and not isinstance(depth, bool) and 0 <= depth <= 2, "batch semantic depth is invalid"),
             (isinstance(model, Mapping), f"model projection is missing from lineage: {model_id}"),
+            (batch_kind in {"base", "extension"}, "batch kind is invalid"),
+            (batch_kind != "extension" or (trial_count == 5 and trial_start == 6 and trials == [f"trial_{index:03d}" for index in range(6, 11)]), "extension batch controls are invalid"),
         )
         for valid, message in checks:
             if not valid:
@@ -747,7 +994,8 @@ class ArchitectureCalibrationDriver:
         lineage = build_lineage_manifest(
             prepared, planning, manifest, constraints, config=self.config, model_targets=targets,
             context_window_tokens={model_id: target.context_window_tokens for model_id, target in targets.items()},
-            statistics={"trial_count": declaration.trial_count, "semantic_depth": declaration.semantic_depth},
+            statistics=self.lineage_statistics,
+            component_bytes=self.lineage_component_bytes,
         )
         lineage_root = self.runs_root / "_calibration" / "s4-architecture" / lineage["lineage_id"]
         store = RunStore(lineage_root)
@@ -761,7 +1009,7 @@ class ArchitectureCalibrationDriver:
         store.publish_immutable_json("delivery_constraints.json", constraints)
         store.publish_immutable_bytes("schema/architecture-draft.schema.json", (Path(__file__).resolve().parents[1] / "schemas/architecture-draft.schema.json").read_bytes())
         store.publish_immutable_bytes("schema/architecture-draft.example.json", (Path(__file__).resolve().parents[1] / "schemas/examples/architecture-draft.example.json").read_bytes())
-        components = _default_components()
+        components = _component_values(component_bytes=self.lineage_component_bytes)
         for name, data in components.items():
             reference = lineage["components"].get(name)
             if not isinstance(reference, Mapping) or reference.get("path") != _component_path(name):
@@ -784,9 +1032,14 @@ class ArchitectureCalibrationDriver:
     ) -> ArtifactRef:
         prompt_version = _validate_prompt_version(declaration.prompt_version)
         prompt_root = _confined_path(lineage_store.root, prompt_version)
-        root = prompt_root / model_id if declaration.attempt == 1 else prompt_root / f"attempt_{declaration.attempt:03d}" / model_id
+        if declaration.root_relative_path is not None:
+            root = _confined_path(lineage_store.root, declaration.root_relative_path, model_id)
+        else:
+            root = prompt_root / model_id if declaration.attempt == 1 else prompt_root / f"attempt_{declaration.attempt:03d}" / model_id
         root = _confined_path(lineage_store.root, *root.relative_to(lineage_store.root).parts)
         root.mkdir(parents=True, exist_ok=True)
+        if self.prompt_source_guard is not None:
+            self.prompt_source_guard()
         store = RunStore(root)
         derived = _derived_config(self.config, target)
         adapters = _provider_map(self.provider_factory, model_id, target, derived, store)
@@ -796,13 +1049,13 @@ class ArchitectureCalibrationDriver:
         invoker = AgentInvoker(derived, client)
         binding = ArchitecturePlannerContractBinding(invoker)
         schema, example = architecture_draft_contract()
+        template_bytes = self.prompt_bytes if self.prompt_bytes is not None else PromptRenderer._load_template(get_role("architecture_planner")).raw
         rendered = architecture_planner_context_preflight(
             planning, constraints, model_limits={model_id: target.context_window_tokens},
             requested_output_tokens=target.max_tokens, safety_margin_ratio=derived.planning.context_safety_margin_ratio,
-            output_schema=schema, output_example=example,
+            output_schema=schema, output_example=example, template_bytes=template_bytes,
         )
-        rendered_prompt = _render_architecture_prompt(planning, constraints, None, schema, example)
-        template_bytes = PromptRenderer._load_template(get_role("architecture_planner")).raw
+        rendered_prompt = _render_architecture_prompt(planning, constraints, None, schema, example, template_bytes)
         actual_prompt_hash = _sha(template_bytes)
         if declaration.prompt_sha256 is not None and declaration.prompt_sha256 != actual_prompt_hash:
             raise CalibrationDeclarationError("declared prompt_sha256 does not match the actual ArchitecturePlanner template bytes")
@@ -816,21 +1069,24 @@ class ArchitectureCalibrationDriver:
             "provider": target.provider, "model": target.model, "trial_count": declaration.trial_count,
             "temperature": target.temperature, "max_tokens": target.max_tokens,
             "semantic_depth": declaration.semantic_depth, "context_window_tokens": target.context_window_tokens,
-            "trials": [f"trial_{index:03d}" for index in range(1, declaration.trial_count + 1)],
+            "trials": list(declaration.trial_names()),
             "attempt": declaration.attempt,
+            "batch_kind": declaration.batch_kind,
+            "trial_start": declaration.trial_start,
         }
+        if declaration.root_relative_path is not None:
+            batch["root_path"] = str(root.relative_to(lineage_store.root))
         _publish_json(store, "batch.json", batch, schema_name="calibration-batch.schema.json")
-        for index in range(1, declaration.trial_count + 1):
-            trial_id = f"trial_{index:03d}"
+        for trial_id in declaration.trial_names():
             final = store.root / "trials" / trial_id
             if final.exists():
                 if (final / "validation.json").exists() and (final / "request_ref.json").exists() and (final / "response_ref.json").exists():
                     _read_trial(store, final, batch, lineage)
                     continue
                 raise CalibrationEvidenceError(f"uncommitted or incomplete trial directory cannot be reused: {trial_id}")
-            self._run_trial(store, lineage, model_id, target, declaration, binding, planning, manifest, constraints, trial_id, prompt_hash)
+            self._run_trial(store, lineage, model_id, target, declaration, binding, planning, manifest, constraints, trial_id, prompt_hash, template_bytes)
         report = recompute_calibration_report(store.root, config=self.config)
-        if report["status"] == "complete":
+        if self.publish_reports and report["status"] == "complete":
             _publish_json(store, "calibration_report.json", report, schema_name="calibration-report.schema.json")
         return ArtifactRef(
             str(store.root.relative_to(lineage_store.root)),
@@ -854,6 +1110,7 @@ class ArchitectureCalibrationDriver:
         constraints: Mapping[str, Any],
         trial_id: str,
         prompt_hash: str,
+        template_bytes: bytes,
     ) -> None:
         staging = store.root / "trials" / f".{trial_id}.{os.getpid()}.staging"
         staging.mkdir(parents=True, exist_ok=True)
@@ -865,6 +1122,8 @@ class ArchitectureCalibrationDriver:
         for depth in range(declaration.semantic_depth + 1):
             prior_trace_count = len(_trace_rows(store, trial_id))
             try:
+                if self.prompt_source_guard is not None:
+                    self.prompt_source_guard()
                 architecture_planner_context_preflight(
                     planning, constraints,
                     model_limits={model_id: target.context_window_tokens},
@@ -873,12 +1132,16 @@ class ArchitectureCalibrationDriver:
                     output_schema=binding.schema,
                     output_example=binding.example,
                     repair_context=previous_context,
+                    template_bytes=template_bytes,
                 )
                 result = binding.invoke(
                     planning_index=planning, delivery_constraints=constraints, repair_context=previous_context,
                     run_id=f"calibration:{lineage['lineage_id']}:{declaration.prompt_version}:{model_id}",
                     task_id=trial_id, attempt=depth + 1, use_cache=False,
+                    template_bytes=template_bytes,
                 )
+                if self.prompt_source_guard is not None:
+                    self.prompt_source_guard()
                 response = result.response
                 candidate = result.parsed if isinstance(result.parsed, dict) else None
                 trace = _latest_trace(store, trial_id, after=prior_trace_count)
@@ -918,7 +1181,7 @@ class ArchitectureCalibrationDriver:
                 ))
                 terminal = "schema-fail"
                 break
-            except (TransportError, ProviderError, CalibrationError) as exc:
+            except (DecodingError, TransportError, ProviderError, CalibrationError) as exc:
                 trace = _latest_trace(store, trial_id, after=prior_trace_count)
                 responses = list(getattr(exc, "responses", []))
                 completed = getattr(exc, "completed_response", None)
@@ -1058,7 +1321,10 @@ def _load_model_root(model_root: str | Path, *, config: ResolvedConfig | None = 
         if ref.get("path") != _component_path(name):
             raise CalibrationEvidenceError(f"lineage component path is not controlled: {name}")
         _verify_ref(lineage_root, ref, f"lineage/components/{name}")
-        if name not in current_components or _sha(current_components[name]) != ref.get("sha256"):
+        expected_component = current_components.get(name)
+        if name == "statistics" and lineage.get("statistics", {}).get("metric_definition") == RECOVERY_METRIC_DEFINITION:
+            expected_component = recovery_component_bytes()
+        if expected_component is None or _sha(expected_component) != ref.get("sha256"):
             raise CalibrationEvidenceError(f"controlled component drift: {name}")
     schema_path = Path(__file__).resolve().parents[1] / "schemas/architecture-draft.schema.json"
     example_path = Path(__file__).resolve().parents[1] / "schemas/examples/architecture-draft.example.json"
@@ -1070,9 +1336,17 @@ def _load_model_root(model_root: str | Path, *, config: ResolvedConfig | None = 
         raise CalibrationEvidenceError("model root is not bound to batch model id")
     prompt_version = _validate_prompt_version(batch.get("prompt_version"))
     attempt = batch.get("attempt")
-    expected_root = lineage_root / prompt_version / batch["model_id"] if attempt == 1 else lineage_root / prompt_version / f"attempt_{attempt:03d}" / batch["model_id"]
+    root_path = batch.get("root_path")
+    if isinstance(root_path, str):
+        expected_root = _confined_path(lineage_root, *Path(root_path).parts)
+    elif batch.get("batch_kind", "base") == "extension":
+        raise CalibrationEvidenceError("extension batch is missing its confined root path")
+    else:
+        expected_root = lineage_root / prompt_version / batch["model_id"] if attempt == 1 else lineage_root / prompt_version / f"attempt_{attempt:03d}" / batch["model_id"]
     if store.root != expected_root.resolve():
         raise CalibrationEvidenceError("model root directory is not bound to batch prompt_version/attempt/model_id")
+    if not isinstance(batch.get("prompt_template_ref"), Mapping) or batch["prompt_template_ref"].get("path") != "prompt/template.md":
+        raise CalibrationEvidenceError("batch prompt template reference is not bound to prompt/template.md")
     template_data = _verify_ref(store.root, batch["prompt_template_ref"], "batch/prompt_template_ref")
     if _sha(template_data) != batch.get("prompt_sha256"):
         raise CalibrationEvidenceError("batch prompt_sha256 does not match the persisted template bytes")
@@ -1128,6 +1402,7 @@ def _read_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any], line
     if lineage_path is None:
         raise CalibrationEvidenceError(f"unable to locate lineage for {trial_dir.name}")
     lineage_root = lineage_path.parent.resolve()
+    template_data = _verify_ref(store.root, batch["prompt_template_ref"], f"{trial_dir.name}/prompt_template")
     frozen: dict[str, Any] = {}
     for key in ("planning_index", "manifest_metadata", "delivery_constraints"):
         try:
@@ -1244,7 +1519,10 @@ def _read_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any], line
                             "previous_candidate": previous_candidate,
                             "validation_issues": previous_issues,
                         }, architecture_draft_contract()[0], architecture_draft_contract()[1],
+                        template_data,
                     )
+                    if index > 0 and (previous_candidate is None or previous_issues is None):
+                        raise CalibrationEvidenceError(f"semantic repair lacks its prior Schema-valid candidate in {trial_dir.name} at {index}")
                     expected_prompt = (AGENT_SYSTEM_INSTRUCTION + "\n" + rendered.user).encode("utf-8")
                     fallback_suffix = (
                         "\n\nReturn one JSON value that conforms to this JSON Schema. "

@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "decisions": [
+    {
+      "id": "decision-boundary",
+      "topic": "module-boundary",
+      "statement": "Keep the frozen interface distinct from the mutable implementation-ready contract.",
+      "context_refs": []
+    }
+  ],
+  "assumptions": ["The bounded inputs declare the example requirement identifiers."],
+  "contracts": [
+    {
+      "id": "contract-frozen-interface",
+      "purpose": "Expose an interface that already exists before task implementation.",
+      "owner": "s5",
+      "interface_files": ["include/example/interface.h"],
+      "ready_gate": "s5",
+      "provider": "s5",
+      "consumers": ["module-core", "module-app"]
+    },
+    {
+      "id": "contract-core-ready",
+      "purpose": "Expose completion of the mutable core implementation to integration.",
+      "owner": "module-core",
+      "interface_files": ["src/core/core.c"],
+      "ready_gate": "task",
+      "provider": "module-core",
+      "consumers": ["module-app"]
+    }
+  ],
+  "modules": [
+    {
+      "id": "module-core",
+      "name": "Core",
+      "purpose": "Implement core behavior behind the frozen interface.",
+      "responsibilities": ["Implement the core requirement."],
+      "non_goals": ["Do not own the application entry point."],
+      "owns_files": ["src/core/core.c"],
+      "provides_contracts": ["contract-core-ready"],
+      "consumes_contracts": ["contract-frozen-interface"]
+    },
+    {
+      "id": "module-app",
+      "name": "Application",
+      "purpose": "Integrate the completed core into the application.",
+      "responsibilities": ["Provide the integration convergence point."],
+      "non_goals": ["Do not reimplement core behavior."],
+      "owns_files": ["src/app/main.c"],
+      "provides_contracts": [],
+      "consumes_contracts": ["contract-frozen-interface", "contract-core-ready"]
+    }
+  ],
+  "work_packages": [
+    {
+      "id": "wp-core",
+      "title": "Core implementation",
+      "goal": "Implement the mutable core boundary.",
+      "module": "module-core",
+      "kind": "implementation",
+      "context_refs": [],
+      "requirement_responsibilities": [{"req_id": "REQ-CORE-001", "role": "primary"}],
+      "allowed_files": ["src/core/core.c"],
+      "provides_contracts": ["contract-core-ready"],
+      "consumes_contracts": ["contract-frozen-interface"],
+      "depends_on": [],
+      "acceptance": {"outcome": "The core implementation is available to integration."}
+    },
+    {
+      "id": "wp-app",
+      "title": "Application integration",
+      "goal": "Integrate the core into the application entry point.",
+      "module": "module-app",
+      "kind": "integration",
+      "context_refs": [],
+      "requirement_responsibilities": [{"req_id": "REQ-APP-001", "role": "primary"}],
+      "allowed_files": ["src/app/main.c"],
+      "provides_contracts": [],
+      "consumes_contracts": ["contract-frozen-interface", "contract-core-ready"],
+      "depends_on": ["wp-core"],
+      "acceptance": {"outcome": "Core and application requirements converge in the executable."}
+    }
+  ]
+}

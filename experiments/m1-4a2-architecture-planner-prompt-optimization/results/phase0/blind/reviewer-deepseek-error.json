@@ -1,0 +1,9 @@
+{
+  "status": "infrastructure-invalid",
+  "stage": "provider authentication",
+  "provider": "deepseek",
+  "error": "HTTP 401",
+  "secret_values_recorded": false,
+  "retry_performed": false,
+  "reason_no_retry": "A non-retryable authentication failure cannot be corrected without refreshed external credentials."
+}

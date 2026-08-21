@@ -1,0 +1,10 @@
+{
+  "date": "2026-08-20",
+  "request": "minimal non-streaming health request, max_tokens=4",
+  "http_status": 400,
+  "provider_error_type": "Arrearage",
+  "provider_error_code": "Arrearage",
+  "provider_message": "Access denied; account is not in good standing due to overdue payment",
+  "secret_recorded": false,
+  "interpretation": "Provider account state blocks Qwen independently of ArchitecturePlanner prompt size or staged call shape"
+}

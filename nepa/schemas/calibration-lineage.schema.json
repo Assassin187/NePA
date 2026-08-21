@@ -4,22 +4,23 @@
   "title": "NePA Calibration Lineage",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "lineage_id", "inputs", "artifacts", "components", "providers", "models", "pricing", "statistics"],
+  "required": ["schema_version", "lineage_id", "inputs", "artifacts", "components", "providers", "models", "pricing", "calibration", "statistics"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "lineage_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "inputs": {"type": "object", "additionalProperties": false, "required": ["spec", "target", "test_bundle"], "properties": {"spec": {"$ref": "#/$defs/ref"}, "target": {"$ref": "#/$defs/ref"}, "test_bundle": {"$ref": "#/$defs/ref"}}},
     "artifacts": {"type": "object", "additionalProperties": false, "required": ["planning_index", "manifest_metadata", "delivery_constraints", "schema", "example", "serializer", "validator"], "properties": {"planning_index": {"$ref": "#/$defs/ref"}, "manifest_metadata": {"$ref": "#/$defs/ref"}, "delivery_constraints": {"$ref": "#/$defs/ref"}, "schema": {"$ref": "#/$defs/ref"}, "example": {"$ref": "#/$defs/ref"}, "serializer": {"$ref": "#/$defs/ref"}, "validator": {"$ref": "#/$defs/ref"}}},
     "components": {"type": "object", "additionalProperties": false, "required": ["serializer", "planning", "delivery", "validator", "agent_framework", "llm_runtime", "telemetry", "provider_adapters", "statistics"], "properties": {"serializer": {"$ref": "#/$defs/ref"}, "planning": {"$ref": "#/$defs/ref"}, "delivery": {"$ref": "#/$defs/ref"}, "validator": {"$ref": "#/$defs/ref"}, "agent_framework": {"$ref": "#/$defs/ref"}, "llm_runtime": {"$ref": "#/$defs/ref"}, "telemetry": {"$ref": "#/$defs/ref"}, "provider_adapters": {"$ref": "#/$defs/ref"}, "statistics": {"$ref": "#/$defs/ref"}}},
-    "pricing": {"type": "object", "additionalProperties": false, "required": ["claude", "qwen", "deepseek"], "properties": {"claude": {"$ref": "#/$defs/price"}, "qwen": {"$ref": "#/$defs/price"}, "deepseek": {"$ref": "#/$defs/price"}}},
+    "pricing": {"type": "object", "additionalProperties": false, "required": ["qwen", "deepseek"], "properties": {"qwen": {"$ref": "#/$defs/price"}, "deepseek": {"$ref": "#/$defs/price"}}},
     "providers": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/provider"}},
-    "models": {"type": "object", "additionalProperties": false, "minProperties": 3, "properties": {"claude": {"$ref": "#/$defs/model"}, "qwen": {"$ref": "#/$defs/model"}, "deepseek": {"$ref": "#/$defs/model"}}, "required": ["claude", "qwen", "deepseek"]},
-    "statistics": {"type": "object", "additionalProperties": false, "required": ["trial_count", "semantic_depth", "sha256"], "properties": {"trial_count": {"type": "integer", "minimum": 1}, "semantic_depth": {"type": "integer", "minimum": 0, "maximum": 2}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+    "models": {"type": "object", "additionalProperties": false, "minProperties": 2, "properties": {"qwen": {"$ref": "#/$defs/model"}, "deepseek": {"$ref": "#/$defs/model"}}, "required": ["qwen", "deepseek"]},
+    "calibration": {"type": "object", "additionalProperties": false, "required": ["api_key_env", "model_ids"], "properties": {"api_key_env": {"type": "object", "additionalProperties": false, "required": ["qwen", "deepseek"], "properties": {"qwen": {"const": "NEPA_QWEN_API_KEY"}, "deepseek": {"const": "NEPA_DS_API_KEY"}}}, "model_ids": {"const": ["qwen", "deepseek"]}}},
+    "statistics": {"type": "object", "additionalProperties": false, "required": ["metric_definition", "implementation_sha256", "sha256"], "properties": {"metric_definition": {"enum": ["m1-4a1-architecture-calibration-metrics-v1", "m1-4a2r-recovery-metrics-v1"]}, "implementation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
   },
   "$defs": {
     "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
     "price": {"type": "object", "additionalProperties": false, "required": ["input_usd_per_million_tokens", "output_usd_per_million_tokens"], "properties": {"input_usd_per_million_tokens": {"type": "number", "minimum": 0}, "output_usd_per_million_tokens": {"type": "number", "minimum": 0}}},
-    "model": {"type": "object", "additionalProperties": false, "required": ["provider", "model", "temperature", "max_tokens", "context_window_tokens"], "properties": {"provider": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1}, "temperature": {"type": "number", "minimum": 0}, "max_tokens": {"type": "integer", "minimum": 1}, "context_window_tokens": {"type": "integer", "minimum": 1}}},
+    "model": {"type": "object", "additionalProperties": false, "required": ["provider", "model", "temperature", "max_tokens", "context_window_tokens"], "properties": {"provider": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1}, "temperature": {"type": "number", "minimum": 0}, "max_tokens": {"const": 65536}, "context_window_tokens": {"type": "integer", "minimum": 1}}},
     "provider": {"type": "object", "additionalProperties": false, "required": ["kind", "base_url", "api_key_env", "sha256"], "properties": {"kind": {"type": "string", "minLength": 1}, "base_url": {"type": "string", "minLength": 1}, "api_key_env": {"type": ["string", "null"]}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
   }
 }

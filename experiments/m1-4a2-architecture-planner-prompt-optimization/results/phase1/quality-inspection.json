@@ -1,0 +1,415 @@
+{
+  "candidates": [
+    {
+      "label": "baseline-v0-deepseek-trial002-p1",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase0/blind/candidates/candidate-c.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 7,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 4,
+      "primary_counts_by_wp": {
+        "wp-codec": 26,
+        "wp-session": 6,
+        "wp-net": 0,
+        "wp-server": 22
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 0,
+        "wp-session": 0,
+        "wp-net": 4,
+        "wp-server": 0
+      },
+      "maximum_primary_share": 0.48148148148148145,
+      "zero_primary_work_packages": [
+        "wp-net"
+      ],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1
+      },
+      "empty_context_ref_decisions": 0,
+      "decision_count": 5
+    },
+    {
+      "label": "exact-qwen-trial_001",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/qwen/trial_001_p1.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 8,
+      "task_contract_count": 4,
+      "primary_total": 54,
+      "supporting_total": 50,
+      "primary_counts_by_wp": {
+        "wp-codec": 25,
+        "wp-session": 29,
+        "wp-net": 0,
+        "wp-app": 0
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 45,
+        "wp-session": 1,
+        "wp-net": 4,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.5370370370370371,
+      "zero_primary_work_packages": [
+        "wp-net",
+        "wp-app"
+      ],
+      "zero_responsibility_work_packages": [
+        "wp-app"
+      ],
+      "task_contracts_without_consumers": [
+        "contract-app-impl"
+      ],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1,
+        "contract-app-impl": 1
+      },
+      "empty_context_ref_decisions": 2,
+      "decision_count": 2
+    },
+    {
+      "label": "exact-qwen-trial_002",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/qwen/trial_002_p1.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 8,
+      "task_contract_count": 4,
+      "primary_total": 54,
+      "supporting_total": 0,
+      "primary_counts_by_wp": {
+        "wp-codec": 10,
+        "wp-session": 44,
+        "wp-net": 0,
+        "wp-app": 0
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 0,
+        "wp-session": 0,
+        "wp-net": 0,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.8148148148148148,
+      "zero_primary_work_packages": [
+        "wp-net",
+        "wp-app"
+      ],
+      "zero_responsibility_work_packages": [
+        "wp-net",
+        "wp-app"
+      ],
+      "task_contracts_without_consumers": [
+        "contract-app-impl"
+      ],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1,
+        "contract-app-impl": 1
+      },
+      "empty_context_ref_decisions": 1,
+      "decision_count": 1
+    },
+    {
+      "label": "exact-qwen-trial_003",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/qwen/trial_003_p0.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 8,
+      "task_contract_count": 4,
+      "primary_total": 54,
+      "supporting_total": 0,
+      "primary_counts_by_wp": {
+        "wp-codec": 24,
+        "wp-session": 27,
+        "wp-net": 0,
+        "wp-app": 3
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 0,
+        "wp-session": 0,
+        "wp-net": 0,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.5,
+      "zero_primary_work_packages": [
+        "wp-net"
+      ],
+      "zero_responsibility_work_packages": [
+        "wp-net"
+      ],
+      "task_contracts_without_consumers": [
+        "contract-app-impl"
+      ],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1,
+        "contract-app-impl": 1
+      },
+      "empty_context_ref_decisions": 1,
+      "decision_count": 1
+    },
+    {
+      "label": "exact-qwen-trial_004",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-n5-extension/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/e1-1-b-exact-prompt/qwen/candidates/trial_004_p1.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 7,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 20,
+      "primary_counts_by_wp": {
+        "wp-codec": 17,
+        "wp-session": 37,
+        "wp-net": 0,
+        "wp-app": 0
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 0,
+        "wp-session": 0,
+        "wp-net": 20,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.6851851851851852,
+      "zero_primary_work_packages": [
+        "wp-net",
+        "wp-app"
+      ],
+      "zero_responsibility_work_packages": [
+        "wp-app"
+      ],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1
+      },
+      "empty_context_ref_decisions": 1,
+      "decision_count": 1
+    },
+    {
+      "label": "exact-qwen-trial_005",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-n5-extension/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/e1-1-b-exact-prompt/qwen/candidates/trial_005_p0.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 7,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 0,
+      "primary_counts_by_wp": {
+        "wp-codec-impl": 10,
+        "wp-session-impl": 44,
+        "wp-net-impl": 0,
+        "wp-app-impl": 0
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec-impl": 0,
+        "wp-session-impl": 0,
+        "wp-net-impl": 0,
+        "wp-app-impl": 0
+      },
+      "maximum_primary_share": 0.8148148148148148,
+      "zero_primary_work_packages": [
+        "wp-net-impl",
+        "wp-app-impl"
+      ],
+      "zero_responsibility_work_packages": [
+        "wp-net-impl",
+        "wp-app-impl"
+      ],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec-impl": 10,
+        "contract-session-impl": 1,
+        "contract-net-impl": 1
+      },
+      "empty_context_ref_decisions": 1,
+      "decision_count": 1
+    },
+    {
+      "label": "exact-deepseek-trial_001",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/deepseek/trial_001_p0.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 5,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 78,
+      "primary_counts_by_wp": {
+        "wp-codec": 26,
+        "wp-session": 22,
+        "wp-net": 5,
+        "wp-app": 1
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 32,
+        "wp-session": 20,
+        "wp-net": 15,
+        "wp-app": 11
+      },
+      "maximum_primary_share": 0.48148148148148145,
+      "zero_primary_work_packages": [],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec": 10,
+        "contract-session": 1,
+        "contract-net": 1
+      },
+      "empty_context_ref_decisions": 0,
+      "decision_count": 3
+    },
+    {
+      "label": "exact-deepseek-trial_002",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/deepseek/trial_002_p0.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 5,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 11,
+      "primary_counts_by_wp": {
+        "wp-codec": 23,
+        "wp-session": 6,
+        "wp-net": 5,
+        "wp-app": 20
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 3,
+        "wp-session": 3,
+        "wp-net": 5,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.42592592592592593,
+      "zero_primary_work_packages": [],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec": 10,
+        "contract-session": 1,
+        "contract-net": 1
+      },
+      "empty_context_ref_decisions": 2,
+      "decision_count": 3
+    },
+    {
+      "label": "exact-deepseek-trial_003",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-exact-prompt/deepseek/trial_003_p0.candidate.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 5,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 5,
+      "primary_counts_by_wp": {
+        "wp-codec": 25,
+        "wp-session": 6,
+        "wp-net": 10,
+        "wp-server": 13
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 4,
+        "wp-session": 0,
+        "wp-net": 1,
+        "wp-server": 0
+      },
+      "maximum_primary_share": 0.46296296296296297,
+      "zero_primary_work_packages": [],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec-api": 10,
+        "contract-session-api": 1,
+        "contract-net-api": 1
+      },
+      "empty_context_ref_decisions": 0,
+      "decision_count": 2
+    },
+    {
+      "label": "exact-deepseek-trial_004",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-n5-extension/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/e1-1-b-exact-prompt/deepseek/candidates/trial_004_p0.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 7,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 3,
+      "primary_counts_by_wp": {
+        "wp-codec": 28,
+        "wp-session": 6,
+        "wp-net": 3,
+        "wp-app": 17
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 2,
+        "wp-session": 0,
+        "wp-net": 1,
+        "wp-app": 0
+      },
+      "maximum_primary_share": 0.5185185185185185,
+      "zero_primary_work_packages": [],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec-task": 10,
+        "contract-session-task": 1,
+        "contract-net-task": 1
+      },
+      "empty_context_ref_decisions": 1,
+      "decision_count": 3
+    },
+    {
+      "label": "exact-deepseek-trial_005",
+      "path": "experiments/m1-4a2-architecture-planner-prompt-optimization/results/phase1/runs/e1-1-b-n5-extension/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/e1-1-b-exact-prompt/deepseek/candidates/trial_005_p0.json",
+      "validator_verdict": "pass",
+      "module_count": 4,
+      "work_package_count": 4,
+      "contract_count": 5,
+      "task_contract_count": 3,
+      "primary_total": 54,
+      "supporting_total": 68,
+      "primary_counts_by_wp": {
+        "wp-codec": 26,
+        "wp-session": 13,
+        "wp-net": 12,
+        "wp-app": 3
+      },
+      "supporting_counts_by_wp": {
+        "wp-codec": 39,
+        "wp-session": 10,
+        "wp-net": 12,
+        "wp-app": 7
+      },
+      "maximum_primary_share": 0.48148148148148145,
+      "zero_primary_work_packages": [],
+      "zero_responsibility_work_packages": [],
+      "task_contracts_without_consumers": [],
+      "task_contract_interface_file_count": {
+        "contract-codec": 10,
+        "contract-session": 1,
+        "contract-net": 1
+      },
+      "empty_context_ref_decisions": 3,
+      "decision_count": 3
+    }
+  ]
+}

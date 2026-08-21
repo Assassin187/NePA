@@ -1,8 +1,8 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：3.0.0\
-> 最后更新：2026\-08\-19\
+> 设计版本：3.1.0\
+> 最后更新：2026\-08\-20\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
 ## 0\. 阅读指南
@@ -1406,11 +1406,11 @@ Critic verdict 由控制器复核：存在任一 blocker/major 时必须为 `rev
 
 #### 6\.4.8 S4 架构规划开发与校准协议
 
-S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足 contract 集合等式、ready/provider 条件、需求唯一 primary、文件槽位、工作包 DAG 与测试 readiness 闭包，其联合通过率无法由单门直觉推断。因此 M1\-4a 必须依次完成基础设施、提示词优化、正式架构校准三个阶段；禁止跳过开发过程直接用一版未经迭代的 prompt 做资格判定。
+S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足 contract 集合等式、ready/provider 条件、需求唯一 primary、文件槽位、工作包 DAG 与测试 readiness 闭包，其联合通过率无法由单门直觉推断。因此 M1\-4a 的正常路径必须依次完成基础设施、提示词优化、正式架构校准三个阶段；禁止跳过开发过程直接用一版未经迭代的 prompt 做资格判定。M1\-4a2 完成 V0/V1/V2 后若按固定 fallback 规则仍为确定性平局且无法产生唯一候选，只能进入 6.4.8.2.1 的有界恢复分支；该分支不是正常路径的替代，也不得绕过正式架构校准。
 
-三个阶段都只处理 `ArchitecturePlanner`：TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer 的 prompt 不在本节优化范围。三个阶段使用 MQTT gold 输入作为第一个实验实例，但框架、Schema、validator 与 prompt 必须遵守 6.4 的协议中立硬约束，禁止为 MQTT 定制。
+正常三阶段及条件恢复分支都只处理 `ArchitecturePlanner`：TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer 的 prompt 不在本节优化范围。各阶段使用 MQTT gold 输入作为第一个实验实例，但框架、Schema、validator 与 prompt 必须遵守 6.4 的协议中立硬约束，禁止为 MQTT 定制。
 
-三阶段调用链只允许 ArchitecturePlanner、8.4 的结构化输出校验/修复和生产 `ARCH_VALIDATE`；禁止调用 TaskPlanner、Linker、PlanCritic、FlatPlanBaseline、Plan seal 及 S5/S6。校准目录不是正式 Run，不得写入 `run.json`、S4 receipt、正式 report 或 `nepa eval runs`，其候选架构也不得被下游消费。它只证明 ArchitecturePlanner 窄切片的资格，不证明完整 S4 可发布率。
+正常三阶段及条件恢复分支的调用链只允许 ArchitecturePlanner、8.4 的结构化输出校验/修复和生产 `ARCH_VALIDATE`；禁止调用 TaskPlanner、Linker、PlanCritic、FlatPlanBaseline、Plan seal 及 S5/S6。校准目录不是正式 Run，不得写入 `run.json`、S4 receipt、正式 report 或 `nepa eval runs`，其候选架构也不得被下游消费。它只证明 ArchitecturePlanner 窄切片的资格，不证明完整 S4 可发布率。
 
 ##### 6\.4.8.1 M1\-4a1：通用计划架构基础设施
 
@@ -1423,7 +1423,7 @@ S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足
 5. 实现协议中立静态扫描和非 MQTT fixture：框架与 prompt 不得出现 MQTT 专有标识符，协议相关内容只能通过冻结输入注入；
 6. 本阶段只提供窄切片所需的 Delivery Constraints 能力。M1\-4b 必须复用并扩展同一确定性实现完成完整 Blueprint/Plan/Linker，禁止另建平行代码路径。
 
-基础设施验收后，Schema、validator、serializer、输入构造、Qwen/DeepSeek 双模型配置及统计口径组成一个 `lineage_id`。提示词开发期间只允许改变共享 `ArchitecturePlanner` prompt；上述任一其他要素（包括候选集或 `max_tokens`）变化都必须新建 lineage，旧数据不得混合比较。
+基础设施验收后，Schema、validator、serializer、输入构造、Qwen/DeepSeek 双模型配置及统计口径组成一个 `lineage_id`。提示词开发期间只允许改变共享 `ArchitecturePlanner` prompt；上述任一其他要素（包括候选集或 `max_tokens`）变化都必须新建 lineage，旧数据不得混合比较。6.4.8.2.1 改变恢复筛选与修复局部性的证据口径，因此必须使用新 lineage；旧开发数据只能作为可追溯的历史证据，不能复制进新 lineage 的分母或候选集合。
 
 ##### 6\.4.8.2 M1\-4a2：双模型共享 ArchitecturePlanner Prompt 优化
 
@@ -1441,9 +1441,25 @@ S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足
 
 每轮修改记录必须包含：前一版 hash、失败证据、唯一修改假设、具体 diff、预期改善子门和停止结论。禁止同时修改 prompt 与 Schema/validator/模型配置后把结果归因于 prompt。
 
+若 V0/V1/V2 的固定 fallback 排名仍完全相同，系统必须记录 `PROMPT_SELECTION_TIE`，不得任意选择一个版本或向 M1\-4a3 交接。只有经负责人明确批准的 M1\-4a2r 才能继续下述恢复流程；否则 M1\-4a2 以无候选状态停止。
+
+###### 6\.4.8.2.1 M1\-4a2r：`PROMPT_SELECTION_TIE` 后的有界恢复
+
+本分支只在 M1\-4a2 已完整执行 V0/V1/V2、固定 fallback 规则产生确定性平局、没有 prompt 被选中且没有向 M1\-4a3 交接时启用。进入分支前必须有负责人批准和相应设计记录；原 V0/V1/V2 及其结论保持不可变，只作为恢复输入的来源证据。
+
+恢复分支必须创建新 lineage，并在 R0 前冻结 prompt 以外的输入、Schema、validator、serializer、双模型配置、调用参数、统计口径及修复局部性判据。旧 lineage 的 trial 不得复制、续跑或计入新 lineage。R0 可以吸收既有失败实验中已证实的通用经验，但仍必须使用同一份模型无关、协议中立、精确算法式 prompt。
+
+恢复采用 R0/R1/可选 R2 的有界协议：R0 是新的初始 prompt；只有完整 R0 失败且证据支持一个可证伪的 prompt 缺陷假设时才能修改为 R1；只有完整 R1 失败且证据支持第二个、与前次不同的可证伪假设时才能修改为 R2。最多修改 prompt 两次，禁止 R3、递归恢复或开放式调参；同一 lineage 内除 prompt 字节外不得改变其他控制变量。
+
+每个实际执行的 R0/R1/R2 都由 Qwen 与 DeepSeek 分别完成全新 N \= 5 trial，不扩到 N \= 10。每个 trial 允许至多一次无会话历史的语义修复；修复输入只包含首次 Schema 合法的完整 `ArchitectureDraft` 和精确 `ARCH_VALIDATE` 失败清单，模型仍返回完整 `ArchitectureDraft`，控制器机械比较修复前后差异并重跑完整 validator。
+
+恢复筛选门由两个模型分别满足：`schema_after_format_repair_rate = 1.00`、`p1 = 1.00`、无截断或基础设施无效、每次修复都有完整可重算的差异/局部性证据，且最终候选通过完整 `ARCH_VALIDATE`。`p0`、逐门首次通过率和首次重复失败只作为诊断证据，不在本分支单独否决一个已被一次局部修复闭合的版本。质量审计同样只用于识别机械通过但架构质量可疑的样本，不参与 `ARCH_VALIDATE` 或 prompt 选择；把它升级为硬门必须另行修改设计。
+
+首个满足恢复筛选门的 R0/R1/R2 立即成为唯一交接候选，不得继续修改，也不得在失败版本之间做 fallback 排名。若证据不足以支持下一次修改，或 R2 仍失败，则结果为 `no_selection`；控制器必须恢复进入本分支前的 prompt，禁止向 M1\-4a3 交接。恢复成功只取得进入 M1\-4a3 正式 N \= 20 资格批次的入场券，不替代 B1/B2/B3/B4、模型裁决或生产冻结；`no_selection` 后再次开启恢复必须先形成新的设计决策。
+
 ##### 6\.4.8.3 M1\-4a3：双模型正式架构校准与生产模型裁决
 
-正式资格批次固定 M1\-4a2 选出的共享 prompt，以及同一 lineage 的输入、Schema、validator、serializer 和调用参数。Qwen 与 DeepSeek 并行、各自运行 N \= 20 个独立 trial，总计 40 个 trial；两个批次必须使用同一 prompt hash 与 `max_tokens = 65536`，但分别记录完整 provider/model/version 和参数能力状态。
+正式资格批次固定 M1\-4a2 正常选出的共享 prompt，或发生确定性平局时由 M1\-4a2r 唯一交接的恢复 prompt，并固定该候选所属 lineage 的输入、Schema、validator、serializer 和调用参数。R0/R1/R2 的开发 trial 不得计入正式资格批次。Qwen 与 DeepSeek 并行、各自运行 N \= 20 个独立 trial，总计 40 个 trial；两个批次必须使用同一 prompt hash 与 `max_tokens = 65536`，但分别记录完整 provider/model/version 和参数能力状态。
 
 每个 trial 在首次 Schema 合法候选上计算 `p0`，即零次语义修复后通过全部 `ARCH_VALIDATE` 子门；失败后依次运行最多两次只携带精确失败清单、无隐藏对话历史的定点修复。`p1` 表示至多一次语义修复后通过的比例，`p2` 表示至多两次语义修复后通过的比例。结构化输出修复单独计数，不计入这两个语义修复额度。所有 headline rate 的分母固定为该模型全部 20 个 trial；Schema 二次失败或没有语义候选均按失败计入。
 
@@ -1817,7 +1833,7 @@ providers:
   deepseek:  {kind: openai_compat, base_url: https://api.deepseek.com}
   qwen:      {kind: openai_compat, base_url: https://dashscope.aliyuncs.com/compatible-mode/v1}
 
-calibration_models: # M1-4a2/M1-4a3 固定候选；二者共享 ArchitecturePlanner prompt
+calibration_models: # M1-4a2/M1-4a2r/M1-4a3 固定候选；三者共享 ArchitecturePlanner prompt
   qwen:     {provider: qwen, model: qwen3.7-max-2026-06-08, temperature: 0.0, max_tokens: 65536}
   deepseek: {provider: deepseek, model: deepseek-v4-flash, temperature: 0.0, max_tokens: 65536}
 
@@ -1873,7 +1889,7 @@ sandbox:
 
 当前 Claude/Anthropic Provider 的请求目标**必须严格使用**上例中人工配置的 `providers.anthropic.base_url`，即 `https://www.sotamodel.net/v1/chat/completions`。该字段在当前 `anthropic` adapter 中表示完整请求地址，不是供实现追加路径的主机前缀；实现不得改用 Anthropic 官方默认地址、不得再拼接 `/v1/messages` 或其他路径，也不得根据 provider 名或模型名推断/替换端点。API 密钥环境变量及 Claude 模型名称以本节配置为准。
 
-运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。其中 temperature 等采样值是客户端**请求配置**，不是 provider 已应用的承诺；实际能力状态按 8.4/5.5 逐调用记录。`calibration_models` 只用于 M1\-4a2/M1\-4a3 的隔离实验，不把两个模型同时路由进正式 S4。S4 各项预算的正式默认值按 4.7 与 6.4.8 由实测冻结，示例中的数值不构成已验证默认值。
+运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。其中 temperature 等采样值是客户端**请求配置**，不是 provider 已应用的承诺；实际能力状态按 8.4/5.5 逐调用记录。`calibration_models` 只用于 M1\-4a2/M1\-4a2r/M1\-4a3 的隔离实验，不把两个模型同时路由进正式 S4。S4 各项预算的正式默认值按 4.7 与 6.4.8 由实测冻结，示例中的数值不构成已验证默认值。
 
 **scope 配置**（`configs/scope-<protocol>.yaml`，doc\-run 必需）：字段为 `protocol`、`version`、`features_included[]`、`features_excluded[]: {feature, reason, message_names?[], sections?[]}`、`assumptions[]`。S2 以它过滤提取范围（6.2），但不把 scope 复制进 Spec IR；S3 按 6.3 的三条机械规则检查产物没有越出 scope，范围身份与哈希由 `run.json` 保留。目标实现角色只由 Target Profile 表达，不在 scope 中重复。`features_excluded[]` 的可选 `message_names[]`/`sections[]` 是让排除项参与机械判定的唯一途径；只写自然语言 `feature` 的排除项会被列入 `unchecked_scope_exclusions[]`。
 
@@ -1982,7 +1998,7 @@ nepa report <run_id> [--open]            # 重新生成/查看报告
 9. 输入分节定界符明确，避免模型把错误日志当成指令；
 10. 给模型留 `notes`/`assumptions` 字段承接说明性内容，防止它把话写进代码字段。
 
-协议中立硬门适用于 M1 的全部通用框架、prompt、S5 布局代码与机械模板，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。框架、prompt 与模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径、接口常量、端口与 topic/subscription 语义。用一个非 MQTT 最小应用层 fixture（可取 HTTP、CoAP 或 SMTP）渲染完整 S5 scaffold 后，任何 MQTT 名称/路径/接口残留必须为 0，且所有路径、符号与逐报文文件都能由同一归一化、六模式和展开规则重算；该门证明模板协议中立，不替代 M6 的端到端跨协议能力验收。MQTT 运行的最终 prompt 与 scaffold 只可在**输入派生区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map、接口文件或 5.6.5 已声明的语言/角色规则，不能来自模板或框架中的 MQTT 常量。M1\-4a2 的共享 ArchitecturePlanner prompt 还必须扫描模型名称和 provider 名称，禁止模型专属条件块。
+协议中立硬门适用于 M1 的全部通用框架、prompt、S5 布局代码与机械模板，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。框架、prompt 与模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径、接口常量、端口与 topic/subscription 语义。用一个非 MQTT 最小应用层 fixture（可取 HTTP、CoAP 或 SMTP）渲染完整 S5 scaffold 后，任何 MQTT 名称/路径/接口残留必须为 0，且所有路径、符号与逐报文文件都能由同一归一化、六模式和展开规则重算；该门证明模板协议中立，不替代 M6 的端到端跨协议能力验收。MQTT 运行的最终 prompt 与 scaffold 只可在**输入派生区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map、接口文件或 5.6.5 已声明的语言/角色规则，不能来自模板或框架中的 MQTT 常量。M1\-4a2 及 M1\-4a2r 的共享 ArchitecturePlanner prompt 还必须扫描模型名称和 provider 名称，禁止模型专属条件块。
 
 S4 额外规则：生产 `layered` 角色禁止任何单个 prompt 同时要求模型完成全局架构、所有工作包任务展开、最终编号/coverage 和运行状态。ArchitecturePlanner、TaskPlanner、PlanCritic 使用独立模板与新鲜上下文；Critic 只能返回 issue list，不能重写整份 Plan。A9 唯一例外是专用 `FlatPlanBaseline`：它可一次生成完整语义草稿，但仍禁止最终 id/hash/coverage/review/state，且只在显式 `planning.strategy=flat` 时注册，绝不是生产 fallback。
 
@@ -2193,7 +2209,7 @@ flowchart LR
 
 **入口条件**：M0 DoD 全部通过。
 
-**关键路径风险与门禁**：M1 的关键路径中段是 S4 架构环节，其联合首次通过率是全项目最大的经验未知量（R\-12）。M1\-4a1 → M1\-4a2 → M1\-4a3 必须严格串行；M1\-4a3 完成资格裁决并签字后才允许开工 M1\-4c。M1\-4b 在复用 M1\-4a1 已建立的窄切片确定性实现后，可以与 M1\-4a2/M1\-4a3 并行扩展完整编译资产；M1\-5～M1\-8 不依赖校准结论。若任意一个正式候选模型未达到 B1，M1\-4a3 必须先输出双模型对比并暂停，M1\-4c 不得越过负责人选型点。
+**关键路径风险与门禁**：M1 的关键路径中段是 S4 架构环节，其联合首次通过率是全项目最大的经验未知量（R\-12）。正常路径 M1\-4a1 → M1\-4a2 → M1\-4a3 必须严格串行；若 M1\-4a2 以 `PROMPT_SELECTION_TIE` 停止，则必须先完成条件分支 M1\-4a2r 并取得唯一交接候选，之后才可进入 M1\-4a3。M1\-4a3 完成资格裁决并签字后才允许开工 M1\-4c。M1\-4b 在复用 M1\-4a1 已建立的窄切片确定性实现后，可以与 M1\-4a2/M1\-4a2r/M1\-4a3 并行扩展完整编译资产；M1\-5～M1\-8 不依赖校准结论。若任意一个正式候选模型未达到 B1，M1\-4a3 必须先输出双模型对比并暂停，M1\-4c 不得越过负责人选型点。
 
 **工作分解**：
 
@@ -2204,6 +2220,7 @@ flowchart LR
 | M1\-3 | Agent 通用框架：调用器及 ArchitecturePlanner / TaskPlanner / PlanCritic、A9 专用 FlatPlanBaseline 与编码/修复角色的注册接口和模板骨架；ArchitecturePlanner 的生产 Schema、共享 prompt 开发与冻结分别归 M1\-4a1/M1\-4a2/M1\-4a3，禁止在本项另行定制 | 4\.5、8\.8 |
 | M1\-4a1 | 通用计划架构基础设施：三输入冻结、Test Bundle 清单摘要、Test Manifest S4 元数据、planning index、窄切片 Delivery Constraints、ArchitectureDraft Schema、生产 `ARCH_VALIDATE`、可重算 trial/report、双模型隔离并行驱动与协议中立检查 | 4\.2、5\.3、5\.6.5、6\.4.1、6\.4.3、6\.4.4、6\.4.8.1、8\.3、8\.4 |
 | M1\-4a2 | `ArchitecturePlanner` 共享 prompt 优化：Qwen/DeepSeek 对同一模型无关、协议中立 prompt 按 V0/V1/可选 V2 有界迭代；仅允许 prompt 变化，以逐门证据选择正式校准候选 | 6\.4.8.2、8\.8 |
+| M1\-4a2r | 条件式 prompt 恢复：仅在 M1\-4a2 的 V0/V1/V2 固定 fallback 仍为确定性平局时，以新 lineage 执行 R0/R1/可选 R2；双模型每版各 N\=5、每 trial 至多一次局部修复，以 `p1`、修复局部性和完整 validator 闭合选出唯一交接候选，否则 `no_selection` | 6\.4.8.2.1、8\.8 |
 | M1\-4a3 | 正式架构校准与生产模型裁决：两个模型并行各 N\=20，按模型计算 `p0/p1/p2` 和逐门结果；全部达到 B1 才自动通过，任一未达到即输出双模型比较并暂停等待负责人选型；随后按 B1/B2/B3/B4 完成资格门并冻结决策 | 4\.6、4\.7、6\.4.8.3、8\.3、9\.1.5 |
 | M1\-4b | 确定性编译资产：复用 M1\-4a1 的 Delivery Constraints/Schema/validator 路径，扩展系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message` 文件展开、角色支持门、Plan/Plan State Schema、完整 Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
 | M1\-4c | 完整 S4 控制器：layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、原子 seal 与正式发布；**必须**在 M1\-4a3 签字且 M1\-4b 完成后开工，消费最终生产模型、共享 prompt、ARCHITECT 调用形态和预算 | 4\.8、6\.4.2、6\.4.4～6\.4.8 |
@@ -2216,7 +2233,7 @@ flowchart LR
 
 | id    | 标准                                                         | 判定方式                                     |
 | ----- | ------------------------------------------------------------ | -------------------------------------------- |
-| D1.0  | M1\-4a1/2/3 顺序完成：基础设施和 ArchitecturePlanner prompt 通过协议中立 lint；prompt 开发遵守 V0/V1/可选 V2 的版本、样本与单变量纪律；正式批次由 Qwen/DeepSeek 在同一 prompt hash 上各完成 N\=20 独立 trial，跨 trial 缓存关闭，两个 `calibration_report.json` 与 `model_comparison.json` 可从 40 个 trial 重算 `p0/p1/p2`、逐门 k/N、修复增益、失败共现、成本/延迟/截断和参数能力状态。两个模型都达到 B1 方可自动通过；任一未达到时已有暂停与负责人选型记录，所选模型随后通过 B1 或 B2/B3 的资格门。负责人已签字冻结生产模型、共享 prompt/Schema/validator hash、ARCHITECT 调用形态、架构修复默认值及全局重规划暂定上限；B4 不得绕过 | 静态/fixture lint \+ 批次重算脚本 \+ 双模型对比 \+ 负责人签字 |
+| D1.0  | M1\-4a1/2/3 顺序完成；若 M1\-4a2 发生 `PROMPT_SELECTION_TIE`，则在 M1\-4a3 前条件式完成 M1\-4a2r：新 lineage 的 R0/R1/可选 R2 最多修改 prompt 两次，双模型每版各 N\=5、每 trial 至多一次局部修复，两个模型分别达到 `p1=1.00`、修复局部性合格且完整 `ARCH_VALIDATE` 闭合后才可唯一交接，`no_selection` 不算完成。基础设施和 ArchitecturePlanner prompt 通过协议中立 lint；正常 prompt 开发仍遵守 V0/V1/可选 V2 的版本、样本与单变量纪律。正式批次由 Qwen/DeepSeek 在同一 prompt hash 上各完成 N\=20 独立 trial，跨 trial 缓存关闭，两个 `calibration_report.json` 与 `model_comparison.json` 可从 40 个 trial 重算 `p0/p1/p2`、逐门 k/N、修复增益、失败共现、成本/延迟/截断和参数能力状态。两个模型都达到 B1 方可自动通过；任一未达到时已有暂停与负责人选型记录，所选模型随后通过 B1 或 B2/B3 的资格门。负责人已签字冻结生产模型、共享 prompt/Schema/validator hash、ARCHITECT 调用形态、架构修复默认值及全局重规划暂定上限；B4 不得绕过 | 静态/fixture lint \+ 开发与恢复批次重算脚本 \+ 双模型对比 \+ 负责人签字 |
 | D1.1  | `nepa run --spec ... --until s6` 正常结束；run.json 中 S4～S6 均 done、`termination_kind=planned_stop`、`exit_code=0` 且无 outcome/report；Plan 与 Plan State 合法并与 S4～S6 receipts 绑定；workspace 通过全部构建变体（默认 `make` 与 `make SAN=1`） | 运行 \+ snapshot/execution lint \+ 构建脚本 |
 | D1.2  | `task_completion_rate = 100%`，Plan State 无 blocked/incomplete（默认，可推翻） | plan \+ plan\_state                          |
 | D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立。这是 S4～S6 全联合链稳定性与 M1\-4a3 所选生产模型/预算的正式复核，**禁止**由 6.4.8 的隔离校准替代 | 脚本化执行并核对 run.json、Plan、Plan State（M2\-6 后改用 `nepa eval runs`） |
@@ -2372,7 +2389,7 @@ flowchart LR
 | R\-9  | **L2 进程测试脆弱**：单线程 select server 的就绪/退出时序在沙箱中不稳定 | M2            | 中   | M2\-0 明确就绪/退出语义；随机端口、就绪探测、超时强杀与 flaky 审计 | 同一 L2 用例在参考实现上偶发失败                           |
 | R\-10 | **覆盖映射失真**：REQ↔测试、测试 gate、公开测试边界↔生成物任一错漏，覆盖矩阵给出虚假安全感 | 评估 | 中 | manifest 声明 req/gate；Linker 生成并重算 coverage；M2\-0 后为公开边界增加机械闭合校验；代码 `Implements:` 注释交叉 grep（7.3）、D4.3 抽查 | 抽查映射不符，或 full lint 发现 readiness/公开边界缺口 |
 | R\-11 | **分层规划漂移**：架构、工作包 shard、S5 blueprint 或 Plan State 彼此错位 | M1/M5 | 高 | 父工件 hash、确定性 Linker、独立 PlanCritic、S4/S5 output receipts、Plan State snapshot/execution lint 与 reconciliation | 相同 issue 重现；S5 blueprint/seal 不同；Plan/State 或 commit/evidence 对账失败 |
-| R\-12 | **S4 联合门一次通过率过低或模型差异过大**：ArchitecturePlanner 同时满足 contract 等式、ready/provider、需求唯一 primary、文件槽位与 DAG 等约束的概率可能远低于单门直觉，且双模型表现可能分化 | M1 | 高 | 按 6.4.8 先完成共享 prompt 的有界双模型开发，再各做 N\=20 正式校准；逐模型保留 `p0/p1/p2`、逐门失败与对比，任一未达 B1 即暂停人工选型 | 任一模型 `p1 < 0.90`，失败集中于相同子门，或第二次修复后仍不足以支撑稳定联调 |
+| R\-12 | **S4 联合门一次通过率过低、局部修复不稳定或模型差异过大**：ArchitecturePlanner 同时满足 contract 等式、ready/provider、需求唯一 primary、文件槽位与 DAG 等约束的概率可能远低于单门直觉；双模型表现可能分化，修复也可能越出失败字段，且机械通过不必然代表架构质量充分 | M1 | 高 | 按 6.4.8 先完成共享 prompt 的有界双模型开发；确定性平局时才以新 lineage 执行 M1\-4a2r，用 `p0`/逐门结果诊断、以 `p1`/修复局部性/完整 validator 闭合筛选并保留质量审计；随后仍各做 N\=20 正式校准，逐模型保留 `p0/p1/p2`、逐门失败与对比，任一未达 B1 即暂停人工选型 | 恢复批任一模型 `p1 < 1.00` 或修复局部性失败；正式批任一模型 `p1 < 0.90`，失败集中于相同子门，或第二次修复后仍不足以支撑稳定联调 |
 
 ### 11\.2 开放问题
 
@@ -2507,3 +2524,4 @@ flowchart LR
 | 2\.3.0 | 2026\-08\-14 | 将原 M1\-4a 拆为通用计划架构基础设施、三模型共享 ArchitecturePlanner prompt 有界优化、正式架构校准三个连续阶段；Qwen/Claude/DeepSeek 使用同一协议中立 prompt 并行各跑 N\=20，任一未达 B1 即输出对比并暂停负责人选型；补充 `p0/p1/p2`、B2 两次修复资格门、模型选择不豁免资格门，以及框架/prompt 禁止 MQTT 定制的验收规则 | 负责人 |
 | 2\.3.1 | 2026\-08\-14 | 明确 Anthropic Provider 严格使用配置中的完整请求地址及已同步的 API/模型命名；固定 S6 为首次 Coder、后续 Fixer；将固定生成模板明确为协议中立的应用层结构，7.2 改用派生前缀展示并补充 HTTP/CoAP/SMTP 适配边界、静态扫描与非 MQTT scaffold 验收 | 负责人 |
 | 3\.0.0 | 2026\-08\-19 | 将 M1\-4a1/2/3 的架构校准候选从 Qwen/Claude/DeepSeek 三模型改为 Qwen/DeepSeek 双模型；开发与正式资格批次、筛选、比较、lineage 和验收同步采用双模型，正式批次总量改为 40 trial；两模型校准 `max_tokens` 统一提高至 65536 | 负责人 |
+| 3\.1.0 | 2026\-08\-20 | 新增 M1\-4a2 固定 fallback 发生确定性平局后的条件恢复分支 M1\-4a2r：使用新 lineage，按 R0/R1/可选 R2 最多修改 prompt 两次，以一次局部修复后的 `p1`、修复局部性和完整 validator 闭合作为恢复筛选门；成功只交接 M1\-4a3，正式 N\=20 与 B1/B2/B3/B4 资格门保持不变 | 负责人 |

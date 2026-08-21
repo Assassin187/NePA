@@ -1,0 +1,74 @@
+{
+  "date": "2026-08-20",
+  "baseline_lineage": "daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772",
+  "phase0": {
+    "blind_rankings": {
+      "qwen": ["candidate-f", "candidate-e", "candidate-c", "candidate-b", "candidate-d", "candidate-a"],
+      "deepseek": ["candidate-c", "candidate-b", "candidate-f", "candidate-d", "candidate-e", "candidate-a"],
+      "codex_non_independent": ["candidate-c", "candidate-b", "candidate-e", "candidate-f", "candidate-a", "candidate-d"]
+    },
+    "fallback": {
+      "v0": {"tuple": [0, 0, 1, 0], "worst_gate_rate": 0.78, "median_failed_gates": 2, "issues": 91, "regressions": 7},
+      "v1": {"tuple": [0, 0, 1, 0], "worst_gate_rate": 0.8, "median_failed_gates": 2, "issues": 88, "regressions": 2},
+      "v2": {"tuple": [0, 0, 1, 0], "worst_gate_rate": 0.8, "median_failed_gates": 1, "issues": 102, "regressions": 3}
+    }
+  },
+  "phase1": {
+    "n3": {
+      "exact_prompt": {"qwen": {"p0": [1, 3], "p1": [3, 3]}, "deepseek": {"p0": [3, 3], "p1": [3, 3]}},
+      "aligned_example": {"qwen": {"p0": [0, 3], "p1": [3, 3]}, "deepseek": {"p0": [3, 3], "p1": [3, 3]}},
+      "deterministic_ledger": {"qwen": {"p0": [1, 3], "p1": [3, 3]}, "deepseek": {"p0": [3, 3], "p1": [3, 3]}},
+      "single_schema": {"qwen": {"p0": [1, 3], "p1": [3, 3]}, "deepseek": {"p0": [3, 3], "p1": [3, 3]}}
+    },
+    "exact_prompt_n5": {
+      "qwen": {"p0": [2, 5], "p1": [5, 5], "repair_regressions": 0},
+      "deepseek": {"p0": [5, 5], "p1": [5, 5], "repair_regressions": 0}
+    },
+    "schema_dedup": {
+      "provider_prompt_bytes_before": 68545,
+      "provider_prompt_bytes_after": 64596,
+      "semantic_result_changed": false
+    }
+  },
+  "phase2": {
+    "monolithic_control": {
+      "qwen": {"p0": [1, 3], "p1": [3, 3]},
+      "deepseek": {"p0": [3, 3], "p1": [3, 3]}
+    },
+    "staged_attempt1": {
+      "status": "infrastructure-invalid",
+      "qwen_final_passed": [2, 3],
+      "qwen_infrastructure_invalid": 1,
+      "deepseek_final_passed": [3, 3]
+    },
+    "staged_rerun1": {
+      "status": "infrastructure-invalid",
+      "qwen_infrastructure_invalid": 3,
+      "deepseek_final_passed": [3, 3]
+    },
+    "qwen_health": {
+      "stale_or_noninteractive_environment": {"http_status": 400, "provider_error_code": "Arrearage"},
+      "interactive_environment_reload": {"http_status": 200, "returned_model": "qwen3.7-max-2026-06-08"}
+    },
+    "qwen_staged_rerun2": {
+      "status": "valid-qwen-only-diagnostic",
+      "stage1_passed": [1, 3],
+      "stage2_passed": [3, 3],
+      "stage3_passed": [3, 3],
+      "infrastructure_invalid": 0,
+      "repair_regressions": 0,
+      "final_issues": 0,
+      "provider_calls": 9,
+      "tokens_in": 192995,
+      "tokens_out": 108027
+    },
+    "e2_2": "not-triggered"
+  },
+  "root_cause_order": [
+    "prompt constraint and minimal-repair algorithm not executable enough",
+    "validator/evaluator mechanical closure is not sufficient engineering quality",
+    "fallback tuple loses quality information in low-pass zero-cost regime",
+    "single-call complexity is a secondary Qwen p0 stability factor",
+    "example, input ledger, and duplicated Schema are secondary or efficiency-only"
+  ]
+}

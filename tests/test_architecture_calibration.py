@@ -7,7 +7,7 @@ import pytest
 
 from nepa.calibration.s4_architecture import ArchitectureCalibrationDriver, CalibrationBatchDeclaration, CalibrationDeclarationError, CalibrationEvidenceError, recompute_calibration_report
 from nepa.config import load_config
-from nepa.llm.client import LLMResponse, ParameterSupportState, TransportError
+from nepa.llm.client import DecodingError, LLMResponse, ParameterSupportState, TransportError
 
 
 class _Provider:
@@ -52,6 +52,13 @@ class _TransportFailureProvider:
 
     def complete(self, request, *, model, native_schema):
         raise TransportError("fixture transport exhausted", provider="fixture")
+
+
+class _DecodingFailureProvider:
+    native_structured_output = False
+
+    def complete(self, request, *, model, native_schema):
+        raise DecodingError("fixture malformed stream")
 
 
 class _TwoSemanticRepairGateRegressionProvider:
@@ -116,11 +123,11 @@ class _SessionProvider(_Provider):
 
 
 def _fixture_config():
-    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 100} for name in ("claude", "qwen", "deepseek")}})
+    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "deepseek")}})
 
 
 def _declaration(**kwargs):
-    values = {"trial_count": 1, "semantic_repair_depth": 0, "context_window_tokens": {name: 100000 for name in ("claude", "qwen", "deepseek")}, "spec": "gold_file/specIR.json", "target_profile": "gold_file/target.json", "test_bundle": "gold_file/test_bundle.json"}
+    values = {"trial_count": 1, "semantic_repair_depth": 0, "context_window_tokens": {name: 100000 for name in ("qwen", "deepseek")}, "spec": "gold_file/specIR.json", "target_profile": "gold_file/target.json", "test_bundle": "gold_file/test_bundle.json"}
     values.update(kwargs)
     return CalibrationBatchDeclaration(**values)
 
@@ -128,7 +135,7 @@ def _declaration(**kwargs):
 def test_calibration_batch_isolated_and_not_a_formal_run(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _Provider()}).run(_declaration())
     roots = list(tmp_path.glob("_calibration/s4-architecture/*/v0/*"))
-    assert {path.name for path in roots} == {"claude", "qwen", "deepseek"}
+    assert {path.name for path in roots} == {"qwen", "deepseek"}
     assert not list(tmp_path.rglob("run.json"))
 
     report = json.loads((roots[0] / "calibration_report.json").read_text(encoding="utf-8"))
@@ -140,7 +147,7 @@ def test_calibration_batch_isolated_and_not_a_formal_run(tmp_path):
 
 def test_request_response_indexes_bind_format_repair_evidence(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _FormatRepairProvider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     request = json.loads((root / "trials/trial_001/request_ref.json").read_text(encoding="utf-8"))
     response = json.loads((root / "trials/trial_001/response_ref.json").read_text(encoding="utf-8"))
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
@@ -155,7 +162,7 @@ def test_request_response_indexes_bind_format_repair_evidence(tmp_path):
 
 def test_report_rebuilds_each_format_call_metric_and_model_version(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _VersionedFormatRepairProvider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     report = recompute_calibration_report(root)
     assert report["usage"]["calls"] == 2
     assert report["usage"]["tokens_in"] == 16
@@ -167,7 +174,7 @@ def test_report_rebuilds_each_format_call_metric_and_model_version(tmp_path):
 
 def test_report_counts_transport_retries_from_output_evidence(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _RetryingProvider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     report = recompute_calibration_report(root)
     assert report["usage"]["calls"] == 4
     assert report["usage"]["tokens_in"] == 11
@@ -176,8 +183,10 @@ def test_report_counts_transport_retries_from_output_evidence(tmp_path):
 
 
 def test_semantic_repair_is_a_separate_attempt_with_bounded_evidence(tmp_path):
-    ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SemanticRepairProvider()}).run(_declaration(semantic_repair_depth=1))
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SemanticRepairProvider()}).run(
+        _declaration(semantic_repair_depth=1, context_window_tokens={name: 110000 for name in ("qwen", "deepseek")})
+    )
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
     request = json.loads((root / "trials/trial_001/request_ref.json").read_text(encoding="utf-8"))
     assert [attempt["depth"] for attempt in validation["attempts"]] == [0, 1]
@@ -186,11 +195,11 @@ def test_semantic_repair_is_a_separate_attempt_with_bounded_evidence(tmp_path):
     assert json.loads((root / "calibration_report.json").read_text(encoding="utf-8"))["repairs"]["semantic"]["p1"] == 1
 
 
-def test_three_workers_overlap_but_keep_model_roots_separate(tmp_path):
-    barrier = threading.Barrier(3)
+def test_two_workers_overlap_but_keep_model_roots_separate(tmp_path):
+    barrier = threading.Barrier(2)
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _BarrierProvider(barrier)}).run(_declaration())
     roots = list(tmp_path.glob("_calibration/s4-architecture/*/v0/*"))
-    assert {path.name for path in roots} == {"claude", "qwen", "deepseek"}
+    assert {path.name for path in roots} == {"qwen", "deepseek"}
     for root in roots:
         traces = [json.loads(line) for line in (root / "trace/llm_calls.ndjson").read_text(encoding="utf-8").splitlines() if line]
         assert traces and all(trace["run_id"].endswith(root.name) for trace in traces)
@@ -199,11 +208,24 @@ def test_three_workers_overlap_but_keep_model_roots_separate(tmp_path):
 
 def test_infrastructure_invalid_worker_does_not_publish_a_report(tmp_path):
     def providers(model_id, *args):
-        return {"fixture": _TransportFailureProvider()} if model_id == "claude" else {"fixture": _Provider()}
+        return {"fixture": _TransportFailureProvider()} if model_id == "qwen" else {"fixture": _Provider()}
 
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=providers).run(_declaration())
-    assert not list(tmp_path.glob("_calibration/s4-architecture/*/v0/claude/calibration_report.json"))
-    assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen/calibration_report.json"))
+    assert not list(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen/calibration_report.json"))
+    assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/deepseek/calibration_report.json"))
+
+
+def test_stream_decoding_failure_is_committed_as_infrastructure_invalid(tmp_path):
+    ArchitectureCalibrationDriver(
+        _fixture_config(),
+        runs_root=tmp_path,
+        provider_factory=lambda *args: {"fixture": _DecodingFailureProvider()},
+    ).run(_declaration())
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
+    validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
+    assert validation["terminal"] == "infrastructure-invalid"
+    assert validation["attempts"][0]["infrastructure_invalid"] is True
+    assert not (root / "calibration_report.json").exists()
 
 
 def test_declared_prompt_hash_cannot_override_template_hash(tmp_path):
@@ -219,7 +241,7 @@ def test_prompt_version_is_one_safe_path_segment(prompt_version):
 
 def test_reloaded_model_root_and_template_bytes_are_bound(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _Provider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     batch_path = root / "batch.json"
     batch = json.loads(batch_path.read_text(encoding="utf-8"))
     batch["prompt_version"] = "v1"
@@ -252,7 +274,7 @@ def test_prepared_live_mapping_mutation_cannot_change_frozen_lineage_inputs(tmp_
 
 def test_reloaded_lineage_requires_closed_controlled_fields(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _Provider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     lineage_path = root.parents[1] / "lineage.json"
     lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
     lineage.pop("components")
@@ -278,7 +300,7 @@ def test_crash_before_trial_rename_requires_a_fresh_attempt_root(tmp_path):
 
 def test_request_ref_drift_is_rejected(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _Provider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     request_path = root / "trials/trial_001/request_ref.json"
     request = json.loads(request_path.read_text(encoding="utf-8"))
     request["attempts"][0]["request"]["sha256"] = "0" * 64
@@ -292,8 +314,8 @@ def test_two_semantic_repairs_record_gate_regression_and_final_candidate(tmp_pat
         _fixture_config(),
         runs_root=tmp_path,
         provider_factory=lambda *args: {"fixture": _TwoSemanticRepairGateRegressionProvider()},
-    ).run(_declaration(semantic_repair_depth=2))
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    ).run(_declaration(semantic_repair_depth=2, context_window_tokens={name: 128000 for name in ("qwen", "deepseek")}))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     report = json.loads((root / "calibration_report.json").read_text(encoding="utf-8"))
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
     assert [attempt["depth"] for attempt in validation["attempts"]] == [0, 1, 2]
@@ -308,7 +330,7 @@ def test_two_semantic_repairs_record_gate_regression_and_final_candidate(tmp_pat
 
 def test_coordinated_validation_summary_tamper_is_recomputed_from_candidate(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SemanticRepairProvider()}).run(_declaration())
-    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     validation_path = root / "validations/trial_001_p0.json"
     recorded = json.loads(validation_path.read_text(encoding="utf-8"))
     recorded["issues"][0]["message"] = "coordinated summary tamper"

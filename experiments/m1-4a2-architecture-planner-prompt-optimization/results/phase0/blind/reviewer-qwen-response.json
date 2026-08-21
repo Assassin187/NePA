@@ -1,0 +1,139 @@
+{
+  "status": "complete",
+  "model_id": "qwen",
+  "provider": "qwen",
+  "requested_model": "qwen3.7-max-2026-06-08",
+  "returned_model": "qwen3.7-max-2026-06-08",
+  "tokens_in": 38256,
+  "tokens_out": 6132,
+  "cost_usd": 0.0,
+  "transport_attempts": 1,
+  "repair_attempts": 0,
+  "parameter_support": {
+    "temperature": "unknown"
+  },
+  "provider_metadata": {
+    "finish_reason": "stop",
+    "provider": "qwen",
+    "native_structured_output": false,
+    "transport_attempts": 1
+  },
+  "parsed": {
+    "ranking": [
+      "candidate-f",
+      "candidate-e",
+      "candidate-c",
+      "candidate-b",
+      "candidate-d",
+      "candidate-a"
+    ],
+    "ranking_rationale": "Candidate-f is the only architecture that achieves both mechanical correctness and semantic excellence. It correctly assigns the protocol state machine to the session module, uses frozen headers as task-ready contract interfaces, and maintains a valid DAG. Candidate-e has excellent responsibility cohesion but fails contract boundaries by using .c source files as interface files. Candidates-c and candidate-b suffer from severe responsibility cohesion issues, turning the application entry point into a protocol god-object while reducing the session module to a dumb data store; candidate-c further penalizes itself with .c interface files. Candidates-d and candidate-a share the god-object flaw and additionally contain critical DAG errors where the application work package declares no dependencies despite consuming all other modules.",
+    "reviews": [
+      {
+        "candidate_id": "candidate-f",
+        "requirement_coverage": 5,
+        "responsibility_cohesion": 5,
+        "contract_boundaries": 5,
+        "file_implementability": 5,
+        "dag_consistency": 5,
+        "test_readiness": 5,
+        "overall": 5,
+        "blocking_findings": [],
+        "strengths": [
+          "Excellent separation of concerns: session module owns the protocol state machine, codec owns wire format, and net owns I/O.",
+          "Correctly leverages frozen headers as task-ready contract interfaces, bridging s5 generation and s6 implementation seamlessly.",
+          "Valid, acyclic DAG with correct work package dependencies.",
+          "Comprehensive and accurate requirement ownership mapping."
+        ]
+      },
+      {
+        "candidate_id": "candidate-e",
+        "requirement_coverage": 4,
+        "responsibility_cohesion": 5,
+        "contract_boundaries": 2,
+        "file_implementability": 4,
+        "dag_consistency": 5,
+        "test_readiness": 4,
+        "overall": 3,
+        "blocking_findings": [
+          "Uses .c source files as interface_files in contracts, violating C header-based boundary conventions and the delivery constraints' internal interface slots."
+        ],
+        "strengths": [
+          "Strong responsibility cohesion with the session module correctly owning the broker state machine and protocol logic.",
+          "Valid DAG with appropriate work package dependencies."
+        ]
+      },
+      {
+        "candidate_id": "candidate-c",
+        "requirement_coverage": 4,
+        "responsibility_cohesion": 2,
+        "contract_boundaries": 3,
+        "file_implementability": 4,
+        "dag_consistency": 5,
+        "test_readiness": 4,
+        "overall": 3,
+        "blocking_findings": [
+          "Application module acts as a god-object for protocol logic, leaving the session module as a mere subscription data store.",
+          "Uses .c source files for implementation contracts, which is an anti-pattern for C interface boundaries."
+        ],
+        "strengths": [
+          "Valid DAG and explicit contract gating.",
+          "Clear distinction between s5 frozen headers and s6 owned sources."
+        ]
+      },
+      {
+        "candidate_id": "candidate-b",
+        "requirement_coverage": 4,
+        "responsibility_cohesion": 2,
+        "contract_boundaries": 4,
+        "file_implementability": 4,
+        "dag_consistency": 5,
+        "test_readiness": 4,
+        "overall": 3,
+        "blocking_findings": [
+          "Application module is a god-object that implements almost all protocol orchestration, severely violating responsibility cohesion and defeating the purpose of a dedicated session module."
+        ],
+        "strengths": [
+          "Valid DAG with correct work package dependencies.",
+          "Standard and correct usage of s5 contracts and header interfaces."
+        ]
+      },
+      {
+        "candidate_id": "candidate-d",
+        "requirement_coverage": 3,
+        "responsibility_cohesion": 2,
+        "contract_boundaries": 4,
+        "file_implementability": 4,
+        "dag_consistency": 2,
+        "test_readiness": 3,
+        "overall": 2,
+        "blocking_findings": [
+          "Critical DAG error: wp-app has an empty depends_on array despite consuming all other modules and contracts.",
+          "Application module is a god-object handling protocol logic that belongs in the session module."
+        ],
+        "strengths": [
+          "Clear module definitions and correct identification of s5 frozen artifacts."
+        ]
+      },
+      {
+        "candidate_id": "candidate-a",
+        "requirement_coverage": 3,
+        "responsibility_cohesion": 2,
+        "contract_boundaries": 3,
+        "file_implementability": 4,
+        "dag_consistency": 2,
+        "test_readiness": 3,
+        "overall": 2,
+        "blocking_findings": [
+          "Critical DAG error: wp-app has no dependencies despite consuming all other modules.",
+          "Network module has an empty requirement_responsibilities array, missing transport and connection lifecycle ownership.",
+          "Application module acts as a god-object for protocol orchestration."
+        ],
+        "strengths": [
+          "Basic module structure correctly identifies the four primary domains (codec, session, net, app)."
+        ]
+      }
+    ]
+  },
+  "raw_text": "```json\n{\n  \"ranking\": [\n    \"candidate-f\",\n    \"candidate-e\",\n    \"candidate-c\",\n    \"candidate-b\",\n    \"candidate-d\",\n    \"candidate-a\"\n  ],\n  \"ranking_rationale\": \"Candidate-f is the only architecture that achieves both mechanical correctness and semantic excellence. It correctly assigns the protocol state machine to the session module, uses frozen headers as task-ready contract interfaces, and maintains a valid DAG. Candidate-e has excellent responsibility cohesion but fails contract boundaries by using .c source files as interface files. Candidates-c and candidate-b suffer from severe responsibility cohesion issues, turning the application entry point into a protocol god-object while reducing the session module to a dumb data store; candidate-c further penalizes itself with .c interface files. Candidates-d and candidate-a share the god-object flaw and additionally contain critical DAG errors where the application work package declares no dependencies despite consuming all other modules.\",\n  \"reviews\": [\n    {\n      \"candidate_id\": \"candidate-f\",\n      \"requirement_coverage\": 5,\n      \"responsibility_cohesion\": 5,\n      \"contract_boundaries\": 5,\n      \"file_implementability\": 5,\n      \"dag_consistency\": 5,\n      \"test_readiness\": 5,\n      \"overall\": 5,\n      \"blocking_findings\": [],\n      \"strengths\": [\n        \"Excellent separation of concerns: session module owns the protocol state machine, codec owns wire format, and net owns I/O.\",\n        \"Correctly leverages frozen headers as task-ready contract interfaces, bridging s5 generation and s6 implementation seamlessly.\",\n        \"Valid, acyclic DAG with correct work package dependencies.\",\n        \"Comprehensive and accurate requirement ownership mapping.\"\n      ]\n    },\n    {\n      \"candidate_id\": \"candidate-e\",\n      \"requirement_coverage\": 4,\n      \"responsibility_cohesion\": 5,\n      \"contract_boundaries\": 2,\n      \"file_implementability\": 4,\n      \"dag_consistency\": 5,\n      \"test_readiness\": 4,\n      \"overall\": 3,\n      \"blocking_findings\": [\n        \"Uses .c source files as interface_files in contracts, violating C header-based boundary conventions and the delivery constraints' internal interface slots.\"\n      ],\n      \"strengths\": [\n        \"Strong responsibility cohesion with the session module correctly owning the broker state machine and protocol logic.\",\n        \"Valid DAG with appropriate work package dependencies.\"\n      ]\n    },\n    {\n      \"candidate_id\": \"candidate-c\",\n      \"requirement_coverage\": 4,\n      \"responsibility_cohesion\": 2,\n      \"contract_boundaries\": 3,\n      \"file_implementability\": 4,\n      \"dag_consistency\": 5,\n      \"test_readiness\": 4,\n      \"overall\": 3,\n      \"blocking_findings\": [\n        \"Application module acts as a god-object for protocol logic, leaving the session module as a mere subscription data store.\",\n        \"Uses .c source files for implementation contracts, which is an anti-pattern for C interface boundaries.\"\n      ],\n      \"strengths\": [\n        \"Valid DAG and explicit contract gating.\",\n        \"Clear distinction between s5 frozen headers and s6 owned sources.\"\n      ]\n    },\n    {\n      \"candidate_id\": \"candidate-b\",\n      \"requirement_coverage\": 4,\n      \"responsibility_cohesion\": 2,\n      \"contract_boundaries\": 4,\n      \"file_implementability\": 4,\n      \"dag_consistency\": 5,\n      \"test_readiness\": 4,\n      \"overall\": 3,\n      \"blocking_findings\": [\n        \"Application module is a god-object that implements almost all protocol orchestration, severely violating responsibility cohesion and defeating the purpose of a dedicated session module.\"\n      ],\n      \"strengths\": [\n        \"Valid DAG with correct work package dependencies.\",\n        \"Standard and correct usage of s5 contracts and header interfaces.\"\n      ]\n    },\n    {\n      \"candidate_id\": \"candidate-d\",\n      \"requirement_coverage\": 3,\n      \"responsibility_cohesion\": 2,\n      \"contract_boundaries\": 4,\n      \"file_implementability\": 4,\n      \"dag_consistency\": 2,\n      \"test_readiness\": 3,\n      \"overall\": 2,\n      \"blocking_findings\": [\n        \"Critical DAG error: wp-app has an empty depends_on array despite consuming all other modules and contracts.\",\n        \"Application module is a god-object handling protocol logic that belongs in the session module.\"\n      ],\n      \"strengths\": [\n        \"Clear module definitions and correct identification of s5 frozen artifacts.\"\n      ]\n    },\n    {\n      \"candidate_id\": \"candidate-a\",\n      \"requirement_coverage\": 3,\n      \"responsibility_cohesion\": 2,\n      \"contract_boundaries\": 3,\n      \"file_implementability\": 4,\n      \"dag_consistency\": 2,\n      \"test_readiness\": 3,\n      \"overall\": 2,\n      \"blocking_findings\": [\n        \"Critical DAG error: wp-app has no dependencies despite consuming all other modules.\",\n        \"Network module has an empty requirement_responsibilities array, missing transport and connection lifecycle ownership.\",\n        \"Application module acts as a god-object for protocol orchestration.\"\n      ],\n      \"strengths\": [\n        \"Basic module structure correctly identifies the four primary domains (codec, session, net, app).\"\n      ]\n    }\n  ]\n}\n```"
+}

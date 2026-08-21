@@ -1,0 +1,159 @@
+[
+  {
+    "case_id": "arch03",
+    "source": "runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/v2/deepseek/candidates/trial_004_p1.json",
+    "original_verdict": "fail",
+    "original_failed_gates": [
+      "arch_03"
+    ],
+    "original_issue_count": 3,
+    "patch": [
+      {
+        "contract": "contract-codec",
+        "old_interface_files": [
+          "include/mqtt/mqtt_types.h",
+          "include/mqtt/mqtt_codec.h"
+        ],
+        "new_interface_files": [
+          "src/codec/codec_connack.c"
+        ]
+      },
+      {
+        "contract": "contract-session",
+        "old_interface_files": [
+          "include/mqtt/mqtt_session.h"
+        ],
+        "new_interface_files": [
+          "src/session/mqtt_session.c"
+        ]
+      },
+      {
+        "contract": "contract-net",
+        "old_interface_files": [
+          "include/mqtt/mqtt_net.h"
+        ],
+        "new_interface_files": [
+          "src/net/mqtt_net.c"
+        ]
+      }
+    ],
+    "patched_verdict": "fail",
+    "patched_failed_gates": [
+      "arch_09"
+    ],
+    "patched_issue_count": 2
+  },
+  {
+    "case_id": "arch09",
+    "source": "runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/v2/qwen/candidates/trial_001_p1.json",
+    "original_verdict": "fail",
+    "original_failed_gates": [
+      "arch_09"
+    ],
+    "original_issue_count": 2,
+    "patch": [
+      {
+        "added_contract": {
+          "id": "contract-session-interface-closure",
+          "purpose": "Close required Session boundary",
+          "owner": "s5",
+          "interface_files": [
+            "include/mqtt/mqtt_session.h"
+          ],
+          "ready_gate": "s5",
+          "provider": "s5",
+          "consumers": []
+        }
+      },
+      {
+        "added_contract": {
+          "id": "contract-network-interface-closure",
+          "purpose": "Close required Network boundary",
+          "owner": "s5",
+          "interface_files": [
+            "include/mqtt/mqtt_net.h"
+          ],
+          "ready_gate": "s5",
+          "provider": "s5",
+          "consumers": []
+        }
+      }
+    ],
+    "patched_verdict": "pass",
+    "patched_failed_gates": [],
+    "patched_issue_count": 0
+  },
+  {
+    "case_id": "arch08",
+    "source": "runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/v0/deepseek/candidates/trial_004_p1.json",
+    "original_verdict": "fail",
+    "original_failed_gates": [
+      "arch_08"
+    ],
+    "original_issue_count": 1,
+    "patch": [
+      {
+        "work_package": "wp-app",
+        "old_depends_on": [
+          "wp-codec",
+          "wp-session",
+          "wp-net"
+        ],
+        "new_depends_on": []
+      }
+    ],
+    "patched_verdict": "fail",
+    "patched_failed_gates": [
+      "arch_10"
+    ],
+    "patched_issue_count": 10
+  },
+  {
+    "case_id": "arch10-qwen",
+    "source": "runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/v2/qwen/candidates/trial_002_p1.json",
+    "original_verdict": "fail",
+    "original_failed_gates": [
+      "arch_10"
+    ],
+    "original_issue_count": 9,
+    "patch": [
+      {
+        "operation": "move all non-DEFINITION primary responsibilities to wp-app and remove supporting roles",
+        "old_counts": {
+          "wp-codec": 22,
+          "wp-session": 32,
+          "wp-net": 0,
+          "wp-app": 0
+        },
+        "new_count": 54
+      }
+    ],
+    "patched_verdict": "pass",
+    "patched_failed_gates": [],
+    "patched_issue_count": 0
+  },
+  {
+    "case_id": "arch10-deepseek",
+    "source": "runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/v2/deepseek/candidates/trial_001_p1.json",
+    "original_verdict": "fail",
+    "original_failed_gates": [
+      "arch_10"
+    ],
+    "original_issue_count": 13,
+    "patch": [
+      {
+        "operation": "move all non-DEFINITION primary responsibilities to wp-app and remove supporting roles",
+        "old_counts": {
+          "wp-codec": 65,
+          "wp-session": 14,
+          "wp-network": 12,
+          "wp-app": 18
+        },
+        "new_count": 54
+      }
+    ],
+    "patched_verdict": "pass",
+    "patched_failed_gates": [],
+    "patched_issue_count": 0
+  }
+]

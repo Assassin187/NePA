@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "change": "m1-4a2r-architecture-planner-calibration-recovery",
+  "decision_id": "owner-approved-m1-4a2r-live-recovery-2026-08-20",
+  "responsible_owner": "responsible-owner",
+  "approved": true,
+  "design_version": "3.1.0",
+  "approved_design": {
+    "workspace_path": "project_docs/system_design.md",
+    "sha256": "db75844da4364e2c48567ad58947168dcb87e5fc9a8ccd8dfcde397a7d4fa66f"
+  },
+  "protocol": {
+    "entry_condition": "PROMPT_SELECTION_TIE",
+    "versions": [
+      "r0",
+      "r1",
+      "r2"
+    ],
+    "prompt_edit_limit": 2,
+    "p0_role": "diagnostic",
+    "completion_boundary": "m1-4a3-admission-only"
+  }
+}

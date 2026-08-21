@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviews", "ranking", "ranking_rationale"],
+  "properties": {
+    "reviews": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidate_id", "requirement_coverage", "responsibility_cohesion", "contract_boundaries", "file_implementability", "dag_consistency", "test_readiness", "overall", "blocking_findings", "strengths"],
+        "properties": {
+          "candidate_id": {"enum": ["candidate-a", "candidate-b", "candidate-c", "candidate-d", "candidate-e", "candidate-f"]},
+          "requirement_coverage": {"type": "integer", "minimum": 1, "maximum": 5},
+          "responsibility_cohesion": {"type": "integer", "minimum": 1, "maximum": 5},
+          "contract_boundaries": {"type": "integer", "minimum": 1, "maximum": 5},
+          "file_implementability": {"type": "integer", "minimum": 1, "maximum": 5},
+          "dag_consistency": {"type": "integer", "minimum": 1, "maximum": 5},
+          "test_readiness": {"type": "integer", "minimum": 1, "maximum": 5},
+          "overall": {"type": "integer", "minimum": 1, "maximum": 5},
+          "blocking_findings": {"type": "array", "items": {"type": "string"}},
+          "strengths": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "ranking": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {"enum": ["candidate-a", "candidate-b", "candidate-c", "candidate-d", "candidate-e", "candidate-f"]}
+    },
+    "ranking_rationale": {"type": "string", "minLength": 1}
+  }
+}

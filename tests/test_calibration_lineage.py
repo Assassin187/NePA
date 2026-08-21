@@ -20,8 +20,8 @@ def test_lineage_excludes_prompt_identity_but_binds_components():
     constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)
     manifest = build_test_manifest_metadata(prepared.test_bundle, constraints)
     planning = build_planning_index(prepared, manifest, constraints)
-    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 100, "context_window_tokens": 10000} for name in ("claude", "qwen", "deepseek")}
-    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("claude", "qwen", "deepseek")}}})
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "deepseek")}
+    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "deepseek")}}})
     first = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, components={"prompt_label": b"v0"})
     same = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, components={"prompt_label": b"v1"})
     changed = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, components={"validator": b"changed"})
@@ -37,8 +37,8 @@ def test_referenced_provider_configuration_changes_lineage():
     constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)
     manifest = build_test_manifest_metadata(prepared.test_bundle, constraints)
     planning = build_planning_index(prepared, manifest, constraints)
-    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 100, "context_window_tokens": 10000} for name in ("claude", "qwen", "deepseek")}
-    base = {"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("claude", "qwen", "deepseek")}}}
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "deepseek")}
+    base = {"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "deepseek")}}}
     first = build_lineage_manifest(prepared, planning, manifest, constraints, config=load_config(overrides=base), model_targets=targets)
     changed_config = load_config(overrides={**base, "providers": {"fixture": {"kind": "openai_compat", "base_url": "https://changed", "api_key_env": None}}})
     changed = build_lineage_manifest(prepared, planning, manifest, constraints, config=changed_config, model_targets=targets)
@@ -69,8 +69,21 @@ def test_runtime_component_changes_create_a_new_lineage(component):
     constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)
     manifest = build_test_manifest_metadata(prepared.test_bundle, constraints)
     planning = build_planning_index(prepared, manifest, constraints)
-    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 100, "context_window_tokens": 10000} for name in ("claude", "qwen", "deepseek")}
-    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("claude", "qwen", "deepseek")}}})
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "deepseek")}
+    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "deepseek")}}})
     first = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets)
     changed = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, components={component: b"controlled source changed"})
     assert first["lineage_id"] != changed["lineage_id"]
+
+
+def test_batch_protocol_controls_are_not_lineage_identity(tmp_path):
+    prepared = prepare_architecture_inputs("gold_file/specIR.json", "gold_file/target.json", "gold_file/test_bundle.json")
+    constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)
+    manifest = build_test_manifest_metadata(prepared.test_bundle, constraints)
+    planning = build_planning_index(prepared, manifest, constraints)
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "deepseek")}
+    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "deepseek")}}})
+    first = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, statistics={"metric_definition": "m1-4a1-architecture-calibration-metrics-v1"})
+    second = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, statistics={"metric_definition": "m1-4a1-architecture-calibration-metrics-v1"})
+    assert first["lineage_id"] == second["lineage_id"]
+    assert "trial_count" not in first["statistics"] and "semantic_depth" not in first["statistics"]

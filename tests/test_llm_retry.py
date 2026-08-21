@@ -1,8 +1,11 @@
+import json
+
 import httpx
 import pytest
 
 from nepa.config import load_config
 from nepa.llm.client import LLMClient, LLMRequest, LLMResponse, ProviderError, TransportError
+from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
 
 
 class FakeProvider:
@@ -54,6 +57,19 @@ def _client(provider, sleeps, backoffs, admissions=None):
 
 def _request():
     return LLMRequest(role="fixture", system="system", user="user", temperature=0, max_tokens=20)
+
+
+def _sse_event(value):
+    return f"data: {json.dumps(value, separators=(',', ':'))}\n\n"
+
+
+def _complete_stream(text):
+    return (
+        _sse_event({"model": "fixture/model", "choices": [{"delta": {"content": text}, "finish_reason": None}]})
+        + _sse_event({"model": "fixture/model", "choices": [{"delta": {}, "finish_reason": "stop"}]})
+        + _sse_event({"model": "fixture/model", "choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": len(text)}})
+        + "data: [DONE]\n\n"
+    )
 
 
 def test_retry_recovers_after_network_429_and_5xx_with_three_bounded_retries():
@@ -116,3 +132,41 @@ def test_malformed_success_is_not_a_transport_retry():
         client.complete(_request(), provider_name="fixture", model="model")
     assert provider.calls == 1
     assert sleeps == []
+
+
+def test_stream_retry_discards_partial_content_before_fresh_attempt(monkeypatch):
+    config = load_config(
+        overrides={
+            "providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": "FIXTURE_KEY"}},
+            "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 0, "output_usd_per_million_tokens": 0}}},
+        }
+    )
+    monkeypatch.setenv("FIXTURE_KEY", "fixture-secret")
+    calls = 0
+
+    class PartialStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield _sse_event({"model": "fixture/model", "choices": [{"delta": {"content": "partial-"}, "finish_reason": None}]}).encode()
+            raise httpx.ReadTimeout("stream idle")
+
+        def close(self):
+            return None
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, stream=PartialStream(), headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, text=_complete_stream("fresh"), headers={"content-type": "text/event-stream"})
+
+    provider = OpenAICompatibleProvider(
+        "fixture", config.providers["fixture"], client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    client = LLMClient(config, {"fixture": provider}, sleeper=lambda _: None)
+
+    response = client.complete(_request(), provider_name="fixture", model="model", use_cache=False)
+
+    assert calls == 2
+    assert response.text == "fresh"
+    assert "partial-" not in response.text
+    assert response.transport_attempts == 2

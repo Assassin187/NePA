@@ -1,0 +1,398 @@
+{
+  "schema_version": "1.0",
+  "source": "deterministically derived from frozen planning_index, delivery_constraints, and test_manifest_metadata",
+  "non_definition_req_ids": [
+    "REQ-CONNACK-001",
+    "REQ-CONNACK-003",
+    "REQ-CONNACK-004",
+    "REQ-CONNACK-005",
+    "REQ-CONNACK-007",
+    "REQ-CONNECT-001",
+    "REQ-CONNECT-002",
+    "REQ-CONNECT-006",
+    "REQ-CONNECT-008",
+    "REQ-CONNECT-009",
+    "REQ-CONNECT-011",
+    "REQ-CONNECT-013",
+    "REQ-CONNECT-014",
+    "REQ-CONNECT-015",
+    "REQ-CONNECT-016",
+    "REQ-CONNECT-017",
+    "REQ-CONNECT-018",
+    "REQ-DISCONNECT-002",
+    "REQ-DISCONNECT-005",
+    "REQ-DISCONNECT-006",
+    "REQ-DISCONNECT-007",
+    "REQ-ERROR-001",
+    "REQ-ERROR-002",
+    "REQ-ERROR-003",
+    "REQ-FRAME-004",
+    "REQ-KEEPALIVE-001",
+    "REQ-KEEPALIVE-003",
+    "REQ-PING-003",
+    "REQ-PUBLISH-002",
+    "REQ-PUBLISH-003",
+    "REQ-PUBLISH-005",
+    "REQ-PUBLISH-006",
+    "REQ-PUBLISH-010",
+    "REQ-SESSION-001",
+    "REQ-STRING-002",
+    "REQ-STRING-003",
+    "REQ-SUBACK-003",
+    "REQ-SUBACK-004",
+    "REQ-SUBSCRIBE-002",
+    "REQ-SUBSCRIBE-003",
+    "REQ-SUBSCRIBE-004",
+    "REQ-SUBSCRIBE-005",
+    "REQ-SUBSCRIBE-006",
+    "REQ-SUBSCRIBE-007",
+    "REQ-SUBSCRIBE-008",
+    "REQ-SUBSCRIBE-009",
+    "REQ-TOPIC-001",
+    "REQ-TOPIC-004",
+    "REQ-TOPIC-005",
+    "REQ-UNSUBSCRIBE-002",
+    "REQ-UNSUBSCRIBE-005",
+    "REQ-UNSUBSCRIBE-006",
+    "REQ-UNSUBSCRIBE-007",
+    "REQ-UNSUBSCRIBE-009"
+  ],
+  "definition_req_ids": [
+    "REQ-CONNACK-002",
+    "REQ-CONNACK-006",
+    "REQ-CONNACK-008",
+    "REQ-CONNACK-009",
+    "REQ-CONNECT-003",
+    "REQ-CONNECT-004",
+    "REQ-CONNECT-005",
+    "REQ-CONNECT-007",
+    "REQ-CONNECT-010",
+    "REQ-CONNECT-012",
+    "REQ-CONNECT-019",
+    "REQ-DATA-001",
+    "REQ-DISCONNECT-001",
+    "REQ-DISCONNECT-003",
+    "REQ-DISCONNECT-004",
+    "REQ-DISCONNECT-008",
+    "REQ-DISCONNECT-009",
+    "REQ-FRAME-001",
+    "REQ-FRAME-002",
+    "REQ-FRAME-003",
+    "REQ-FRAME-005",
+    "REQ-FRAME-006",
+    "REQ-KEEPALIVE-002",
+    "REQ-PING-001",
+    "REQ-PING-002",
+    "REQ-PING-004",
+    "REQ-PING-005",
+    "REQ-PING-006",
+    "REQ-PUBLISH-001",
+    "REQ-PUBLISH-004",
+    "REQ-PUBLISH-007",
+    "REQ-PUBLISH-008",
+    "REQ-PUBLISH-009",
+    "REQ-PUBLISH-011",
+    "REQ-SESSION-002",
+    "REQ-STRING-001",
+    "REQ-SUBACK-001",
+    "REQ-SUBACK-002",
+    "REQ-SUBACK-005",
+    "REQ-SUBACK-006",
+    "REQ-SUBSCRIBE-001",
+    "REQ-SUBSCRIBE-010",
+    "REQ-TOPIC-002",
+    "REQ-TOPIC-003",
+    "REQ-TRANSPORT-001",
+    "REQ-TRANSPORT-002",
+    "REQ-TRANSPORT-003",
+    "REQ-TRANSPORT-004",
+    "REQ-UNSUBACK-001",
+    "REQ-UNSUBACK-002",
+    "REQ-UNSUBACK-003",
+    "REQ-UNSUBACK-004",
+    "REQ-UNSUBSCRIBE-001",
+    "REQ-UNSUBSCRIBE-003",
+    "REQ-UNSUBSCRIBE-004",
+    "REQ-UNSUBSCRIBE-008"
+  ],
+  "s5_frozen_paths": [
+    "Makefile",
+    "README.md",
+    "include/mqtt/mqtt_codec.h",
+    "include/mqtt/mqtt_net.h",
+    "include/mqtt/mqtt_session.h",
+    "include/mqtt/mqtt_types.h"
+  ],
+  "s6_owned_paths": [
+    "apps/mqtt_server_main.c",
+    "src/codec/codec_connack.c",
+    "src/codec/codec_connect.c",
+    "src/codec/codec_disconnect.c",
+    "src/codec/codec_pingreq.c",
+    "src/codec/codec_pingresp.c",
+    "src/codec/codec_publish.c",
+    "src/codec/codec_suback.c",
+    "src/codec/codec_subscribe.c",
+    "src/codec/codec_unsuback.c",
+    "src/codec/codec_unsubscribe.c",
+    "src/net/mqtt_net.c",
+    "src/session/mqtt_session.c"
+  ],
+  "required_internal_interface_slots": [
+    {
+      "id": "session-interface",
+      "interface_files": [
+        "include/mqtt/mqtt_session.h"
+      ]
+    },
+    {
+      "id": "network-interface",
+      "interface_files": [
+        "include/mqtt/mqtt_net.h"
+      ]
+    }
+  ],
+  "task_test_requirement_sets": [
+    {
+      "test_id": "tests/l1_codec/test_reference_codec.py::test_client_packet_encoders_match_paho",
+      "req_ids": [
+        "REQ-CONNECT-003",
+        "REQ-DATA-001",
+        "REQ-DISCONNECT-001",
+        "REQ-DISCONNECT-005",
+        "REQ-DISCONNECT-006",
+        "REQ-FRAME-001",
+        "REQ-FRAME-002",
+        "REQ-FRAME-003",
+        "REQ-PUBLISH-001",
+        "REQ-SUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-003",
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-008"
+      ]
+    },
+    {
+      "test_id": "tests/l1_codec/test_reference_codec.py::test_fixed_packets_match_mqtt_311_vectors",
+      "req_ids": [
+        "REQ-CONNACK-002",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNECT-018",
+        "REQ-DISCONNECT-003",
+        "REQ-DISCONNECT-004",
+        "REQ-DISCONNECT-008",
+        "REQ-DISCONNECT-009",
+        "REQ-PING-002",
+        "REQ-PING-004",
+        "REQ-PING-005",
+        "REQ-PING-006",
+        "REQ-SUBACK-002",
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009",
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004"
+      ]
+    },
+    {
+      "test_id": "tests/l1_codec/test_reference_codec.py::test_remaining_length_reference_codec_boundaries",
+      "req_ids": [
+        "REQ-FRAME-001",
+        "REQ-FRAME-002"
+      ]
+    },
+    {
+      "test_id": "tests/l1_codec/test_reference_codec.py::test_utf8_length_reference_codec_boundary",
+      "req_ids": [
+        "REQ-STRING-001",
+        "REQ-TOPIC-005"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_clean_session_discards_old_subscription",
+      "req_ids": [
+        "REQ-CONNECT-009",
+        "REQ-CONNECT-011",
+        "REQ-SESSION-001"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_disconnect_rejects_reserved_flags",
+      "req_ids": [
+        "REQ-DISCONNECT-002",
+        "REQ-ERROR-001",
+        "REQ-FRAME-004"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_forbidden_packet_type_closes_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-FRAME-005",
+        "REQ-FRAME-006"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_invalid_publish_topic_closes_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-PUBLISH-006",
+        "REQ-TOPIC-004"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_malformed_connect_closes_source_connection",
+      "req_ids": [
+        "REQ-CONNECT-008",
+        "REQ-CONNECT-017",
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-STRING-003"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_malformed_subscribe_closes_connection_without_crash",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-SUBSCRIBE-002",
+        "REQ-SUBSCRIBE-003",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_publish_is_forwarded_exactly_to_matching_subscriber",
+      "req_ids": [
+        "REQ-PUBLISH-002",
+        "REQ-PUBLISH-003",
+        "REQ-PUBLISH-005",
+        "REQ-PUBLISH-010",
+        "REQ-SESSION-001",
+        "REQ-TOPIC-001"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_second_connect_closes_only_that_connection",
+      "req_ids": [
+        "REQ-CONNECT-002",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_server_closes_after_valid_disconnect",
+      "req_ids": [
+        "REQ-DISCONNECT-007"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_subscribe_returns_one_legal_code_per_filter",
+      "req_ids": [
+        "REQ-SUBACK-003",
+        "REQ-SUBACK-004",
+        "REQ-SUBACK-006",
+        "REQ-SUBSCRIBE-003",
+        "REQ-SUBSCRIBE-004",
+        "REQ-SUBSCRIBE-005",
+        "REQ-SUBSCRIBE-006",
+        "REQ-SUBSCRIBE-007",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_transient_error_does_not_affect_other_client",
+      "req_ids": [
+        "REQ-ERROR-003"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_transient_resource_error_closes_source_connection",
+      "req_ids": [
+        "REQ-ERROR-002"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_two_clients_connect_concurrently",
+      "req_ids": [
+        "REQ-CONNACK-001",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNECT-001",
+        "REQ-CONNECT-013",
+        "REQ-CONNECT-014",
+        "REQ-CONNECT-015",
+        "REQ-CONNECT-016",
+        "REQ-CONNECT-018",
+        "REQ-SESSION-001",
+        "REQ-TRANSPORT-001",
+        "REQ-TRANSPORT-002",
+        "REQ-TRANSPORT-003",
+        "REQ-TRANSPORT-004"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_broker_behavior.py::test_unsupported_protocol_level_gets_failure_connack",
+      "req_ids": [
+        "REQ-CONNACK-005",
+        "REQ-CONNACK-007",
+        "REQ-CONNECT-006"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_malformed_unsubscribe_closes_only_its_connection",
+      "req_ids": [
+        "REQ-ERROR-001",
+        "REQ-STRING-002",
+        "REQ-UNSUBSCRIBE-002",
+        "REQ-UNSUBSCRIBE-005",
+        "REQ-UNSUBSCRIBE-009"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_nonzero_keep_alive_times_out",
+      "req_ids": [
+        "REQ-KEEPALIVE-001"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_pingreq_receives_pingresp",
+      "req_ids": [
+        "REQ-KEEPALIVE-003",
+        "REQ-PING-001",
+        "REQ-PING-002",
+        "REQ-PING-003",
+        "REQ-PING-004",
+        "REQ-PING-005",
+        "REQ-PING-006"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_unsubscribe_removes_only_the_exact_subscription",
+      "req_ids": [
+        "REQ-SESSION-002",
+        "REQ-TOPIC-001",
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004",
+        "REQ-UNSUBSCRIBE-001",
+        "REQ-UNSUBSCRIBE-003",
+        "REQ-UNSUBSCRIBE-004",
+        "REQ-UNSUBSCRIBE-006",
+        "REQ-UNSUBSCRIBE-007",
+        "REQ-UNSUBSCRIBE-008"
+      ]
+    },
+    {
+      "test_id": "tests/l2_behavior/test_ping_unsubscribe_behavior.py::test_zero_keep_alive_disables_idle_timeout",
+      "req_ids": [
+        "REQ-KEEPALIVE-002"
+      ]
+    }
+  ]
+}

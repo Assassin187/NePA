@@ -1,0 +1,24 @@
+{
+  "prompt_path": "configs/m1-4a2r-r1-prompt.md",
+  "hypothesis": "Qwen's only R0 p1 failure is caused by treating module contract projection repair as incremental list editing instead of a literal full-table recomputation; requiring complete provider/consumer comprehensions for every module will close the observed arch_05 mismatch without changing other gates.",
+  "evidence_refs": [
+    {
+      "path": "r0/assessment.json",
+      "sha256": "3611458f3fd3def408550e883a2490052502432ef8c52f83e0b4d4b0fdb9be06"
+    },
+    {
+      "path": "r0/attempts/attempt_004/qwen/validations/trial_002_p1.json",
+      "sha256": "618914ddf676404d9230eb33f5013ab3854e307ef5114b40abb820a32412b551"
+    },
+    {
+      "path": "r0/attempts/attempt_004/repair-diffs/qwen/trial_002.json",
+      "sha256": "8aea50ec36509ae4a24c536c81abb528b863fa2585f064ea9685fdf9a1b975b6"
+    }
+  ],
+  "expected_effect": {
+    "kind": "gate",
+    "name": "arch_05",
+    "direction": "pass"
+  },
+  "stopping_conclusion": "Stop after the complete R1 assessment if Qwen p1 remains below 1.00 or the arch_05 module-contract projection mismatch does not improve; admit R2 only from a distinct defect supported by that complete evidence."
+}

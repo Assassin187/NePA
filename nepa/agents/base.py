@@ -189,6 +189,31 @@ class PromptRenderer:
         output_schema: dict[str, Any],
         output_example: Any,
     ) -> RenderedPrompt:
+        return cls.render_template_bytes(
+            definition,
+            template=cls._load_template(definition).raw,
+            inputs=inputs,
+            output_schema=output_schema,
+            output_example=output_example,
+        )
+
+    @classmethod
+    def render_template_bytes(
+        cls,
+        definition: RoleDefinition,
+        *,
+        template: bytes,
+        inputs: Mapping[str, Any],
+        output_schema: dict[str, Any],
+        output_example: Any,
+    ) -> RenderedPrompt:
+        """Render an explicitly admitted immutable template snapshot.
+
+        The normal renderer still loads the packaged template.  Calibration
+        may pass the exact bytes it admitted before provider I/O, which keeps
+        the Agent contract and request shape unchanged while removing a
+        mutable-source time-of-check/time-of-use gap.
+        """
         if not isinstance(inputs, Mapping):
             raise AgentRequestError("inputs must be a mapping")
         supplied = set(inputs)
@@ -203,14 +228,24 @@ class PromptRenderer:
                 details.append(f"extra inputs: {', '.join(str(item) for item in extra)}")
             raise AgentRequestError("; ".join(details))
         cls._validate_contract(output_schema, output_example)
-        template = cls._load_template(definition)
+        if not isinstance(template, bytes):
+            raise AgentContractError("template snapshot must be bytes")
+        try:
+            template_value = _TemplateBytes(
+                path=definition.template_path,
+                raw=template,
+                text=template.decode("utf-8"),
+                sha256=hashlib.sha256(template).hexdigest(),
+            )
+        except UnicodeDecodeError as exc:
+            raise AgentContractError(f"template is not UTF-8: {definition.template_path}") from exc
         environment = Environment(
             undefined=StrictUndefined,
             autoescape=False,
             keep_trailing_newline=True,
         )
         environment.globals.clear()
-        parsed = environment.parse(template.text)
+        parsed = environment.parse(template_value.text)
         undeclared = meta.find_undeclared_variables(parsed)
         unknown = sorted(undeclared - cls._RESERVED_NAMES)
         if unknown:
@@ -220,7 +255,7 @@ class PromptRenderer:
             for name in definition.required_inputs
         }
         try:
-            rendered = environment.from_string(template.text).render(
+            rendered = environment.from_string(template_value.text).render(
                 inputs=serialized_inputs,
                 output_schema=_canonical_json_text(output_schema, field_name="output_schema"),
                 output_example=_canonical_json_text(output_example, field_name="output_example"),
@@ -231,9 +266,9 @@ class PromptRenderer:
             raise AgentContractError(f"unable to render template {definition.template_path}: {exc}") from exc
         effective_hash = hashlib.sha256((AGENT_SYSTEM_INSTRUCTION + "\n" + rendered).encode("utf-8")).hexdigest()
         return RenderedPrompt(
-            template_path=template.path,
+            template_path=template_value.path,
             user=rendered,
-            raw_template_sha256=template.sha256,
+            raw_template_sha256=template_value.sha256,
             effective_prompt_sha256=effective_hash,
         )
 
@@ -343,6 +378,7 @@ class AgentInvoker:
         task_id: str | None = None,
         attempt: int = 1,
         use_cache: bool = True,
+        template_bytes: bytes | None = None,
     ) -> AgentResult:
         from .roles import get_role
 
@@ -350,12 +386,21 @@ class AgentInvoker:
         self._check_identity(run_id=run_id, stage=stage, attempt=attempt, definition=definition)
         self._check_availability(definition)
         route = resolve_route(self.config, role)
-        rendered = self.renderer.render(
-            definition,
-            inputs=inputs,
-            output_schema=output_schema,
-            output_example=output_example,
-        )
+        if template_bytes is None:
+            rendered = self.renderer.render(
+                definition,
+                inputs=inputs,
+                output_schema=output_schema,
+                output_example=output_example,
+            )
+        else:
+            rendered = self.renderer.render_template_bytes(
+                definition,
+                template=template_bytes,
+                inputs=inputs,
+                output_schema=output_schema,
+                output_example=output_example,
+            )
         request = LLMRequest(
             role=role,
             system=AGENT_SYSTEM_INSTRUCTION,

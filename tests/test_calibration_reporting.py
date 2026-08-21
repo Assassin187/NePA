@@ -15,7 +15,7 @@ def test_calibration_report_schema_has_fixed_gate_denominators():
 
 
 def _config():
-    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 100} for name in ("claude", "qwen", "deepseek")}})
+    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "deepseek")}})
 
 
 class _SchemaFailProvider:
@@ -27,9 +27,9 @@ class _SchemaFailProvider:
 
 
 def _batch(tmp_path):
-    declaration = CalibrationBatchDeclaration(trial_count=2, semantic_repair_depth=0, context_window_tokens={name: 100000 for name in ("claude", "qwen", "deepseek")}, spec="gold_file/specIR.json", target_profile="gold_file/target.json", test_bundle="gold_file/test_bundle.json")
+    declaration = CalibrationBatchDeclaration(trial_count=2, semantic_repair_depth=0, context_window_tokens={name: 100000 for name in ("qwen", "deepseek")}, spec="gold_file/specIR.json", target_profile="gold_file/target.json", test_bundle="gold_file/test_bundle.json")
     ArchitectureCalibrationDriver(_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SchemaFailProvider()}).run(declaration)
-    return next(tmp_path.glob("_calibration/s4-architecture/*/v0/claude"))
+    return next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
 
 
 def test_report_uses_hand_calculated_N_and_recomputation_is_identical(tmp_path):

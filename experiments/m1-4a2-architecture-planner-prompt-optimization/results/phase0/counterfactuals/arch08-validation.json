@@ -1,0 +1,148 @@
+{
+  "schema_version": "1.0",
+  "verdict": "fail",
+  "parent_refs": {
+    "architecture_draft": {
+      "path": "<memory>/architecture_draft.json",
+      "sha256": "726c524313e87f36660036d68f50bb5234046f936c2db89da98af6bc7f172907"
+    },
+    "planning_index": {
+      "path": "<memory>/planning_index.json",
+      "sha256": "d7e9f8dacc724d83605cf2c61ce0b36ef4069af2eeeaf9e0c2837b4fe0a5622b"
+    },
+    "manifest_metadata": {
+      "path": "<memory>/manifest_metadata.json",
+      "sha256": "90e1bb916c63bc7d13637afb1ae77f9814472e8543ed62e60e2d0f19bb286894"
+    },
+    "delivery_constraints": {
+      "path": "<memory>/delivery_constraints.json",
+      "sha256": "a59e5ecdb22a80b7d1f1e3716db829912dc958b620fe1dab6c95d18ed77e5d61"
+    }
+  },
+  "gates": [
+    {
+      "id": "arch_01",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_02",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_03",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_04",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_05",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_06",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_07",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_08",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_09",
+      "verdict": "pass",
+      "issue_codes": []
+    },
+    {
+      "id": "arch_10",
+      "verdict": "fail",
+      "issue_codes": [
+        "ARCH_TEST_READINESS_UNCLOSED"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/10",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/13",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/16",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/18",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/20",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/21",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/5",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/7",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/8",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    },
+    {
+      "gate": "arch_10",
+      "code": "ARCH_TEST_READINESS_UNCLOSED",
+      "path": "/tests/9",
+      "message": "task-gated test requirements have no work-package convergence point",
+      "context_refs": []
+    }
+  ]
+}
