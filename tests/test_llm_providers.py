@@ -176,7 +176,7 @@ def test_anthropic_no_messages_secret_is_redacted_from_failure(monkeypatch):
 
 
 def test_anthropic_normalize_response(monkeypatch):
-    config = load_config()
+    config = load_config(overrides={"providers": {"anthropic": {"base_url": "https://alternate.test/custom-endpoint"}}})
     monkeypatch.setenv(config.providers["anthropic"].api_key_env, "fixture-secret")
 
     def handler(request):
