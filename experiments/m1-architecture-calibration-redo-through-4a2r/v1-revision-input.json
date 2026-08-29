@@ -1,0 +1,12 @@
+{
+  "hypothesis": "The shared prompt underspecifies the mutually exclusive contract readiness forms, causing task contracts to use frozen interface files or non-module providers.",
+  "evidence_refs": [
+    {
+      "path": "prompt-development/versions/v0/assessment-n005.json",
+      "sha256": "87c8020f9ae6ba083a7d1987e83319d47b527dfbf96367825c9cf527bb7601d9"
+    }
+  ],
+  "expected_gates": ["arch_03", "arch_07", "arch_08"],
+  "expected_metrics": ["p1", "arch_semantic_first_pass_rate"],
+  "prompt_path": "nepa/agents/prompts/architecture_planner.md"
+}

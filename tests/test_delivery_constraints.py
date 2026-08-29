@@ -6,13 +6,18 @@ from nepa.speclib.delivery import DeliveryConstraintError, compile_delivery_cons
 from nepa.speclib.planning import prepare_architecture_inputs
 
 
-def test_gold_delivery_constraints_have_stable_expanded_slots():
+def test_gold_delivery_constraints_have_stable_convention_projection():
     prepared = prepare_architecture_inputs("gold_file/specIR.json", "gold_file/target.json", "gold_file/test_bundle.json")
     first = compile_delivery_constraints(prepared.spec, prepared.target_profile)
     second = compile_delivery_constraints(prepared.spec, prepared.target_profile)
     assert first == second
     assert first["naming"]["symbol_prefix"] == "mqtt"
-    assert any(slot["rule_id"] == "message-codecs" for slot in first["file_slots"])
+    assert first["layout_convention_id"] == "c99-server-v1"
+    assert len(first["layout_convention_sha256"]) == 64
+    assert "advisory" in first and "hard" in first
+    assert "file_rules" not in first
+    assert "file_slots" not in first
+    assert "internal_interface_slots" not in first
 
 
 def test_unsupported_target_is_rejected_before_compilation():

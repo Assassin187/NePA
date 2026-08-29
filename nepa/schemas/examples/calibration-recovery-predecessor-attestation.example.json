@@ -1,1 +1,15 @@
-{"schema_version":"1.0","predecessor_lineage_id":"daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772","protocol_status":"initialized","versions":["v0","v1","v2"],"fallback_tuples":{"v0":[0,0,1,0],"v1":[0,0,1,0],"v2":[0,0,1,0]},"outcome":"PROMPT_SELECTION_TIE","selection_absent":true,"handoff_absent":true,"inventory":[{"workspace_path":"runs/_calibration/s4-architecture/daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772/lineage.json","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}
+{
+  "schema_version": "2.0",
+  "predecessor_lineage_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "predecessor_graph_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "protocol_status": "initialized",
+  "versions": ["v0", "v1", "v2"],
+  "model_ids": ["qwen", "claude", "deepseek"],
+  "gate_ids": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10", "arch_11", "arch_12", "arch_13", "arch_14", "arch_15"],
+  "assessment_refs": {"v0": {"path": "prompt-development/versions/v0/assessment-n005.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v1": {"path": "prompt-development/versions/v1/assessment-n005.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "v2": {"path": "prompt-development/versions/v2/assessment-n005.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+  "comparison_tuples": {"v0": [0.8, 0.8, 0.8, -1], "v1": [0.8, 0.8, 0.8, -1], "v2": [0.8, 0.8, 0.8, -1]},
+  "outcome": "PROMPT_SELECTION_TIE",
+  "selection_absent": true,
+  "handoff_absent": true,
+  "inventory": [{"workspace_path": "runs/_calibration/s4-architecture/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/lineage.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+}

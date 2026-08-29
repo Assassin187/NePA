@@ -11,6 +11,7 @@ def test_fixed_key_names_and_sentinel_values_never_enter_public_projection(tmp_p
     config, limits = _config_files(tmp_path)
     sentinels = {
         "NEPA_QWEN_API_KEY": "sentinel-qwen-value",
+        "NEPA_CLAUDE_API_KEY": "sentinel-claude-value",
         "NEPA_DS_API_KEY": "sentinel-deepseek-value",
     }
     for name, value in sentinels.items():
@@ -35,7 +36,7 @@ def test_context_limits_reject_missing_extra_and_non_positive_values(tmp_path):
     limits.write_text(json.dumps({"qwen": 1}), encoding="utf-8")
     with pytest.raises(PromptDevelopmentConfigError, match="exactly"):
         preflight_calibration_config(config, limits, require_environment=False)
-    limits.write_text(json.dumps({"qwen": 1, "deepseek": 0}), encoding="utf-8")
+    limits.write_text(json.dumps({"qwen": 1, "claude": 1, "deepseek": 0}), encoding="utf-8")
     with pytest.raises(PromptDevelopmentConfigError, match="positive"):
         preflight_calibration_config(config, limits, require_environment=False)
 

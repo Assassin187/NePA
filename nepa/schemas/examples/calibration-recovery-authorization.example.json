@@ -1,1 +1,11 @@
-{"schema_version":"1.0","change":"m1-4a2r-architecture-planner-calibration-recovery","decision_id":"owner-decision-m1-4a2r","responsible_owner":"responsible-owner","approved":true,"design_version":"3.1.0","approved_design":{"workspace_path":"project_docs/system_design.md","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"protocol":{"entry_condition":"PROMPT_SELECTION_TIE","versions":["r0","r1","r2"],"prompt_edit_limit":2,"p0_role":"diagnostic","completion_boundary":"m1-4a3-admission-only"}}
+{
+  "schema_version": "2.0",
+  "change": "m1-architecture-calibration-redo-through-4a2r",
+  "decision_id": "owner-decision-m1-4a2r",
+  "responsible_owner": "responsible-owner",
+  "approved": true,
+  "design_version": "5.3.0",
+  "approved_design": {"workspace_path": "project_docs/system_design.md", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "predecessor": {"lineage_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "graph_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+  "protocol": {"entry_condition": "PROMPT_SELECTION_TIE", "versions": ["r0", "r1", "r2"], "prompt_edit_limit": 2, "trial_count": 5, "model_ids": ["qwen", "claude", "deepseek"], "p1_threshold": 0.8, "completion_boundary": "m1-4a3-admission-only"}
+}

@@ -7,19 +7,19 @@ from nepa.calibration.s4_prompt_development import PromptDevelopmentCoordinator,
 
 def _declaration(lineage_id: str, version: str, attempt: int):
     return {
-        "schema_version": "1.0", "lineage_id": lineage_id, "version": version,
+        "schema_version": "2.0", "lineage_id": lineage_id, "version": version,
         "attempt": attempt, "status": "declared",
         "prompt_ref": {"path": "prompt-development/versions/v0/prompt.md", "sha256": "a" * 64},
         "prompt_sha256": "a" * 64, "trial_count": 5, "semantic_depth": 1,
-        "model_ids": ["qwen", "deepseek"],
+        "model_ids": ["qwen", "claude", "deepseek"],
     }
 
 
 def _outcome(lineage_id: str, version: str, attempt: int, status: str):
     return {
-        "schema_version": "1.0", "lineage_id": lineage_id, "version": version,
+        "schema_version": "2.0", "lineage_id": lineage_id, "version": version,
         "attempt": attempt, "status": status,
-        "reports": {"qwen": None, "deepseek": None},
+        "reports": {"qwen": None, "claude": None, "deepseek": None},
     }
 
 

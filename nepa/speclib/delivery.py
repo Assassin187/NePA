@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .lint import lint_target
+from .lint import canonical_json_bytes, lint_target
 
 
 class DeliveryConstraintError(ValueError):
@@ -19,6 +20,7 @@ class DeliveryConstraintError(ValueError):
 
 
 _BUILTIN_TYPES = {"uint8", "uint16_be", "uint32_be", "bytes", "bitfield8"}
+_LAYOUT_CONVENTION_DIR = Path(__file__).resolve().parents[1] / "assets" / "layout_conventions"
 
 
 def normalize_identifier(value: str) -> str:
@@ -88,59 +90,42 @@ def _derive_ids(spec: Mapping[str, Any]) -> tuple[str, dict[str, str], dict[str,
     return prefix, message_ids, type_ids
 
 
-def _messages_for_target(spec: Mapping[str, Any], target: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    roles = set(target["roles"])
-    selected = [
-        message for message in spec.get("messages", [])
-        if roles.intersection(message.get("senders", [])) or roles.intersection(message.get("receivers", []))
-    ]
-    return sorted(selected, key=lambda item: item["id"].encode("utf-8"))
+def layout_convention_id(target_profile: Mapping[str, Any]) -> str:
+    """Derive the versioned convention id from the two target fields."""
+
+    language = target_profile.get("language", {})
+    roles = target_profile.get("roles", [])
+    if not isinstance(language, Mapping) or not isinstance(roles, list) or len(roles) != 1:
+        raise DeliveryConstraintError("target must contain one language and one delivery role", code="LAYOUT_CONVENTION_INVALID")
+    language_id = normalize_identifier(language.get("version") or language.get("name", ""))
+    role_id = normalize_identifier(roles[0])
+    return f"{language_id}-{role_id}-v1"
 
 
-def _rules(prefix: str) -> list[dict[str, Any]]:
-    return [
-        {"id": "build-file", "kind": "build", "producer": "layout_template", "mutability": "s5_frozen", "path_pattern": "Makefile", "expansion": "none", "purpose": "Build entry point"},
-        {"id": "readme", "kind": "documentation", "producer": "layout_template", "mutability": "s5_frozen", "path_pattern": "README.md", "expansion": "none", "purpose": "Generated project description"},
-        {"id": "types-header", "kind": "header", "producer": "mechanical_spec", "mutability": "s5_frozen", "path_pattern": f"include/{prefix}/{prefix}_types.h", "expansion": "none", "purpose": "Generated type declarations"},
-        {"id": "codec-header", "kind": "header", "producer": "mechanical_spec", "mutability": "s5_frozen", "path_pattern": f"include/{prefix}/{prefix}_codec.h", "expansion": "none", "purpose": "Generated codec declarations"},
-        {"id": "session-header", "kind": "header", "producer": "layout_template", "mutability": "s5_frozen", "path_pattern": f"include/{prefix}/{prefix}_session.h", "expansion": "none", "purpose": "Session interface"},
-        {"id": "net-header", "kind": "header", "producer": "layout_template", "mutability": "s5_frozen", "path_pattern": f"include/{prefix}/{prefix}_net.h", "expansion": "none", "purpose": "Network interface"},
-        {"id": "message-codecs", "kind": "source", "producer": "layout_template", "mutability": "s6_owned", "path_pattern": "src/codec/codec_{message_id}.c", "expansion": "per_message", "purpose": "Per-message codec implementation"},
-        {"id": "session-source", "kind": "source", "producer": "layout_template", "mutability": "s6_owned", "path_pattern": f"src/session/{prefix}_session.c", "expansion": "none", "purpose": "Session implementation"},
-        {"id": "net-source", "kind": "source", "producer": "layout_template", "mutability": "s6_owned", "path_pattern": f"src/net/{prefix}_net.c", "expansion": "none", "purpose": "Network implementation"},
-        {"id": "server-entry-source", "kind": "app", "producer": "layout_template", "mutability": "s6_owned", "path_pattern": f"apps/{prefix}_server_main.c", "expansion": "none", "purpose": "Application entry point"},
-    ]
+def load_layout_convention(target_profile: Mapping[str, Any]) -> dict[str, Any]:
+    """Load the repository-owned convention selected by a target profile."""
+
+    convention_id = layout_convention_id(target_profile)
+    path = _LAYOUT_CONVENTION_DIR / f"{convention_id}.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DeliveryConstraintError(f"unable to load layout convention {convention_id!r}: {exc}", code="LAYOUT_CONVENTION_MISSING") from exc
+    if not isinstance(value, dict) or value.get("convention_id") != convention_id:
+        raise DeliveryConstraintError(f"layout convention {convention_id!r} has an invalid identity", code="LAYOUT_CONVENTION_INVALID")
+    expected_language = target_profile.get("language")
+    if value.get("language") != expected_language or value.get("delivery_form") != target_profile.get("roles", [None])[0]:
+        raise DeliveryConstraintError(f"layout convention {convention_id!r} does not match the target", code="LAYOUT_CONVENTION_INVALID")
+    if not isinstance(value.get("advisory"), dict) or not isinstance(value.get("hard"), dict):
+        raise DeliveryConstraintError("layout convention must separate advisory and hard projections", code="LAYOUT_CONVENTION_INVALID")
+    return value
 
 
-def _expand_rules(rules: list[dict[str, Any]], messages: list[Mapping[str, Any]], message_ids: Mapping[str, str]) -> list[dict[str, Any]]:
-    slots: list[dict[str, Any]] = []
-    for rule in rules:
-        pattern = rule["path_pattern"]
-        if rule["expansion"] == "none":
-            if "{" in pattern or "}" in pattern:
-                raise DeliveryConstraintError(f"non-expanded path contains a placeholder: {pattern}", code="DELIVERY_PATH_INVALID")
-            instances = [(None, pattern)]
-        elif rule["expansion"] == "per_message":
-            if pattern.count("{message_id}") != 1 or re.sub(r"\{message_id\}", "", pattern).find("{") >= 0:
-                raise DeliveryConstraintError(f"invalid message path pattern: {pattern}", code="DELIVERY_PATH_INVALID")
-            if not messages:
-                raise DeliveryConstraintError("per_message rule has no selected messages", code="DELIVERY_MESSAGE_SET_EMPTY")
-            instances = [(message["id"], pattern.replace("{message_id}", message_ids[message["id"]])) for message in messages]
-        else:
-            raise DeliveryConstraintError(f"unsupported file expansion {rule['expansion']!r}", code="DELIVERY_EXPANSION_INVALID")
-        for source, path in instances:
-            if not path or path.startswith("/") or ".." in path.split("/") or "//" in path:
-                raise DeliveryConstraintError(f"unsafe delivery path {path!r}", code="DELIVERY_PATH_INVALID")
-            slots.append({
-                "rule_id": rule["id"], "path": path, "kind": rule["kind"], "producer": rule["producer"],
-                "mutability": rule["mutability"], "expansion_source": source, "purpose": rule["purpose"],
-            })
-    seen: set[str] = set()
-    for slot in slots:
-        if slot["path"] in seen:
-            raise DeliveryConstraintError(f"delivery path is duplicated: {slot['path']}", code="DELIVERY_PATH_DUPLICATE")
-        seen.add(slot["path"])
-    return sorted(slots, key=lambda item: item["path"].encode("utf-8"))
+def canonical_layout_convention(target_profile: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+    """Return the convention and its canonical SHA-256 without external lookups."""
+
+    value = load_layout_convention(target_profile)
+    return value, hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
 def compile_delivery_constraints(spec: Mapping[str, Any], target_profile: Mapping[str, Any]) -> dict[str, Any]:
@@ -150,7 +135,7 @@ def compile_delivery_constraints(spec: Mapping[str, Any], target_profile: Mappin
     target_profile = _object(target_profile, "Target Profile")
     _target_or_raise(spec, target_profile)
     prefix, message_ids, type_ids = _derive_ids(spec)
-    messages = _messages_for_target(spec, target_profile)
+    convention, convention_sha256 = canonical_layout_convention(target_profile)
     patterns = {
         "message_struct": f"{prefix}_{{message_id}}_t",
         "encode_fn": f"{prefix}_encode_{{message_id}}",
@@ -187,13 +172,7 @@ def compile_delivery_constraints(spec: Mapping[str, Any], target_profile: Mappin
         ("server_abi:output_batch_type", f"{prefix}_out_batch_t"),
     ):
         claim(namespace, identifier)
-    rules = _rules(prefix)
-    slots = _expand_rules(rules, messages, message_ids)
     variants = ["release", "san"]
-    internal_slots = [
-        {"id": "session-interface", "interface_files": [f"include/{prefix}/{prefix}_session.h"], "required": True, "kind": "header", "purpose": "Session boundary"},
-        {"id": "network-interface", "interface_files": [f"include/{prefix}/{prefix}_net.h"], "required": True, "kind": "header", "purpose": "Network boundary"},
-    ]
     server_abi = {
         "opaque_server_type": f"{prefix}_server_t",
         "connection_id_type": f"{prefix}_conn_id_t",
@@ -209,23 +188,33 @@ def compile_delivery_constraints(spec: Mapping[str, Any], target_profile: Mappin
         "resource_failure": "resource_limit_error_and_close_source",
     }
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "target_support": {"roles": sorted(target_profile["roles"]), "language": dict(target_profile["language"]), "supported": True},
         "target_profile": {"roles": sorted(target_profile["roles"]), "language": dict(target_profile["language"])},
         "application_layer_rule": {"language": "C99", "backend": "application-layer", "target_roles": ["server"]},
+        "layout_convention_id": convention["convention_id"],
+        "layout_convention_sha256": convention_sha256,
+        "advisory": convention["advisory"],
+        "hard": convention["hard"],
+        "mechanical_bounds": convention["mechanical_bounds"],
+        "template_roots": convention["template_roots"],
         "naming": {"symbol_prefix": prefix, "identifier_style": "snake_case", "patterns": patterns, "message_ids": message_ids, "type_ids": type_ids},
         "resource_limits": {"max_connections": 16, "max_event_targets": 16, "max_output_item_bytes": 4096, "max_output_batch_bytes": 65536},
         "build_variant_ids": variants,
         "default_build_variant_ids": ["san"],
-        "file_rules": rules,
-        "file_slots": slots,
-        "internal_interface_slots": internal_slots,
         "server_abi": server_abi,
         "mechanical_generation_contracts": [
-            {"input_kinds": ["spec_types", "derived_naming", "language_type_mappings", "resource_limits"], "template_path": "nepa/templates/types.h", "output_rule_ids": ["types-header"]},
-            {"input_kinds": ["spec_messages", "derived_naming"], "template_path": "nepa/templates/codec.h", "output_rule_ids": ["codec-header"]},
+            {"contract_id": "types", "input_kinds": ["spec_types", "derived_naming", "language_type_mappings", "resource_limits"], "template_path": "nepa/templates/types.h"},
+            {"contract_id": "codec", "input_kinds": ["spec_messages", "derived_naming"], "template_path": "nepa/templates/codec.h"},
         ],
     }
 
 
-__all__ = ["DeliveryConstraintError", "compile_delivery_constraints", "normalize_identifier"]
+__all__ = [
+    "DeliveryConstraintError",
+    "canonical_layout_convention",
+    "compile_delivery_constraints",
+    "layout_convention_id",
+    "load_layout_convention",
+    "normalize_identifier",
+]

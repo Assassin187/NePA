@@ -1,1 +1,51 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://nepa.local/schemas/calibration-recovery-authorization.schema.json","type":"object","additionalProperties":false,"required":["schema_version","change","decision_id","responsible_owner","approved","design_version","approved_design","protocol"],"properties":{"schema_version":{"const":"1.0"},"change":{"const":"m1-4a2r-architecture-planner-calibration-recovery"},"decision_id":{"type":"string","minLength":1},"responsible_owner":{"type":"string","minLength":1},"approved":{"const":true},"design_version":{"const":"3.1.0"},"approved_design":{"$ref":"#/$defs/workspaceRef"},"protocol":{"type":"object","additionalProperties":false,"required":["entry_condition","versions","prompt_edit_limit","p0_role","completion_boundary"],"properties":{"entry_condition":{"const":"PROMPT_SELECTION_TIE"},"versions":{"const":["r0","r1","r2"]},"prompt_edit_limit":{"const":2},"p0_role":{"const":"diagnostic"},"completion_boundary":{"const":"m1-4a3-admission-only"}}}},"$defs":{"workspaceRef":{"type":"object","additionalProperties":false,"required":["workspace_path","sha256"],"properties":{"workspace_path":{"type":"string","pattern":"^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/calibration-recovery-authorization.schema.json",
+  "title": "M1-4a2r owner authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change", "decision_id", "responsible_owner", "approved", "design_version", "approved_design", "predecessor", "protocol"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "change": {"const": "m1-architecture-calibration-redo-through-4a2r"},
+    "decision_id": {"type": "string", "minLength": 1},
+    "responsible_owner": {"type": "string", "minLength": 1},
+    "approved": {"const": true},
+    "design_version": {"const": "5.3.0"},
+    "approved_design": {"$ref": "#/$defs/workspaceRef"},
+    "predecessor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lineage_id", "graph_sha256"],
+      "properties": {
+        "lineage_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "graph_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_condition", "versions", "prompt_edit_limit", "trial_count", "model_ids", "p1_threshold", "completion_boundary"],
+      "properties": {
+        "entry_condition": {"const": "PROMPT_SELECTION_TIE"},
+        "versions": {"const": ["r0", "r1", "r2"]},
+        "prompt_edit_limit": {"const": 2},
+        "trial_count": {"const": 5},
+        "model_ids": {"const": ["qwen", "claude", "deepseek"]},
+        "p1_threshold": {"const": 0.8},
+        "completion_boundary": {"const": "m1-4a3-admission-only"}
+      }
+    }
+  },
+  "$defs": {
+    "workspaceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace_path", "sha256"],
+      "properties": {
+        "workspace_path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

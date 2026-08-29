@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "convention_id": "c99-server-v1",
+  "language": {
+    "name": "C",
+    "version": "C99"
+  },
+  "delivery_form": "server",
+  "advisory": {
+    "responsibility_vocabulary": [
+      "codec",
+      "session",
+      "state",
+      "transport",
+      "event",
+      "types",
+      "entry",
+      "build",
+      "documentation"
+    ],
+    "layer_order": [
+      "types",
+      "codec",
+      "session",
+      "transport",
+      "entry"
+    ],
+    "directory_hints": [
+      "include",
+      "src",
+      "apps",
+      "build"
+    ],
+    "granularity": "one primary responsibility per file",
+    "expansion_hint": "prefer one generated implementation unit per message or type"
+  },
+  "hard": {
+    "allowed_path_roots": [
+      "include",
+      "src",
+      "apps",
+      "build",
+      "."
+    ],
+    "reserved_path_segments": [
+      ".",
+      ".."
+    ],
+    "layer_order": [
+      "types",
+      "codec",
+      "session",
+      "transport",
+      "entry"
+    ],
+    "delivery_shape": {
+      "entry_point_count": 1,
+      "executable_artifact_count": 1
+    },
+    "build_graph": {
+      "segments": [
+        "layout_file",
+        "link_source_set",
+        "artifact"
+      ],
+      "acyclic": true
+    },
+    "placeholder_domains": {
+      "message_id": "messages",
+      "type_id": "types"
+    }
+  },
+  "mechanical_bounds": {
+    "max_path_length": 255,
+    "max_files": 256,
+    "max_artifacts": 16
+  },
+  "template_roots": [
+    "nepa/templates"
+  ]
+}

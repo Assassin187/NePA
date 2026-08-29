@@ -10,12 +10,12 @@ from nepa.config import load_config
 
 def test_calibration_report_schema_has_fixed_gate_denominators():
     schema = json.load(open("nepa/schemas/calibration-report.schema.json", encoding="utf-8"))
-    assert set(schema["properties"]["gates"]["required"]) == {f"arch_{index:02d}" for index in range(1, 11)}
+    assert set(schema["properties"]["gates"]["required"]) == {f"arch_{index:02d}" for index in range(1, 16)}
     Draft202012Validator.check_schema(schema)
 
 
 def _config():
-    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "deepseek")}})
+    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "claude", "deepseek")}})
 
 
 class _SchemaFailProvider:
@@ -27,7 +27,7 @@ class _SchemaFailProvider:
 
 
 def _batch(tmp_path):
-    declaration = CalibrationBatchDeclaration(trial_count=2, semantic_repair_depth=0, context_window_tokens={name: 100000 for name in ("qwen", "deepseek")}, spec="gold_file/specIR.json", target_profile="gold_file/target.json", test_bundle="gold_file/test_bundle.json")
+    declaration = CalibrationBatchDeclaration(trial_count=2, semantic_repair_depth=0, context_window_tokens={name: 100000 for name in ("qwen", "claude", "deepseek")}, spec="gold_file/specIR.json", target_profile="gold_file/target.json", test_bundle="gold_file/test_bundle.json")
     ArchitectureCalibrationDriver(_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SchemaFailProvider()}).run(declaration)
     return next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
 
@@ -116,7 +116,7 @@ def test_duplicate_request_evidence_is_rejected_even_when_hashes_are_valid(tmp_p
         ("trial_count", 1, "trial count"),
         ("trials", ["trial_001"], "trial ids"),
         ("provider", "drifted-provider", "batch provider"),
-        ("model", "drifted-model", "batch model"),
+            ("model", "drifted-model", "trace identity"),
         ("context_window_tokens", 1, "batch context_window_tokens"),
     ],
 )

@@ -1,12 +1,172 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "lineage_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "inputs": {"spec": {"path": "inputs/spec.json", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "target": {"path": "inputs/target.json", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}, "test_bundle": {"path": "inputs/test_bundle.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},
-  "artifacts": {"planning_index": {"path": "planning_index.json", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}, "manifest_metadata": {"path": "test_manifest_metadata.json", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}, "delivery_constraints": {"path": "delivery_constraints.json", "sha256": "1111111111111111111111111111111111111111111111111111111111111111"}, "schema": {"path": "schema/architecture-draft.schema.json", "sha256": "2222222222222222222222222222222222222222222222222222222222222222"}, "example": {"path": "schema/architecture-draft.example.json", "sha256": "3333333333333333333333333333333333333333333333333333333333333333"}, "serializer": {"path": "components/serializer.bundle.json", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"}, "validator": {"path": "components/validator.bundle.json", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"}},
-  "components": {"serializer": {"path": "components/serializer.bundle.json", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"}, "planning": {"path": "components/planning.bundle.json", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"}, "delivery": {"path": "components/delivery.bundle.json", "sha256": "9999999999999999999999999999999999999999999999999999999999999999"}, "validator": {"path": "components/validator.bundle.json", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"}, "agent_framework": {"path": "components/agent_framework.bundle.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "llm_runtime": {"path": "components/llm_runtime.bundle.json", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}, "telemetry": {"path": "components/telemetry.bundle.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "provider_adapters": {"path": "components/provider_adapters.bundle.json", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}, "statistics": {"path": "components/statistics.bundle.json", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
-  "providers": {"provider-a": {"kind": "openai_compat", "base_url": "https://provider-a", "api_key_env": null, "sha256": "7777777777777777777777777777777777777777777777777777777777777777"}},
-  "models": {"qwen": {"provider": "provider-b", "model": "model-b", "temperature": 0, "max_tokens": 65536, "context_window_tokens": 8192}, "deepseek": {"provider": "provider-c", "model": "model-c", "temperature": 0, "max_tokens": 65536, "context_window_tokens": 8192}},
-  "pricing": {"qwen": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}, "deepseek": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}},
-  "calibration": {"api_key_env": {"qwen": "NEPA_QWEN_API_KEY", "deepseek": "NEPA_DS_API_KEY"}, "model_ids": ["qwen", "deepseek"]},
-  "statistics": {"metric_definition": "m1-4a1-architecture-calibration-metrics-v1", "implementation_sha256": "6666666666666666666666666666666666666666666666666666666666666666", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"}
+  "inputs": {
+    "spec": {
+      "path": "inputs/spec.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "target": {
+      "path": "inputs/target.json",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "test_bundle": {
+      "path": "inputs/test_bundle.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "artifacts": {
+    "planning_index": {
+      "path": "planning_index.json",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "manifest_metadata": {
+      "path": "test_manifest_metadata.json",
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "delivery_constraints": {
+      "path": "delivery_constraints.json",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "schema": {
+      "path": "schema/architecture-draft.schema.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "example": {
+      "path": "schema/architecture-draft.example.json",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "serializer": {
+      "path": "components/serializer.bundle.json",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "validator": {
+      "path": "components/validator.bundle.json",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "layout_convention": {
+      "path": "layout_convention.json",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  },
+  "components": {
+    "serializer": {
+      "path": "components/serializer.bundle.json",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "planning": {
+      "path": "components/planning.bundle.json",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "delivery": {
+      "path": "components/delivery.bundle.json",
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "validator": {
+      "path": "components/validator.bundle.json",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "agent_framework": {
+      "path": "components/agent_framework.bundle.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "llm_runtime": {
+      "path": "components/llm_runtime.bundle.json",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "telemetry": {
+      "path": "components/telemetry.bundle.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "provider_adapters": {
+      "path": "components/provider_adapters.bundle.json",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "statistics": {
+      "path": "components/statistics.bundle.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "providers": {
+    "provider-a": {
+      "kind": "openai_compat",
+      "base_url": "https://provider-a",
+      "api_key_env": null,
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+    }
+  },
+  "models": {
+    "qwen": {
+      "provider": "provider-b",
+      "model": "model-b",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    },
+    "deepseek": {
+      "provider": "provider-c",
+      "model": "model-c",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    },
+    "claude": {
+      "provider": "provider-b",
+      "model": "model-b",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    }
+  },
+  "pricing": {
+    "qwen": {
+      "input_usd_per_million_tokens": 1,
+      "output_usd_per_million_tokens": 1
+    },
+    "deepseek": {
+      "input_usd_per_million_tokens": 1,
+      "output_usd_per_million_tokens": 1
+    },
+    "claude": {
+      "input_usd_per_million_tokens": 1,
+      "output_usd_per_million_tokens": 1
+    }
+  },
+  "calibration": {
+    "api_key_env": {
+      "qwen": "NEPA_QWEN_API_KEY",
+      "deepseek": "NEPA_DS_API_KEY",
+      "claude": "NEPA_CLAUDE_API_KEY"
+    },
+    "model_ids": [
+      "qwen",
+      "claude",
+      "deepseek"
+    ]
+  },
+  "statistics": {
+    "metric_definition": "m1-4a1-architecture-calibration-metrics-v1",
+    "implementation_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "slot_controls": {
+    "qwen": {
+      "provider": "provider-b",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    },
+    "claude": {
+      "provider": "provider-b",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    },
+    "deepseek": {
+      "provider": "provider-c",
+      "temperature": 0,
+      "max_tokens": 65536,
+      "context_window_tokens": 8192
+    }
+  }
 }

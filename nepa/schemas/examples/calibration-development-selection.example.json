@@ -1,1 +1,38 @@
-{"schema_version":"1.0","lineage_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"selected","selected_version":"v0","prompt_ref":{"path":"prompt-development/versions/v0/prompt.md","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"prompt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","assessment_ref":{"path":"prompt-development/versions/v0/assessment-n005.json","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"reason":"first passing version","comparison_tuples":{"v0":[1.0,0.8,1.0,-1.0]}}
+{
+  "schema_version": "2.0",
+  "lineage_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "selected",
+  "selected_version": "v0",
+  "prompt_ref": {
+    "path": "prompt-development/versions/v0/prompt.md",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "assessment_ref": {
+    "path": "prompt-development/versions/v0/assessment-n005.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "reason": "first passing version",
+  "comparison_tuples": {
+    "v0": [
+      1,
+      0.8,
+      1,
+      -1
+    ]
+  },
+  "assessment_refs": {
+    "v0": {
+      "path": "prompt-development/versions/v0/assessment-n005.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "v1": {
+      "path": "prompt-development/versions/v1/assessment-n005.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "v2": {
+      "path": "prompt-development/versions/v2/assessment-n005.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

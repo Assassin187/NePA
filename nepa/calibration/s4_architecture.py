@@ -28,7 +28,7 @@ from ..llm.telemetry import LLMTelemetry
 from ..run_store import ArtifactRef, RunStore, RunStoreError
 from ..schemas import architecture_draft_contract, load_schema
 from ..speclib.architecture import serialize_architecture_draft, validate_architecture
-from ..speclib.delivery import compile_delivery_constraints
+from ..speclib.delivery import canonical_layout_convention, compile_delivery_constraints
 from ..speclib.lint import canonical_json_bytes
 from ..speclib.planning import (
     PreparedArchitectureInputs,
@@ -39,30 +39,40 @@ from ..speclib.planning import (
 )
 
 
-MODEL_IDS = ("qwen", "deepseek")
+MODEL_IDS = ("qwen", "claude", "deepseek")
 FIXED_API_KEY_ENVS = {
     "qwen": "NEPA_QWEN_API_KEY",
+    "claude": "NEPA_CLAUDE_API_KEY",
     "deepseek": "NEPA_DS_API_KEY",
 }
 METRIC_DEFINITION = "m1-4a1-architecture-calibration-metrics-v1"
 RECOVERY_METRIC_DEFINITION = "m1-4a2r-recovery-metrics-v1"
 REPAIR_IMPACT_POLICY_VERSION = "repair-impact-v1"
+DESIGN_BASELINE = {
+    "project_docs/system_design.md": "49ec7593600b09a1d6c7ea7d748b9e8843eaa77c7e86e6cdb4784f720227d8e8",
+    "project_docs/pipeline_design_s4_s9.md": "6ebf3c693e519fd14229b3591b4226d51c9df399380f28164d5d981d45c51af8",
+}
 
 # Closed gate dependency policy used only to audit the existing full-draft
 # semantic repair.  It does not change ARCH_VALIDATE or make an invalid draft
 # acceptable.  Prefixes use the stable-id form produced by
 # ``architecture_draft_changed_paths``.
 REPAIR_IMPACT_POLICY: dict[str, tuple[str, ...]] = {
-    "arch_01": ("/decisions", "/contracts", "/modules", "/work_packages"),
-    "arch_02": ("/modules", "/work_packages"),
-    "arch_03": ("/contracts", "/modules", "/work_packages"),
+    "arch_01": ("/decisions", "/contracts", "/modules", "/work_packages", "/layout"),
+    "arch_02": ("/modules", "/work_packages", "/layout"),
+    "arch_03": ("/contracts", "/modules", "/work_packages", "/layout"),
     "arch_04": ("/contracts", "/modules", "/work_packages"),
-    "arch_05": ("/contracts", "/modules", "/work_packages"),
-    "arch_06": ("/modules", "/work_packages"),
-    "arch_07": ("/contracts", "/modules", "/work_packages"),
-    "arch_08": ("/contracts", "/work_packages"),
-    "arch_09": ("/contracts", "/modules", "/work_packages"),
+    "arch_05": ("/contracts", "/modules", "/work_packages", "/layout"),
+    "arch_06": ("/modules", "/work_packages", "/layout"),
+    "arch_07": ("/contracts", "/modules", "/work_packages", "/layout"),
+    "arch_08": ("/contracts", "/work_packages", "/layout"),
+    "arch_09": ("/contracts", "/modules", "/work_packages", "/layout"),
     "arch_10": ("/work_packages",),
+    "arch_11": ("/layout",),
+    "arch_12": ("/layout", "/modules", "/work_packages"),
+    "arch_13": ("/layout",),
+    "arch_14": ("/layout", "/contracts", "/modules"),
+    "arch_15": ("/layout",),
 }
 
 
@@ -84,6 +94,12 @@ def _stable_array_key(path: str, item: object) -> str | None:
         return None
     if path in {"/decisions", "/contracts", "/modules", "/work_packages"}:
         value = item.get("id")
+        return str(value) if isinstance(value, str) else None
+    if path == "/layout/files":
+        value = item.get("slot_id")
+        return str(value) if isinstance(value, str) else None
+    if path == "/layout/build_graph/artifacts":
+        value = item.get("artifact_id")
         return str(value) if isinstance(value, str) else None
     if path.endswith("/requirement_responsibilities"):
         value = item.get("req_id")
@@ -193,7 +209,7 @@ def assess_repair_locality(
     unattributed = [path for path, keys in attribution.items() if not keys]
     passed = bool(changed) and not unattributed and not regressed
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "policy_version": REPAIR_IMPACT_POLICY_VERSION,
         "before_sha256": _sha(canonical_json_bytes(before)),
         "after_sha256": _sha(canonical_json_bytes(after)),
@@ -220,6 +236,25 @@ class CalibrationEvidenceError(CalibrationError):
     pass
 
 
+def verify_design_baseline(workspace_root: str | Path | None = None) -> dict[str, str]:
+    """Verify the owner-resolved design bytes before calibration preparation."""
+
+    root = Path(workspace_root).resolve() if workspace_root is not None else Path(__file__).resolve().parents[2]
+    verified: dict[str, str] = {}
+    for relative, expected in DESIGN_BASELINE.items():
+        path = (root / relative).resolve()
+        try:
+            path.relative_to(root)
+            data = path.read_bytes()
+        except (OSError, ValueError) as exc:
+            raise CalibrationDeclarationError(f"design baseline is unavailable: {relative}") from exc
+        actual = _sha(data)
+        if actual != expected:
+            raise CalibrationDeclarationError(f"design baseline drift: {relative}")
+        verified[relative] = actual
+    return verified
+
+
 @dataclass(frozen=True)
 class CalibrationModelTarget:
     provider: str
@@ -229,7 +264,7 @@ class CalibrationModelTarget:
     context_window_tokens: int
 
     def __post_init__(self) -> None:
-        if not self.provider.strip() or not self.model.strip() or self.max_tokens <= 0 or self.context_window_tokens <= 0 or self.temperature < 0:
+        if not self.provider.strip() or not self.model.strip() or self.max_tokens != 65536 or self.context_window_tokens <= 0 or self.temperature < 0:
             raise CalibrationDeclarationError("model target has invalid provider, model, temperature, token, or context values")
 
     @classmethod
@@ -503,6 +538,9 @@ def build_lineage_manifest(
     # live mapping identity is never an authority for lineage contents.
     frozen = prepare_architecture_inputs(prepared.spec_bytes, prepared.target_bytes, prepared.test_bundle_bytes)
     expected_constraints = compile_delivery_constraints(frozen.spec, frozen.target_profile)
+    convention, convention_sha256 = canonical_layout_convention(frozen.target_profile)
+    if expected_constraints.get("layout_convention_sha256") != convention_sha256:
+        raise CalibrationDeclarationError("delivery constraints are not bound to the canonical layout convention")
     expected_manifest = build_test_manifest_metadata(frozen.test_bundle, expected_constraints)
     expected_planning = build_planning_index(frozen, expected_manifest, expected_constraints)
     if (
@@ -516,6 +554,7 @@ def build_lineage_manifest(
     example = example_bytes or (Path(__file__).resolve().parents[1] / "schemas/examples/architecture-draft.example.json").read_bytes()
     targets = model_targets or config.calibration_models
     target_projection: dict[str, Any] = {}
+    slot_controls: dict[str, Any] = {}
     for model_id in MODEL_IDS:
         if model_id not in targets:
             raise CalibrationDeclarationError(f"missing lineage model target {model_id}")
@@ -523,6 +562,10 @@ def build_lineage_manifest(
         limit = (context_window_tokens or {}).get(model_id, target.context_window_tokens)
         target_projection[model_id] = {
             "provider": target.provider, "model": target.model, "temperature": target.temperature,
+            "max_tokens": target.max_tokens, "context_window_tokens": int(limit),
+        }
+        slot_controls[model_id] = {
+            "provider": target.provider, "temperature": target.temperature,
             "max_tokens": target.max_tokens, "context_window_tokens": int(limit),
         }
     component_values = _component_values(components, component_bytes)
@@ -578,7 +621,7 @@ def build_lineage_manifest(
         if supplied_calibration != calibration_projection:
             raise CalibrationDeclarationError("lineage fixed API-key environment-variable mapping drift")
     projection = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "inputs": {
             "spec": _ref("inputs/spec.json", prepared.spec_bytes),
             "target": _ref("inputs/target.json", prepared.target_bytes),
@@ -588,6 +631,7 @@ def build_lineage_manifest(
             "planning_index": _ref("planning_index.json", canonical_json_bytes(planning_index)),
             "manifest_metadata": _ref("test_manifest_metadata.json", canonical_json_bytes(manifest_metadata)),
             "delivery_constraints": _ref("delivery_constraints.json", canonical_json_bytes(delivery_constraints)),
+            "layout_convention": _ref("layout_convention.json", canonical_json_bytes(convention)),
             "schema": _ref("schema/architecture-draft.schema.json", schema),
             "example": _ref("schema/architecture-draft.example.json", example),
             "serializer": component_refs["serializer"],
@@ -595,13 +639,15 @@ def build_lineage_manifest(
         },
         "components": component_refs,
         "providers": providers,
+        "slot_controls": slot_controls,
         "models": target_projection,
         "pricing": pricing,
         "calibration": calibration_projection,
         "statistics": {**semantic_stats, "sha256": _sha(semantic_stats_bytes)},
     }
-    lineage_id = _sha(canonical_json_bytes(projection))
-    return {"schema_version": "1.0", "lineage_id": lineage_id, **projection}
+    identity_projection = {key: value for key, value in projection.items() if key != "models"}
+    lineage_id = _sha(canonical_json_bytes(identity_projection))
+    return {"schema_version": "2.0", "lineage_id": lineage_id, **projection}
 
 
 def _derived_config(config: ResolvedConfig, target: CalibrationModelTarget) -> ResolvedConfig:
@@ -872,7 +918,7 @@ def _failure_attempt_record(
 
 
 class ArchitectureCalibrationDriver:
-    """Run two isolated model workers and atomically commit trial evidence."""
+    """Run three isolated logical-slot workers and atomically commit trial evidence."""
 
     def __init__(
         self,
@@ -939,7 +985,7 @@ class ArchitectureCalibrationDriver:
 
     @staticmethod
     def _validate_batch_lineage_binding(batch: Mapping[str, Any], lineage: Mapping[str, Any]) -> None:
-        models = lineage.get("models")
+        models = lineage.get("slot_controls")
         model_id = batch.get("model_id")
         if not isinstance(models, Mapping) or not isinstance(model_id, str):
             raise CalibrationEvidenceError("lineage is missing controlled batch projections")
@@ -961,11 +1007,12 @@ class ArchitectureCalibrationDriver:
         for valid, message in checks:
             if not valid:
                 raise CalibrationEvidenceError(message)
-        for field in ("provider", "model", "temperature", "max_tokens", "context_window_tokens"):
+        for field in ("provider", "temperature", "max_tokens", "context_window_tokens"):
             if batch.get(field) != model.get(field):
                 raise CalibrationEvidenceError(f"batch {field} is not bound to lineage model projection")
 
     def _prepare(self, declaration: CalibrationBatchDeclaration) -> tuple[PreparedArchitectureInputs, dict[str, Any], dict[str, Any], dict[str, Any]]:
+        verify_design_baseline()
         if declaration.prepared_inputs is not None:
             prepared = prepare_architecture_inputs(
                 declaration.prepared_inputs.spec_bytes,
@@ -1007,6 +1054,8 @@ class ArchitectureCalibrationDriver:
         store.publish_immutable_json("planning_index.json", planning)
         store.publish_immutable_json("test_manifest_metadata.json", manifest)
         store.publish_immutable_json("delivery_constraints.json", constraints)
+        convention, _convention_sha256 = canonical_layout_convention(prepared.target_profile)
+        store.publish_immutable_json("layout_convention.json", convention)
         store.publish_immutable_bytes("schema/architecture-draft.schema.json", (Path(__file__).resolve().parents[1] / "schemas/architecture-draft.schema.json").read_bytes())
         store.publish_immutable_bytes("schema/architecture-draft.example.json", (Path(__file__).resolve().parents[1] / "schemas/examples/architecture-draft.example.json").read_bytes())
         components = _component_values(component_bytes=self.lineage_component_bytes)
@@ -1063,7 +1112,7 @@ class ArchitectureCalibrationDriver:
         store.publish_immutable_bytes(template_ref["path"], template_bytes)
         prompt_hash = actual_prompt_hash
         batch = {
-            "schema_version": "1.0", "status": "declared", "lineage_id": lineage["lineage_id"],
+            "schema_version": "2.0", "status": "declared", "lineage_id": lineage["lineage_id"],
             "prompt_version": declaration.prompt_version, "prompt_sha256": prompt_hash, "model_id": model_id,
             "prompt_template_ref": template_ref,
             "provider": target.provider, "model": target.model, "trial_count": declaration.trial_count,
@@ -1196,17 +1245,17 @@ class ArchitectureCalibrationDriver:
                 terminal = "infrastructure-invalid"
                 break
         validation_value = {
-            "schema_version": "1.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
+            "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
             "model_id": model_id, "trial_id": trial_id, "semantic_depth_declared": declaration.semantic_depth,
             "attempts": attempts, "terminal": terminal, "first_passing_depth": first_passing,
         }
         request_value = {
-            "schema_version": "1.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
+            "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
             "model_id": model_id, "trial_id": trial_id,
             "attempts": [{"depth": item["depth"], "kind": "initial" if item["depth"] == 0 else "semantic_repair", "request": item.get("request_ref") or {"path": "trace/missing", "sha256": "0" * 64}, "request_evidence": item.get("request_refs", []), "prompt_sha256": prompt_hash, "effective_prompt_sha256": item.get("effective_prompt_sha256") or "0" * 64} for item in attempts],
         }
         response_value = {
-            "schema_version": "1.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
+            "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
             "model_id": model_id, "trial_id": trial_id,
             "attempts": [{"depth": item["depth"], "kind": "initial" if item["depth"] == 0 else "semantic_repair", "response": item.get("response_ref") or item.get("trace_ref") or {"path": "trace/missing", "sha256": "0" * 64}, "response_evidence": item.get("response_refs", []), "candidate": item.get("candidate_ref"), "trace": item.get("trace_ref") or {"path": "trace/missing", "sha256": "0" * 64}, "effective_prompt_sha256": item.get("effective_prompt_sha256") or "0" * 64} for item in attempts],
         }
@@ -1260,6 +1309,7 @@ class ArchitectureCalibrationDriver:
         }
 
     def run(self, declaration: CalibrationBatchDeclaration | Mapping[str, Any]) -> Mapping[str, ArtifactRef]:
+        verify_design_baseline()
         if not isinstance(declaration, CalibrationBatchDeclaration):
             declaration = CalibrationBatchDeclaration(**dict(declaration))
         targets = declaration.targets(self.config)
@@ -1298,6 +1348,7 @@ def _load_model_root(model_root: str | Path, *, config: ResolvedConfig | None = 
         raise CalibrationEvidenceError("lineage root directory is not bound to lineage id")
     projection = dict(lineage)
     recorded_lineage_id = projection.pop("lineage_id", None)
+    projection.pop("models", None)
     if not isinstance(recorded_lineage_id, str) or _sha(canonical_json_bytes(projection)) != recorded_lineage_id:
         raise CalibrationEvidenceError("lineage id does not match the persisted lineage projection")
     statistics = dict(lineage.get("statistics", {}))
@@ -1740,7 +1791,7 @@ def recompute_calibration_report(model_root: str | Path, *, config: ResolvedConf
         "p2_reason": None if depth >= 2 else {"code": "SEMANTIC_DEPTH_NOT_DECLARED", "message": "p2 is not declared for this batch"},
     }
     gates: dict[str, dict[str, Any]] = {}
-    for gate_index in range(1, 11):
+    for gate_index in range(1, 16):
         gate = f"arch_{gate_index:02d}"
         passed = sum(item.get("attempts", [])[-1].get("gate_results", {}).get(gate) == "pass" for item in validations)
         gates[gate] = {"passed": passed, "denominator": denominator, "rate": _metric(passed, denominator)}
@@ -1786,6 +1837,7 @@ def recompute_calibration_report(model_root: str | Path, *, config: ResolvedConf
     format_repairs = 0
     semantic_repairs: dict[str, int] = {}
     model_versions: set[str] = set()
+    model_string_counts: dict[str, int] = {}
     parameter_support: dict[str, set[str]] = {}
     trial_metrics: list[dict[str, Any]] = []
     for item_index, item in enumerate(validations):
@@ -1826,9 +1878,16 @@ def recompute_calibration_report(model_root: str | Path, *, config: ResolvedConf
                 parameter_support.setdefault(key, set()).add(str(value))
             for call in attempt.get("call_metrics", []):
                 if call.get("model"):
-                    model_versions.add(str(call["model"]))
+                    observed_model = str(call["model"])
+                    model_versions.add(observed_model)
+                    model_string_counts[observed_model] = model_string_counts.get(observed_model, 0) + 1
+                elif call.get("requested_model"):
+                    requested_model = str(call["requested_model"])
+                    model_string_counts[requested_model] = model_string_counts.get(requested_model, 0) + 1
                 for key, value in call.get("parameter_support", {}).items():
                     parameter_support.setdefault(key, set()).add(str(value))
+        configured_model = str(batch.get("model"))
+        model_string_counts.setdefault(configured_model, 0)
         passing_depth = _recomputed_first_passing(attempts)
         trial_metrics.append({
             "trial_id": item["trial_id"],
@@ -1861,16 +1920,23 @@ def recompute_calibration_report(model_root: str | Path, *, config: ResolvedConf
         for gate in gates
     }
     report = {
-        "schema_version": "1.0", "lineage_id": lineage["lineage_id"], "prompt_version": batch["prompt_version"],
+        "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": batch["prompt_version"],
         "prompt_sha256": batch["prompt_sha256"], "model_id": batch["model_id"], "trial_count": denominator, "status": status,
         "metrics": metrics, "gates": gates, "gate_stages": gate_stages, "failure_cooccurrence": cooccurrence,
         "repairs": {"format": format_repairs, "format_usage": format_usage, "semantic": semantic_repairs, "semantic_usage": semantic_usage, "gain": repair_gain, "stage_gain": stage_gain}, "usage": usage,
-        "model_identity": {"provider": batch.get("provider"), "model": batch.get("model"), "versions": sorted(model_versions), "parameter_support": {key: sorted(values) for key, values in sorted(parameter_support.items())}},
+        "model_identity": {
+            "provider": batch.get("provider"),
+            "model": batch.get("model"),
+            "versions": sorted(model_versions),
+            "parameter_support": {key: sorted(values) for key, values in sorted(parameter_support.items())},
+            "model_strings": sorted(model_string_counts),
+            "model_string_shares": model_string_counts,
+        },
         "trials": trial_names, "trial_metrics": trial_metrics,
     }
     return report
 
 
 __all__ = [
-    "ArchitectureCalibrationDriver", "ArchitecturePlannerContractBinding", "CalibrationBatchDeclaration", "CalibrationDeclarationError", "CalibrationError", "CalibrationEvidenceError", "CalibrationModelTarget", "bind_architecture_planner_contract", "build_lineage_manifest", "recompute_calibration_report",
+    "ArchitectureCalibrationDriver", "ArchitecturePlannerContractBinding", "CalibrationBatchDeclaration", "CalibrationDeclarationError", "CalibrationError", "CalibrationEvidenceError", "CalibrationModelTarget", "DESIGN_BASELINE", "bind_architecture_planner_contract", "build_lineage_manifest", "recompute_calibration_report", "verify_design_baseline",
 ]

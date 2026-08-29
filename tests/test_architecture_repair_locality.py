@@ -15,7 +15,7 @@ def _draft():
 
 
 def _validation(**values):
-    gates = [{"id": f"arch_{index:02d}", "verdict": values.get(f"arch_{index:02d}", "pass")} for index in range(1, 11)]
+    gates = [{"id": f"arch_{index:02d}", "verdict": values.get(f"arch_{index:02d}", "pass")} for index in range(1, 16)]
     return {"gates": gates}
 
 
@@ -42,6 +42,6 @@ def test_repair_locality_attributes_issue_scoped_change_and_detects_regression()
 
 
 def test_repair_impact_policy_is_closed_for_all_architecture_gates():
-    assert set(REPAIR_IMPACT_POLICY) == {f"arch_{index:02d}" for index in range(1, 11)}
+    assert set(REPAIR_IMPACT_POLICY) == {f"arch_{index:02d}" for index in range(1, 16)}
     closure = repair_impact_closure([{"gate": "arch_10", "code": "ARCH_TEST_READINESS_UNCLOSED", "path": "/tests/0"}])
     assert "/work_packages" in closure["arch_10:ARCH_TEST_READINESS_UNCLOSED"]

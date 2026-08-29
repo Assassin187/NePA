@@ -9,6 +9,8 @@ from nepa.calibration.s4_prompt_development import (
     PromptDevelopmentCoordinator,
     PromptDevelopmentError,
     PromptDevelopmentEvidenceError,
+    validate_development_report,
+    write_development_report,
     preflight_calibration_config,
     scan_prompt_neutrality,
 )
@@ -21,13 +23,16 @@ def _config_files(tmp_path: Path):
         """
 providers:
   qwen-provider: {kind: openai_compat, base_url: https://qwen.invalid, api_key_env: NEPA_QWEN_API_KEY}
+  claude-provider: {kind: anthropic, base_url: https://claude.invalid, api_key_env: NEPA_CLAUDE_API_KEY}
   deepseek-provider: {kind: openai_compat, base_url: https://deepseek.invalid, api_key_env: NEPA_DS_API_KEY}
 calibration_models:
   qwen: {provider: qwen-provider, model: model-qwen, temperature: 0.0, max_tokens: 65536}
+  claude: {provider: claude-provider, model: model-claude, temperature: 0.0, max_tokens: 65536}
   deepseek: {provider: deepseek-provider, model: model-deepseek, temperature: 0.0, max_tokens: 65536}
 pricing:
   models:
     qwen-provider/model-qwen: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
+    claude-provider/model-claude: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
     deepseek-provider/model-deepseek: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
 """,
         encoding="utf-8",
@@ -35,7 +40,7 @@ pricing:
     limits = tmp_path / "limits.json"
     # The exact-algorithm prompt and a full repair context require slightly
     # more than the former synthetic 100k fixture window.
-    limits.write_text(json.dumps({"qwen": 110000, "deepseek": 110000}), encoding="utf-8")
+    limits.write_text(json.dumps({"qwen": 110000, "claude": 110000, "deepseek": 110000}), encoding="utf-8")
     return config, limits
 
 
@@ -68,7 +73,7 @@ def _factory(instances):
 def test_config_preflight_rejects_missing_pricing_and_requires_explicit_limits(tmp_path):
     config, limits = _config_files(tmp_path)
     preflight = preflight_calibration_config(config, limits, require_environment=False)
-    assert set(preflight.context_limits) == {"qwen", "deepseek"}
+    assert set(preflight.context_limits) == {"qwen", "claude", "deepseek"}
     broken = config.read_text(encoding="utf-8").replace("deepseek-provider/model-deepseek:", "missing/model:")
     config.write_text(broken, encoding="utf-8")
     with pytest.raises(PromptDevelopmentConfigError, match="missing pricing"):
@@ -81,7 +86,7 @@ def test_neutrality_rejects_protocol_and_model_specific_source():
     scan_prompt_neutrality("Use only the supplied delimited artifacts and generic contracts")
 
 
-def test_init_binds_corrected_lineage_and_snapshot_then_runs_two_isolated_models(tmp_path):
+def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_models(tmp_path):
     config, limits = _config_files(tmp_path)
     instances = {}
     coordinator = PromptDevelopmentCoordinator.init(
@@ -100,9 +105,18 @@ def test_init_binds_corrected_lineage_and_snapshot_then_runs_two_isolated_models
     assert result["assessment"]["trial_count"] == 5
     assert result["assessment"]["attempt"] == 1
     assert result["assessment"]["screening_pass"] is False
-    assert set(instances) == {"qwen", "deepseek"}
+    assert set(instances) == {"qwen", "claude", "deepseek"}
     assert (coordinator.root / "prompt-development/versions/v0/prompt.md").read_bytes() == Path("nepa/agents/prompts/architecture_planner.md").read_bytes()
-    for model_id in ("qwen", "deepseek"):
+    summary = write_development_report(
+        coordinator.root,
+        config_path=config,
+        context_limits_path=limits,
+        output_dir=tmp_path / "results",
+    )
+    assert set(summary["versions"]["v0"]["slots"]) == {"qwen", "claude", "deepseek"}
+    report_path = tmp_path / "results/development-report.md"
+    validate_development_report(summary, report_path.read_text(encoding="utf-8"))
+    for model_id in ("qwen", "claude", "deepseek"):
         value = json.loads((coordinator.root / "v0" / model_id / "batch.json").read_text(encoding="utf-8"))
         assert value["trial_count"] == 5
         assert value["semantic_depth"] == 1

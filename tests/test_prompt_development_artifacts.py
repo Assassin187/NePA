@@ -6,7 +6,7 @@ from nepa.calibration.s4_prompt_development import PromptDevelopmentEvidenceErro
 
 
 def test_development_artifacts_are_immutable_and_replayable(tmp_path):
-    value = {"schema_version": "1.0", "lineage_id": "a" * 64, "version": "v0", "prompt_ref": {"path": "prompt.md", "sha256": "b" * 64}, "prompt_sha256": "b" * 64, "source_template_sha256": "b" * 64, "byte_encoding": "utf-8-raw-template"}
+    value = {"schema_version": "2.0", "lineage_id": "a" * 64, "version": "v0", "prompt_ref": {"path": "prompt.md", "sha256": "b" * 64}, "prompt_sha256": "b" * 64, "source_template_sha256": "b" * 64, "byte_encoding": "utf-8-raw-template"}
     first = _publish_json(tmp_path, "prompt-development/versions/v0/snapshot.json", value, "snapshot")
     second = _publish_json(tmp_path, "prompt-development/versions/v0/snapshot.json", value, "snapshot")
     assert first == second

@@ -123,11 +123,11 @@ class _SessionProvider(_Provider):
 
 
 def _fixture_config():
-    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "deepseek")}})
+    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "claude", "deepseek")}})
 
 
 def _declaration(**kwargs):
-    values = {"trial_count": 1, "semantic_repair_depth": 0, "context_window_tokens": {name: 100000 for name in ("qwen", "deepseek")}, "spec": "gold_file/specIR.json", "target_profile": "gold_file/target.json", "test_bundle": "gold_file/test_bundle.json"}
+    values = {"trial_count": 1, "semantic_repair_depth": 0, "context_window_tokens": {name: 100000 for name in ("qwen", "claude", "deepseek")}, "spec": "gold_file/specIR.json", "target_profile": "gold_file/target.json", "test_bundle": "gold_file/test_bundle.json"}
     values.update(kwargs)
     return CalibrationBatchDeclaration(**values)
 
@@ -135,7 +135,7 @@ def _declaration(**kwargs):
 def test_calibration_batch_isolated_and_not_a_formal_run(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _Provider()}).run(_declaration())
     roots = list(tmp_path.glob("_calibration/s4-architecture/*/v0/*"))
-    assert {path.name for path in roots} == {"qwen", "deepseek"}
+    assert {path.name for path in roots} == {"qwen", "claude", "deepseek"}
     assert not list(tmp_path.rglob("run.json"))
 
     report = json.loads((roots[0] / "calibration_report.json").read_text(encoding="utf-8"))
@@ -184,7 +184,7 @@ def test_report_counts_transport_retries_from_output_evidence(tmp_path):
 
 def test_semantic_repair_is_a_separate_attempt_with_bounded_evidence(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _SemanticRepairProvider()}).run(
-        _declaration(semantic_repair_depth=1, context_window_tokens={name: 110000 for name in ("qwen", "deepseek")})
+        _declaration(semantic_repair_depth=1, context_window_tokens={name: 110000 for name in ("qwen", "claude", "deepseek")})
     )
     root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
@@ -196,10 +196,10 @@ def test_semantic_repair_is_a_separate_attempt_with_bounded_evidence(tmp_path):
 
 
 def test_two_workers_overlap_but_keep_model_roots_separate(tmp_path):
-    barrier = threading.Barrier(2)
+    barrier = threading.Barrier(3)
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _BarrierProvider(barrier)}).run(_declaration())
     roots = list(tmp_path.glob("_calibration/s4-architecture/*/v0/*"))
-    assert {path.name for path in roots} == {"qwen", "deepseek"}
+    assert {path.name for path in roots} == {"qwen", "claude", "deepseek"}
     for root in roots:
         traces = [json.loads(line) for line in (root / "trace/llm_calls.ndjson").read_text(encoding="utf-8").splitlines() if line]
         assert traces and all(trace["run_id"].endswith(root.name) for trace in traces)
@@ -212,6 +212,7 @@ def test_infrastructure_invalid_worker_does_not_publish_a_report(tmp_path):
 
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=providers).run(_declaration())
     assert not list(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen/calibration_report.json"))
+    assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/claude/calibration_report.json"))
     assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/deepseek/calibration_report.json"))
 
 
@@ -314,7 +315,7 @@ def test_two_semantic_repairs_record_gate_regression_and_final_candidate(tmp_pat
         _fixture_config(),
         runs_root=tmp_path,
         provider_factory=lambda *args: {"fixture": _TwoSemanticRepairGateRegressionProvider()},
-    ).run(_declaration(semantic_repair_depth=2, context_window_tokens={name: 128000 for name in ("qwen", "deepseek")}))
+    ).run(_declaration(semantic_repair_depth=2, context_window_tokens={name: 128000 for name in ("qwen", "claude", "deepseek")}))
     root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     report = json.loads((root / "calibration_report.json").read_text(encoding="utf-8"))
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))

@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "decisions": [
     {
       "id": "decision-boundary",
@@ -71,5 +71,18 @@
       "depends_on": ["wp-core"],
       "acceptance": {"outcome": "The adapter consumes the interface."}
     }
-  ]
+  ],
+  "layout": {
+    "roots": {"include": "include/core", "source": "src", "app": "apps", "build": "."},
+    "files": [
+      {"slot_id": "build-file", "path": "Makefile", "path_pattern": null, "expand_over": null, "class": "s5_frozen", "render_rule": "build_file", "owner_module": "module-core", "contract_id": null, "build_role": "none", "purpose": "Build configuration"},
+      {"slot_id": "interface-header", "path": "include/core/interface.h", "path_pattern": null, "expand_over": null, "class": "s5_frozen", "render_rule": "header", "owner_module": "module-core", "contract_id": "contract-interface", "build_role": "none", "purpose": "Internal interface"},
+      {"slot_id": "core-source", "path": "src/core/core.c", "path_pattern": null, "expand_over": null, "class": "s6_owned", "render_rule": "source_stub", "owner_module": "module-core", "contract_id": null, "build_role": "link_source", "purpose": "Core implementation"},
+      {"slot_id": "adapter-source", "path": "src/adapter/adapter.c", "path_pattern": null, "expand_over": null, "class": "s6_owned", "render_rule": "source_stub", "owner_module": "module-adapter", "contract_id": null, "build_role": "link_source", "purpose": "Adapter implementation"},
+      {"slot_id": "application-entry", "path": "apps/app_main.c", "path_pattern": null, "expand_over": null, "class": "s6_owned", "render_rule": "source_stub", "owner_module": "module-adapter", "contract_id": null, "build_role": "entry_point", "purpose": "Application entry"}
+    ],
+    "build_graph": {
+      "artifacts": [{"artifact_id": "application", "output_path": "build/application", "entry_file_slot": "application-entry", "link_source_slots": ["core-source", "adapter-source"]}]
+    }
+  }
 }

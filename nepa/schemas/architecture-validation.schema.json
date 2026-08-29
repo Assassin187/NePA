@@ -6,10 +6,10 @@
   "additionalProperties": false,
   "required": ["schema_version", "verdict", "parent_refs", "gates", "issues"],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "2.0"},
     "verdict": {"enum": ["pass", "fail"]},
     "parent_refs": {"$ref": "#/$defs/parents"},
-    "gates": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/gate"}},
+    "gates": {"type": "array", "minItems": 15, "maxItems": 15, "items": {"$ref": "#/$defs/gate"}},
     "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
   },
   "$defs": {
@@ -35,7 +35,7 @@
       "additionalProperties": false,
       "required": ["id", "verdict", "issue_codes"],
       "properties": {
-        "id": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10"]},
+        "id": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10", "arch_11", "arch_12", "arch_13", "arch_14", "arch_15"]},
         "verdict": {"enum": ["pass", "fail"]},
         "issue_codes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
       }
@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "required": ["gate", "code", "path", "message", "context_refs"],
       "properties": {
-        "gate": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10"]},
+        "gate": {"enum": ["arch_01", "arch_02", "arch_03", "arch_04", "arch_05", "arch_06", "arch_07", "arch_08", "arch_09", "arch_10", "arch_11", "arch_12", "arch_13", "arch_14", "arch_15"]},
         "code": {"type": "string", "minLength": 1},
         "path": {"type": "string", "minLength": 1},
         "message": {"type": "string", "minLength": 1},

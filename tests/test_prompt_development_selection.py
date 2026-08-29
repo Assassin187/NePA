@@ -4,7 +4,7 @@ from nepa.calibration.s4_prompt_development import PromptSelectionTie, _compare_
 
 
 def _assessment(values):
-    return {"models": {name: {"p1": values[0], "arch_semantic_first_pass_rate": values[1], "schema_after_format_repair_rate": values[2], "tuple": [values[0], values[1], values[2], values[3]]} for name in ("qwen", "deepseek")}}
+    return {"models": {name: {"p1": values[0], "arch_semantic_first_pass_rate": values[1], "schema_after_format_repair_rate": values[2], "tuple": [values[0], values[1], values[2], values[3]]} for name in ("qwen", "claude", "deepseek")}}
 
 
 def test_fallback_uses_minima_then_lower_total_cost_without_average():

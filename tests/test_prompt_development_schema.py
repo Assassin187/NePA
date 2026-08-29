@@ -18,6 +18,7 @@ def test_prompt_development_schema_examples_are_closed_and_valid():
         "calibration-development-assessment",
         "calibration-development-outcome",
         "calibration-development-selection",
+        "calibration-development-handoff",
     )
     for name in names:
         schema = json.loads((schema_dir / f"{name}.schema.json").read_text(encoding="utf-8"))

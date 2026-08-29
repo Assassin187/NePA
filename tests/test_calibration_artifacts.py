@@ -19,14 +19,14 @@ class _Provider:
 
 
 def _config():
-    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "deepseek")}})
+    return load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {"fixture/model": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}}, "calibration_models": {name: {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 65536} for name in ("qwen", "claude", "deepseek")}})
 
 
 def _declaration(**kwargs):
     values = {
         "trial_count": 1,
         "semantic_repair_depth": 0,
-        "context_window_tokens": {name: 100000 for name in ("qwen", "deepseek")},
+        "context_window_tokens": {name: 100000 for name in ("qwen", "claude", "deepseek")},
         "spec": "gold_file/specIR.json",
         "target_profile": "gold_file/target.json",
         "test_bundle": "gold_file/test_bundle.json",
@@ -46,8 +46,8 @@ def test_n5_n10_and_depth_variants_share_the_same_lineage_identity(tmp_path):
     driver = ArchitectureCalibrationDriver(config, runs_root=tmp_path)
     lineage_ids = []
     for declaration in (
-        _declaration(trial_count=5, semantic_repair_depth=1, context_window_tokens={name: 128000 for name in ("qwen", "deepseek")}),
-        _declaration(trial_count=10, semantic_repair_depth=2, prompt_version="v1", context_window_tokens={name: 128000 for name in ("qwen", "deepseek")}),
+        _declaration(trial_count=5, semantic_repair_depth=1, context_window_tokens={name: 128000 for name in ("qwen", "claude", "deepseek")}),
+        _declaration(trial_count=10, semantic_repair_depth=2, prompt_version="v1", context_window_tokens={name: 128000 for name in ("qwen", "claude", "deepseek")}),
     ):
         prepared, planning, manifest, constraints = driver._prepare(declaration)
         targets = declaration.targets(config)
@@ -108,4 +108,4 @@ def test_after_rename_crash_reuses_the_committed_trial(tmp_path):
         provider_factory=lambda *args: {"fixture": _Provider(second_calls)},
     ).run(_declaration())
     assert not second_calls
-    assert len(list(tmp_path.glob("_calibration/s4-architecture/*/v0/*/calibration_report.json"))) == 2
+    assert len(list(tmp_path.glob("_calibration/s4-architecture/*/v0/*/calibration_report.json"))) == 3

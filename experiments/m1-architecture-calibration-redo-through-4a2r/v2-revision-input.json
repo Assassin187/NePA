@@ -1,0 +1,12 @@
+{
+  "hypothesis": "The prompt lacks a concrete closure-ledger procedure for layout-derived ownership, dependency, readiness plus path-token equality, causing repeated cross-projection failures.",
+  "evidence_refs": [
+    {
+      "path": "prompt-development/versions/v1/assessment-n005.json",
+      "sha256": "12c36b897773390c44ab1d140f612cdd33861481bf5c385fddcf2f86f8062075"
+    }
+  ],
+  "expected_gates": ["arch_02", "arch_06", "arch_08", "arch_09", "arch_10", "arch_12", "arch_15"],
+  "expected_metrics": ["p1", "arch_semantic_first_pass_rate"],
+  "prompt_path": "nepa/agents/prompts/architecture_planner.md"
+}

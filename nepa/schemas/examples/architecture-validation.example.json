@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "verdict": "pass",
   "parent_refs": {
     "architecture_draft": {"path": "architecture-draft.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -12,7 +12,10 @@
     {"id": "arch_03", "verdict": "pass", "issue_codes": []}, {"id": "arch_04", "verdict": "pass", "issue_codes": []},
     {"id": "arch_05", "verdict": "pass", "issue_codes": []}, {"id": "arch_06", "verdict": "pass", "issue_codes": []},
     {"id": "arch_07", "verdict": "pass", "issue_codes": []}, {"id": "arch_08", "verdict": "pass", "issue_codes": []},
-    {"id": "arch_09", "verdict": "pass", "issue_codes": []}, {"id": "arch_10", "verdict": "pass", "issue_codes": []}
+    {"id": "arch_09", "verdict": "pass", "issue_codes": []}, {"id": "arch_10", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_11", "verdict": "pass", "issue_codes": []}, {"id": "arch_12", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_13", "verdict": "pass", "issue_codes": []}, {"id": "arch_14", "verdict": "pass", "issue_codes": []},
+    {"id": "arch_15", "verdict": "pass", "issue_codes": []}
   ],
   "issues": []
 }

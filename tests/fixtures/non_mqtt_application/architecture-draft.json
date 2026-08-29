@@ -1,0 +1,24 @@
+{
+  "schema_version": "2.0",
+  "decisions": [],
+  "assumptions": ["The application entry work package owns the declared entry point."],
+  "contracts": [{"id": "interface-contract", "purpose": "internal interface", "owner": "s5", "interface_files": ["include/orbitnet/interface.h"], "ready_gate": "s5", "provider": "s5", "consumers": ["codec", "entry"]}],
+  "modules": [
+    {"id": "codec", "name": "Codec", "purpose": "codec", "responsibilities": ["encode"], "non_goals": ["no io"], "owns_files": ["src/codec/codec.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"]},
+    {"id": "entry", "name": "Entry", "purpose": "entry", "responsibilities": ["application entry"], "non_goals": ["no transport"], "owns_files": ["apps/app_main.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"]}
+  ],
+  "work_packages": [
+    {"id": "wp-codec", "title": "Codec", "goal": "Implement codec behavior.", "module": "codec", "kind": "implementation", "context_refs": [], "requirement_responsibilities": [], "allowed_files": ["src/codec/codec.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"], "depends_on": [], "acceptance": {"outcome": "Codec is complete."}},
+    {"id": "wp-entry", "title": "Entry", "goal": "Implement application entry behavior.", "module": "entry", "kind": "implementation", "context_refs": [], "requirement_responsibilities": [{"req_id": "REQ-ORBIT-001", "role": "primary"}, {"req_id": "REQ-ORBIT-002", "role": "primary"}], "allowed_files": ["apps/app_main.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"], "depends_on": [], "acceptance": {"outcome": "Entry is complete."}}
+  ],
+  "layout": {
+    "roots": {"include": "include/orbitnet", "source": "src", "app": "apps", "build": "."},
+    "files": [
+      {"slot_id": "build-file", "path": "Makefile", "path_pattern": null, "expand_over": null, "class": "s5_frozen", "render_rule": "build_file", "owner_module": "entry", "contract_id": null, "build_role": "none", "purpose": "Build configuration"},
+      {"slot_id": "interface-header", "path": "include/orbitnet/interface.h", "path_pattern": null, "expand_over": null, "class": "s5_frozen", "render_rule": "header", "owner_module": "entry", "contract_id": "interface-contract", "build_role": "none", "purpose": "Internal interface"},
+      {"slot_id": "codec-source", "path": "src/codec/codec.c", "path_pattern": null, "expand_over": null, "class": "s6_owned", "render_rule": "source_stub", "owner_module": "codec", "contract_id": null, "build_role": "link_source", "purpose": "Codec implementation"},
+      {"slot_id": "application-entry", "path": "apps/app_main.c", "path_pattern": null, "expand_over": null, "class": "s6_owned", "render_rule": "source_stub", "owner_module": "entry", "contract_id": null, "build_role": "entry_point", "purpose": "Application entry"}
+    ],
+    "build_graph": {"artifacts": [{"artifact_id": "application", "output_path": "build/application", "entry_file_slot": "application-entry", "link_source_slots": ["codec-source"]}]}
+  }
+}

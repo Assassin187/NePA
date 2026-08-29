@@ -9,7 +9,7 @@ from nepa.calibration.s4_prompt_development import _combine_reports
 def _report(start: int):
     trials = [f"trial_{index:03d}" for index in range(start, start + 5)]
     trial_metrics = []
-    gates = {f"arch_{index:02d}": {"passed": 5, "denominator": 5, "rate": 1.0} for index in range(1, 11)}
+    gates = {f"arch_{index:02d}": {"passed": 5, "denominator": 5, "rate": 1.0} for index in range(1, 16)}
     gate_stages = {gate: {"p0": {"passed": 5, "denominator": 5, "rate": 1.0}, "p1": {"passed": 5, "denominator": 5, "rate": 1.0}, "p2": None} for gate in gates}
     for trial in trials:
         trial_metrics.append({
