@@ -110,3 +110,37 @@ def test_each_free_layout_gate_reports_its_local_defect(gate, mutate, code):
     result = validate_architecture(draft, planning, manifest, constraints)
     assert next(item for item in result["gates"] if item["id"] == gate)["verdict"] == "fail"
     assert any(item["gate"] == gate and item["code"] == code for item in result["issues"])
+
+
+def test_arch_15_keeps_declared_placeholders_and_separator_identifiers_atomic():
+    draft, planning, manifest, constraints = _valid_draft()
+    draft["layout"]["files"][3]["path_pattern"] = "src/codec/{type_id}.c"
+    draft["layout"]["files"][3]["expand_over"] = "types"
+    draft["layout"]["files"][3]["path"] = None
+    draft["layout"]["files"][3]["path_pattern"] = "src/codec/{type_id}.c"
+    result = validate_architecture(draft, planning, manifest, constraints)
+    assert not [issue for issue in result["issues"] if issue["gate"] == "arch_15"]
+
+    draft["layout"]["files"][3]["path"] = "src/codec/mqtt_requested_qos.c"
+    draft["layout"]["files"][3]["path_pattern"] = None
+    draft["layout"]["files"][3]["expand_over"] = None
+    result = validate_architecture(draft, planning, manifest, constraints)
+    assert not [issue for issue in result["issues"] if issue["gate"] == "arch_15"]
+
+
+@pytest.mark.parametrize("path_pattern", ["src/codec/{type_id}x.c", "src/codec/{type_id}_extra.c"])
+def test_arch_15_rejects_partial_or_adjacent_declared_placeholders(path_pattern):
+    draft, planning, manifest, constraints = _valid_draft()
+    draft["layout"]["files"][3]["path_pattern"] = path_pattern
+    draft["layout"]["files"][3]["expand_over"] = "types"
+    result = validate_architecture(draft, planning, manifest, constraints)
+    assert any(issue["gate"] == "arch_15" for issue in result["issues"])
+
+
+def test_arch_15_rejects_partial_or_adjacent_separator_identifier():
+    draft, planning, manifest, constraints = _valid_draft()
+    draft["layout"]["files"][3]["path"] = "src/codec/mqtt_requested_qos_extra.c"
+    draft["layout"]["files"][3]["path_pattern"] = None
+    draft["layout"]["files"][3]["expand_over"] = None
+    result = validate_architecture(draft, planning, manifest, constraints)
+    assert any(issue["gate"] == "arch_15" for issue in result["issues"])

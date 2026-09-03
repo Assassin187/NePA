@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "recorded_on": "2026-08-29",
+  "authority": "owner_instruction",
+  "scope": "architecture_prompt_optimizer subagent orchestration for this experiment",
+  "supersedes_blocking_policy_in": "experiments/m1-4a2-patch-calibration-rerun/05-optimizer-model-blocker.json",
+  "configured_assignment": "sol",
+  "model_label_policy": {
+    "assignment_is_authoritative": true,
+    "self_reported_label_is_diagnostic_only": true,
+    "require_exact_gpt_5_6_sol_label": false,
+    "block_on_missing_or_generic_self_reported_label": false
+  },
+  "continuation_policy": "A subagent explicitly assigned through the available Sol configuration may perform prompt optimization even when it reports a generic model-family label such as GPT-5. No exact self-reported gpt-5.6-sol label is required.",
+  "unchanged_boundaries": [
+    "Only the shared ArchitecturePlanner prompt may be revised within the current lineage.",
+    "A V1 revision still requires one evidence-backed falsifiable hypothesis bound to the complete V0 evidence.",
+    "The optimizer may not change the validator, patch protocol, lineage-bound components, candidate-model slots, budgets or screening rule.",
+    "No fallback optimizer is authorized merely because the subagent reports a generic model label."
+  ],
+  "effects_of_this_record": {
+    "previous_v0_evidence_modified": false,
+    "v1_admitted": false,
+    "provider_io_started": false,
+    "prompt_modified": false,
+    "prior_interruption_record_retained": true
+  }
+}

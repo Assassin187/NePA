@@ -126,6 +126,9 @@
         },
         "statistics": {
           "$ref": "#/$defs/ref"
+        },
+        "patch": {
+          "$ref": "#/$defs/ref"
         }
       }
     },
@@ -258,8 +261,29 @@
           "$ref": "#/$defs/slot_control"
         }
       }
+    },
+    "repair_mode": {
+      "enum": ["full_draft", "patch"]
+    },
+    "repair_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "example", "locality_policy_version", "coupled_projection_policy_version", "max_depth"],
+      "properties": {
+        "schema": {"$ref": "#/$defs/ref"},
+        "example": {"$ref": "#/$defs/ref"},
+        "locality_policy_version": {"type": "string", "minLength": 1},
+        "coupled_projection_policy_version": {"type": "string", "minLength": 1},
+        "max_depth": {"const": 2}
+      }
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"repair_mode": {"const": "patch"}}, "required": ["repair_mode"]},
+      "then": {"required": ["repair_contract"]}
+    }
+  ],
   "$defs": {
     "ref": {
       "type": "object",

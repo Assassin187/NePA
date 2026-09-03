@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0",
+  "patch_ref": {"path": "patches/trial_001_p1.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "applied": true,
+  "before_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "after_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "model_operations": [{"op": "replace", "path": "/layout/files/message-codecs/path_pattern", "expected_presence": "present", "value": "src/codec/codec_{message_id}.c"}],
+  "derived_operations": [],
+  "projection": {
+    "policy_version": "m1-4a2-coupled-layout-projection-v1",
+    "mappings": [],
+    "derived_paths": []
+  }
+}

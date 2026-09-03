@@ -1,1 +1,613 @@
-{"schema_version":"2.0","lineage_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","prompt_version":"v0","prompt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","model_id":"qwen","trial_count":1,"status":"complete","metrics":{"schema_first_pass_rate":1,"schema_after_format_repair_rate":1,"arch_raw_first_pass_rate":1,"arch_semantic_first_pass_rate":1,"p0":1,"p1":null,"p2":null,"p1_reason":{"code":"SEMANTIC_DEPTH_NOT_DECLARED_P1","message":"p1 is not declared for this batch"},"p2_reason":{"code":"SEMANTIC_DEPTH_NOT_DECLARED","message":"p2 is not declared for this batch"}},"gates":{"arch_01":{"passed":1,"denominator":1,"rate":1},"arch_02":{"passed":1,"denominator":1,"rate":1},"arch_03":{"passed":1,"denominator":1,"rate":1},"arch_04":{"passed":1,"denominator":1,"rate":1},"arch_05":{"passed":1,"denominator":1,"rate":1},"arch_06":{"passed":1,"denominator":1,"rate":1},"arch_07":{"passed":1,"denominator":1,"rate":1},"arch_08":{"passed":1,"denominator":1,"rate":1},"arch_09":{"passed":1,"denominator":1,"rate":1},"arch_10":{"passed":1,"denominator":1,"rate":1},"arch_11":{"passed":1,"denominator":1,"rate":1},"arch_12":{"passed":1,"denominator":1,"rate":1},"arch_13":{"passed":1,"denominator":1,"rate":1},"arch_14":{"passed":1,"denominator":1,"rate":1},"arch_15":{"passed":1,"denominator":1,"rate":1}},"gate_stages":{"arch_01":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_02":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_03":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_04":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_05":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_06":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_07":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_08":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_09":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_10":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_11":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_12":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_13":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_14":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null},"arch_15":{"p0":{"passed":1,"denominator":1,"rate":1},"p1":null,"p2":null}},"failure_cooccurrence":{},"repairs":{"format":0,"format_usage":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"latency_ms":0,"finish_reasons":{},"truncated":0},"semantic":{},"semantic_usage":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"latency_ms":0,"finish_reasons":{},"truncated":0},"gain":{},"stage_gain":{"arch_01":{"p0_to_p1":null,"p1_to_p2":null},"arch_02":{"p0_to_p1":null,"p1_to_p2":null},"arch_03":{"p0_to_p1":null,"p1_to_p2":null},"arch_04":{"p0_to_p1":null,"p1_to_p2":null},"arch_05":{"p0_to_p1":null,"p1_to_p2":null},"arch_06":{"p0_to_p1":null,"p1_to_p2":null},"arch_07":{"p0_to_p1":null,"p1_to_p2":null},"arch_08":{"p0_to_p1":null,"p1_to_p2":null},"arch_09":{"p0_to_p1":null,"p1_to_p2":null},"arch_10":{"p0_to_p1":null,"p1_to_p2":null},"arch_11":{"p0_to_p1":null,"p1_to_p2":null},"arch_12":{"p0_to_p1":null,"p1_to_p2":null},"arch_13":{"p0_to_p1":null,"p1_to_p2":null},"arch_14":{"p0_to_p1":null,"p1_to_p2":null},"arch_15":{"p0_to_p1":null,"p1_to_p2":null}}},"usage":{"calls":1,"tokens_in":1,"tokens_out":1,"cost_usd":0,"latency_ms":1,"finish_reasons":{},"truncated":0},"model_identity":{"provider":"provider-a","model":"model-a","versions":["model-a"],"parameter_support":{},"model_strings":["model-a"],"model_string_shares":{"model-a":1}},"trials":["trial_001"],"trial_metrics":[{"trial_id":"trial_001","terminal":"pass","first_passing_depth":0,"schema_first_pass":true,"schema_after_format_repair":true,"semantic_first_pass":true,"p0":true,"p1":null,"p2":null,"gates":{"arch_01":{"initial_passed":true,"final_passed":true},"arch_02":{"initial_passed":true,"final_passed":true},"arch_03":{"initial_passed":true,"final_passed":true},"arch_04":{"initial_passed":true,"final_passed":true},"arch_05":{"initial_passed":true,"final_passed":true},"arch_06":{"initial_passed":true,"final_passed":true},"arch_07":{"initial_passed":true,"final_passed":true},"arch_08":{"initial_passed":true,"final_passed":true},"arch_09":{"initial_passed":true,"final_passed":true},"arch_10":{"initial_passed":true,"final_passed":true},"arch_11":{"initial_passed":true,"final_passed":true},"arch_12":{"initial_passed":true,"final_passed":true},"arch_13":{"initial_passed":true,"final_passed":true},"arch_14":{"initial_passed":true,"final_passed":true},"arch_15":{"initial_passed":true,"final_passed":true}},"gate_stages":{"arch_01":{"p0":true,"p1":null,"p2":null},"arch_02":{"p0":true,"p1":null,"p2":null},"arch_03":{"p0":true,"p1":null,"p2":null},"arch_04":{"p0":true,"p1":null,"p2":null},"arch_05":{"p0":true,"p1":null,"p2":null},"arch_06":{"p0":true,"p1":null,"p2":null},"arch_07":{"p0":true,"p1":null,"p2":null},"arch_08":{"p0":true,"p1":null,"p2":null},"arch_09":{"p0":true,"p1":null,"p2":null},"arch_10":{"p0":true,"p1":null,"p2":null},"arch_11":{"p0":true,"p1":null,"p2":null},"arch_12":{"p0":true,"p1":null,"p2":null},"arch_13":{"p0":true,"p1":null,"p2":null},"arch_14":{"p0":true,"p1":null,"p2":null},"arch_15":{"p0":true,"p1":null,"p2":null}},"gate_changes":{"arch_01":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_02":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_03":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_04":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_05":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_06":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_07":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_08":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_09":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_10":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_11":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_12":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_13":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_14":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"},"arch_15":{"p0_to_p1":"not_declared","p1_to_p2":"not_declared"}},"usage":{"calls":1,"tokens_in":1,"tokens_out":1,"cost_usd":0,"latency_ms":1,"finish_reasons":{},"truncated":0},"repairs":{"format":0,"format_usage":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"latency_ms":0,"finish_reasons":{},"truncated":0},"semantic":{},"semantic_usage":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"latency_ms":0,"finish_reasons":{},"truncated":0}}}]}
+{
+  "schema_version": "2.0",
+  "lineage_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "prompt_version": "v0",
+  "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "model_id": "qwen",
+  "trial_count": 1,
+  "status": "complete",
+  "metrics": {
+    "schema_first_pass_rate": 1,
+    "schema_after_format_repair_rate": 1,
+    "arch_raw_first_pass_rate": 1,
+    "arch_semantic_first_pass_rate": 1,
+    "p0": 1,
+    "p1": null,
+    "p2": null,
+    "p1_reason": {
+      "code": "SEMANTIC_DEPTH_NOT_DECLARED_P1",
+      "message": "p1 is not declared for this batch"
+    },
+    "p2_reason": {
+      "code": "SEMANTIC_DEPTH_NOT_DECLARED",
+      "message": "p2 is not declared for this batch"
+    }
+  },
+  "gates": {
+    "arch_01": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_02": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_03": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_04": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_05": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_06": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_07": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_08": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_09": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_10": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_11": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_12": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_13": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_14": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    },
+    "arch_15": {
+      "passed": 1,
+      "denominator": 1,
+      "rate": 1
+    }
+  },
+  "gate_stages": {
+    "arch_01": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_02": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_03": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_04": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_05": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_06": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_07": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_08": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_09": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_10": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_11": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_12": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_13": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_14": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    },
+    "arch_15": {
+      "p0": {
+        "passed": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "p1": null,
+      "p2": null
+    }
+  },
+  "failure_cooccurrence": {
+    "arch_01": {},
+    "arch_02": {},
+    "arch_03": {},
+    "arch_04": {},
+    "arch_05": {},
+    "arch_06": {},
+    "arch_07": {},
+    "arch_08": {},
+    "arch_09": {},
+    "arch_10": {},
+    "arch_11": {},
+    "arch_12": {},
+    "arch_13": {},
+    "arch_14": {},
+    "arch_15": {}
+  },
+  "repairs": {
+    "format": 0,
+    "format_usage": {
+      "calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "cost_usd": 0,
+      "latency_ms": 0,
+      "finish_reasons": {},
+      "truncated": 0
+    },
+    "semantic": {},
+    "semantic_usage": {
+      "calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "cost_usd": 0,
+      "latency_ms": 0,
+      "finish_reasons": {},
+      "truncated": 0
+    },
+    "gain": {},
+    "stage_gain": {
+      "arch_01": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_02": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_03": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_04": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_05": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_06": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_07": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_08": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_09": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_10": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_11": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_12": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_13": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_14": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      },
+      "arch_15": {
+        "p0_to_p1": null,
+        "p1_to_p2": null
+      }
+    }
+  },
+  "usage": {
+    "calls": 1,
+    "tokens_in": 1,
+    "tokens_out": 1,
+    "cost_usd": 0,
+    "latency_ms": 1,
+    "finish_reasons": {},
+    "truncated": 0
+  },
+  "model_identity": {
+    "provider": "provider-a",
+    "model": "model-a",
+    "versions": [
+      "model-a"
+    ],
+    "parameter_support": {},
+    "model_strings": [
+      "model-a"
+    ],
+    "model_string_shares": {
+      "model-a": 1
+    }
+  },
+  "trials": [
+    "trial_001"
+  ],
+  "trial_metrics": [
+    {
+      "trial_id": "trial_001",
+      "terminal": "pass",
+      "first_passing_depth": 0,
+      "schema_first_pass": true,
+      "schema_after_format_repair": true,
+      "semantic_first_pass": true,
+      "p0": true,
+      "p1": null,
+      "p2": null,
+      "gates": {
+        "arch_01": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_02": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_03": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_04": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_05": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_06": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_07": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_08": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_09": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_10": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_11": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_12": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_13": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_14": {
+          "initial_passed": true,
+          "final_passed": true
+        },
+        "arch_15": {
+          "initial_passed": true,
+          "final_passed": true
+        }
+      },
+      "gate_stages": {
+        "arch_01": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_02": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_03": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_04": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_05": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_06": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_07": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_08": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_09": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_10": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_11": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_12": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_13": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_14": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        },
+        "arch_15": {
+          "p0": true,
+          "p1": null,
+          "p2": null
+        }
+      },
+      "gate_changes": {
+        "arch_01": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_02": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_03": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_04": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_05": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_06": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_07": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_08": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_09": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_10": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_11": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_12": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_13": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_14": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        },
+        "arch_15": {
+          "p0_to_p1": "not_declared",
+          "p1_to_p2": "not_declared"
+        }
+      },
+      "usage": {
+        "calls": 1,
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "cost_usd": 0,
+        "latency_ms": 1,
+        "finish_reasons": {},
+        "truncated": 0
+      },
+      "repairs": {
+        "format": 0,
+        "format_usage": {
+          "calls": 0,
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "cost_usd": 0,
+          "latency_ms": 0,
+          "finish_reasons": {},
+          "truncated": 0
+        },
+        "semantic": {},
+        "semantic_usage": {
+          "calls": 0,
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "cost_usd": 0,
+          "latency_ms": 0,
+          "finish_reasons": {},
+          "truncated": 0
+        }
+      }
+    }
+  ]
+}

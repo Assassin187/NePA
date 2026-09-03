@@ -9,29 +9,30 @@
   },
   "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "assessment_ref": {
-    "path": "prompt-development/versions/v0/assessment-n005.json",
+    "path": "prompt-development/versions/v0/assessment-n003.json",
     "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   },
   "reason": "first passing version",
   "comparison_tuples": {
     "v0": [
-      1,
       0.8,
+      0.8,
+      1,
       1,
       -1
     ]
   },
   "assessment_refs": {
     "v0": {
-      "path": "prompt-development/versions/v0/assessment-n005.json",
+      "path": "prompt-development/versions/v0/assessment-n003.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "v1": {
-      "path": "prompt-development/versions/v1/assessment-n005.json",
+      "path": "prompt-development/versions/v1/assessment-n003.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "v2": {
-      "path": "prompt-development/versions/v2/assessment-n005.json",
+      "path": "prompt-development/versions/v2/assessment-n003.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   }

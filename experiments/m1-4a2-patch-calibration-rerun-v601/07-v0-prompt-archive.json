@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.0",
+  "change": "m1-4a2-patch-calibration-rerun",
+  "lineage_id": "a85f28d7f96f41cc7ef615c4bd03e95cbd8d1ed134f7d60894ecb4ce7ffbc415",
+  "version": "v0",
+  "parent_prompt": {
+    "path": "prompt-development/versions/v0/prompt.md",
+    "sha256": "4d97877fb99a1382018bfc933e7452877e838d5ed11cbd82acf08ef679fbfdb5"
+  },
+  "failure_evidence": [
+    {
+      "path": "prompt-development/versions/v0/assessment-n003.json",
+      "sha256": "3272098c1cc6cd3255b76af43914e3d1880a6dcab3ac783433b61fabd68dfc68"
+    },
+    {
+      "path": "v0/qwen/calibration_report.json",
+      "sha256": "0426ddd7510a28ef09de13faa03acea3e59a352cbb60bca1495b8d0ae3605216"
+    },
+    {
+      "path": "v0/claude/calibration_report.json",
+      "sha256": "9c6ebbf30cf0597b4f9042bec900d101c6a38aebd7fa3db5679e04bf77788f45"
+    },
+    {
+      "path": "v0/deepseek/calibration_report.json",
+      "sha256": "af6021c24d0c55346527c7dab0ca9449b01c8eef1a78a397ec6eb6c303bbc88e"
+    }
+  ],
+  "optimizer_record": {
+    "path": "experiments/m1-4a2-patch-calibration-rerun-v601/06-architecture-optimizer-v1.md",
+    "sha256": "7ca3959d767e058f292c7bbe85eddd77c8d1011a63a06763035f060279b033aa"
+  },
+  "reason": "V0 was complete and infrastructure-valid but all three slots failed p2 >= 0.60. The optimizer identified one prompt-impactable concrete-S6-ledger projection hypothesis targeting arch_02, arch_06 and arch_09, with arch_12 as a diagnostic.",
+  "new_prompt": {
+    "path": "nepa/agents/prompts/architecture_planner.md",
+    "sha256": "0f074a933a8f90e54e98cd348acfa01121fe17dece3766f430714c56da8f3271"
+  },
+  "unified_diff_source": "06-architecture-optimizer-v1.md",
+  "provider_io_during_optimization": false,
+  "validator_or_protocol_modified": false,
+  "old_prompt_overwritten": false
+}

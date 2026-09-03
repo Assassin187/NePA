@@ -379,10 +379,13 @@ class AgentInvoker:
         attempt: int = 1,
         use_cache: bool = True,
         template_bytes: bytes | None = None,
+        template_path: str | None = None,
     ) -> AgentResult:
         from .roles import get_role
 
         definition = get_role(role)
+        if template_path is not None:
+            definition = definition.model_copy(update={"template_path": template_path})
         self._check_identity(run_id=run_id, stage=stage, attempt=attempt, definition=definition)
         self._check_availability(definition)
         route = resolve_route(self.config, role)

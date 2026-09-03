@@ -1,0 +1,36 @@
+{
+  "status": "pass",
+  "provider_io": false,
+  "provider_calls": 0,
+  "environment": {
+    "NEPA_CLAUDE_API_KEY": {"name": "NEPA_CLAUDE_API_KEY", "present": true},
+    "NEPA_DS_API_KEY": {"name": "NEPA_DS_API_KEY", "present": true},
+    "NEPA_QWEN_API_KEY": {"name": "NEPA_QWEN_API_KEY", "present": true}
+  },
+  "model_projection": {
+    "claude": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 65536, "context_window_tokens": 128000},
+    "deepseek": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.0, "max_tokens": 65536, "context_window_tokens": 128000},
+    "qwen": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 65536, "context_window_tokens": 128000}
+  },
+  "config_sha256": "99ba7982689ef7d28857bd054793c93dc29ddd944db7312b0bc7ae48ae232c8c",
+  "context_limits_sha256": "e319364195dbd702e5bdf0cb62a58ddd9630c6e0c77b0cdccf382bcafe0c6ed5",
+  "prompt_sha256": "6a9456c8d876590532a5f6cace2661468023e95bac731a5dcb498fc8da8fc6a8",
+  "gold_inputs": {
+    "spec": "a0ec9616eb06c206416a93220e1ea630d04166eb17e102bc9d9476fe2694aa09",
+    "target": "efa8dc8fc0914d5b563a1da1aeaad1a7a277b4b161b89893b8efa75d6818b49b",
+    "test_bundle": "8f77eb4c5a15ef0ee02979240fbcd4eebdf585d5ad023d130de9468e791d343c"
+  },
+  "prepared": {
+    "planning_sha256": "d7e9f8dacc724d83605cf2c61ce0b36ef4069af2eeeaf9e0c2837b4fe0a5622b",
+    "manifest_sha256": "90e1bb916c63bc7d13637afb1ae77f9814472e8543ed62e60e2d0f19bb286894",
+    "constraints_sha256": "9633429b5e2c662199ced0d4815fcd6d7fc122a1b5a805fec979b41b3555e7e1"
+  },
+  "protocol": {
+    "versions": ["v0", "v1", "v2", "v3", "v4"],
+    "trial_count_per_slot": 3,
+    "semantic_depth": 2,
+    "repair_mode": "patch",
+    "initial_trial_ceiling_per_model": 15,
+    "max_revisions": 4
+  }
+}

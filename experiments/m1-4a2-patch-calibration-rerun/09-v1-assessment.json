@@ -1,0 +1,78 @@
+{
+  "change": "m1-4a2-patch-calibration-rerun",
+  "lineage_id": "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "version": "v1",
+  "attempt": 1,
+  "status": "complete",
+  "screening_pass": false,
+  "prompt": {
+    "parent_version": "v0",
+    "parent_sha256": "6a9456c8d876590532a5f6cace2661468023e95bac731a5dcb498fc8da8fc6a8",
+    "version": "v1",
+    "sha256": "a7374e3019ea8f15efa4fd0f3e3bd6fa957bb86bb373889009e4afdc78ca5b6e",
+    "hypothesis": "The patch-repair instruction is operationally underspecified: prioritizing allowed paths over diagnostic paths, explicit stable-array resolution, plus exact current-value precondition hashing will improve applicable p1 patches."
+  },
+  "models": {
+    "qwen": {
+      "model_string": "qwen3.7-max-2026-06-08",
+      "report_sha256": "f5f7e61d47e1d0933bca0519d1559c1f6a5a5bf72c6fce581058ec38f2f74597",
+      "trial_ids": ["trial_001", "trial_002", "trial_003"],
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 3,
+      "locality_failures": 0,
+      "truncations": 0,
+      "infrastructure_invalid": false
+    },
+    "claude": {
+      "model_string": "claude-opus-5",
+      "report_sha256": "3a2f8f71adf4cbbe9b63db9e0c0f4372e6c41f44bc32b7158861cefbece99a7a",
+      "trial_ids": ["trial_001", "trial_002", "trial_003"],
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 3,
+      "locality_failures": 0,
+      "truncations": 1,
+      "infrastructure_invalid": false
+    },
+    "deepseek": {
+      "model_string": "deepseek-v4-flash",
+      "report_sha256": "badb97bec659ccc40727dd6e092eee06eace872db680b951b30bd8ace1254980",
+      "trial_ids": ["trial_001", "trial_002", "trial_003"],
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 3,
+      "locality_failures": 0,
+      "truncations": 0,
+      "infrastructure_invalid": false
+    }
+  },
+  "p1_rejection_summary": {
+    "total": 9,
+    "stale_precondition": 8,
+    "implicit_key_array": 1,
+    "numeric_or_append_array": 0,
+    "applied": 0,
+    "p2_calls": 0,
+    "representative_reasons": [
+      "stale patch precondition: /modules/mod-types/owns_files",
+      "stale patch precondition: /layout/files/build-file/path",
+      "array item cannot be added by an implicit key: /contracts/session-state"
+    ]
+  },
+  "recompute": {
+    "command": "./run_m1_calibration.sh recompute --development-root runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0 --config configs/m1-4a2-live.yaml --context-limits configs/m1-4a2-context-limits.json --version v1",
+    "assessment_sha256": "92107b04efa1ab3946ffb2522b50b14f64e01ec8881bf3dfa82e91dc02864a3a",
+    "outcome_sha256": "f704d4dc4ef00c0e15820cf421abdc42ebe088ee0905b9ce7caeb20227983617"
+  },
+  "stop_reason": "The one admitted prompt hypothesis did not produce applied p1 evidence or p2 reachability. Under the owner instruction only one custom optimizer was used; no Luna fallback optimization, second optimizer, partial-slot retry, mixed lineage, selection, fallback, handoff or production claim is permitted."
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/architecture-patch.schema.json",
+  "title": "NePA ArchitecturePlanner semantic repair patch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "patch_ops"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "patch_ops": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/operation"}
+    }
+  },
+  "$defs": {
+    "pointer": {
+      "type": "string",
+      "pattern": "^/(?:[^~/]|~[01])+(?:/(?:[^~/]|~[01])*)*$"
+    },
+    "value": {},
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path", "expected_presence", "value"],
+          "properties": {
+            "op": {"const": "add"},
+            "path": {"$ref": "#/$defs/pointer"},
+            "expected_presence": {"const": "absent"},
+            "value": {"$ref": "#/$defs/value"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path", "expected_presence", "value"],
+          "properties": {
+            "op": {"const": "replace"},
+            "path": {"$ref": "#/$defs/pointer"},
+            "expected_presence": {"const": "present"},
+            "value": {"$ref": "#/$defs/value"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path", "expected_presence"],
+          "properties": {
+            "op": {"const": "remove"},
+            "path": {"$ref": "#/$defs/pointer"},
+            "expected_presence": {"const": "present"}
+          }
+        }
+      ]
+    }
+  }
+}

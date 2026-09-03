@@ -10,7 +10,9 @@ def _declaration(lineage_id: str, version: str, attempt: int):
         "schema_version": "2.0", "lineage_id": lineage_id, "version": version,
         "attempt": attempt, "status": "declared",
         "prompt_ref": {"path": "prompt-development/versions/v0/prompt.md", "sha256": "a" * 64},
-        "prompt_sha256": "a" * 64, "trial_count": 5, "semantic_depth": 1,
+        "prompt_sha256": "a" * 64, "trial_count": 3, "semantic_depth": 2,
+        "repair_mode": "patch",
+        "initial_trial_ids": {name: ["trial_001", "trial_002", "trial_003"] for name in ("qwen", "claude", "deepseek")},
         "model_ids": ["qwen", "claude", "deepseek"],
     }
 

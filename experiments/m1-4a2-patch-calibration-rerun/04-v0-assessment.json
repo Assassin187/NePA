@@ -1,0 +1,109 @@
+{
+  "change": "m1-4a2-patch-calibration-rerun",
+  "lineage_id": "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "version": "v0",
+  "prompt_sha256": "6a9456c8d876590532a5f6cace2661468023e95bac731a5dcb498fc8da8fc6a8",
+  "status": "complete",
+  "infrastructure_valid": true,
+  "trial_count_per_model": 3,
+  "model_reports": {
+    "qwen": {
+      "model": "qwen3.7-max-2026-06-08",
+      "report": "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/qwen/calibration_report.json",
+      "report_sha256": "2b1266f0da2e28e740b611dcca3510fb58d30c71f5f3da0415b64cefc93b164a",
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 3,
+      "locality_failures": 0,
+      "truncated": 0,
+      "calls": 9
+    },
+    "claude": {
+      "model": "claude-opus-5",
+      "report": "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/claude/calibration_report.json",
+      "report_sha256": "7659e5228d7e4a729735a308e90c61eb570e20053655958bcb40090d1b411e6d",
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 2,
+      "locality_failures": 0,
+      "truncated": 0,
+      "calls": 8
+    },
+    "deepseek": {
+      "model": "deepseek-v4-flash",
+      "report": "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/deepseek/calibration_report.json",
+      "report_sha256": "3759616ba06c5c06bbc19053d8e6fca25e0812a6a92f51d7f7670c7166f62a44",
+      "p0": 0.0,
+      "p1": 0.0,
+      "p2": 0.0,
+      "schema_after_format_repair_rate": 1.0,
+      "patch_attempted": 3,
+      "patch_rejected": 3,
+      "locality_failures": 0,
+      "truncated": 0,
+      "calls": 6
+    }
+  },
+  "raw_artifacts": {
+    "trial_repair_gate_roots": [
+      "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/qwen",
+      "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/claude",
+      "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0/v0/deepseek"
+    ],
+    "gate_results_location": "trials/trial_*/validation.json attempts[*].gate_results",
+    "summary_artifacts": [
+      "prompt-development/versions/v0/assessment-n003.json",
+      "prompt-development/versions/v0/outcome.json"
+    ]
+  },
+  "representative_failures": [
+    {
+      "model": "qwen",
+      "trial": "trial_001",
+      "error": "stale patch precondition: /layout/files",
+      "patch": "v0/qwen/patches/trial_001_p1.json",
+      "application": "v0/qwen/applications/trial_001_p1.json"
+    },
+    {
+      "model": "claude",
+      "trial": "trial_001",
+      "error": "stale patch precondition: /layout/files/types-declarations",
+      "patch": "v0/claude/patches/trial_001_p1.json",
+      "application": "v0/claude/applications/trial_001_p1.json"
+    },
+    {
+      "model": "deepseek",
+      "trial": "trial_001",
+      "error": "numeric or append array addressing is forbidden: /modules/4/owns_files/1",
+      "patch": "v0/deepseek/patches/trial_001_p1.json",
+      "application": "v0/deepseek/applications/trial_001_p1.json"
+    }
+  ],
+  "attribution": {
+    "decision": "prompt-impactable",
+    "evidence": [
+      "All p0 responses were schema-valid and produced concrete validator issues.",
+      "All completed provider calls were non-truncated and infrastructure_valid=false was never observed.",
+      "The patch validator/applier deterministic suites pass and locality_failures is zero in all three slots.",
+      "The common p1 failures violate explicit stable-id and exact-precondition instructions in the v0 prompt across all three model slots."
+    ],
+    "not_attributed_to": ["validator", "experiment_protocol", "infrastructure"],
+    "standalone_error_code": null,
+    "error_code_note": "The trial schema records patch_rejected and rejection_reason; no separate p1 error-code field is emitted."
+  },
+  "budget_remaining_at_review": {
+    "initial_trial_ceiling_per_model": 15,
+    "initial_trials_consumed_per_model": 3,
+    "initial_trials_remaining_per_model": 12,
+    "max_prompt_revisions": 4,
+    "prompt_revisions_consumed": 0,
+    "configured_cost_usd": 20.0,
+    "observed_cost_usd": 0.0
+  }
+}

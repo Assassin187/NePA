@@ -34,7 +34,8 @@ def test_closed_catalog_has_exact_roles_inputs_and_stage_associations():
     assert ROLE_REGISTRY["fixer"].stages == ("S6", "S8")
     for role, inputs in EXPECTED_INPUTS.items():
         assert ROLE_REGISTRY[role].required_inputs == inputs
-        assert ROLE_REGISTRY[role].template_path == f"{role}.md"
+        expected_template = "architecture_planner_initial.md" if role == "architecture_planner" else f"{role}.md"
+        assert ROLE_REGISTRY[role].template_path == expected_template
 
 
 def test_unknown_role_is_rejected():

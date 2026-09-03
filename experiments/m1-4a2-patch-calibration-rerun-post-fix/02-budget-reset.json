@@ -1,0 +1,26 @@
+{
+  "schema_version": "m1-4a2-post-fix-budget-reset-v1",
+  "change": "m1-4a2-patch-calibration-rerun",
+  "authorization": {
+    "status": "owner-authorized-by-updated-change",
+    "basis": [
+      "openspec/changes/m1-4a2-patch-calibration-rerun/proposal.md",
+      "openspec/changes/m1-4a2-patch-calibration-rerun/design.md",
+      "openspec/changes/m1-4a2-patch-calibration-rerun/tasks.md"
+    ],
+    "identity": null,
+    "signature": null
+  },
+  "pre_reset_lineages": [
+    "2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+    "a85f28d7f96f41cc7ef615c4bd03e95cbd8d1ed134f7d60894ecb4ce7ffbc415"
+  ],
+  "usage_is": "preserved-audit-only-and-never-charged-to-replacement-lineage",
+  "replacement_lineage": "58377f793cb867208c989d0ef43716bc072e8cd11eb58dca5c69b83a23776047",
+  "initial_trial_ceiling_per_model": 15,
+  "initial_trials_used": {"qwen": 0, "claude": 0, "deepseek": 0},
+  "admitted_trial_leaves": 0,
+  "provider_calls_during_initialization": 0,
+  "reset_reason": "corrected arch_15 token derivation and deterministic coupled layout-reference projection",
+  "status": "initialized-before-provider-io"
+}

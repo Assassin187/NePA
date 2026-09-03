@@ -442,8 +442,68 @@ def _validate_gate_10(draft: Mapping[str, Any], planning: Mapping[str, Any], man
     return issues
 
 
-def _path_tokens(value: str) -> list[str]:
-    return [token.lower() for token in re.findall(r"[A-Za-z0-9]+", value)]
+def _path_tokens(value: str, derived_tokens: set[str] | None = None) -> list[str]:
+    """Tokenize path/layer text while keeping declared identifiers atomic.
+
+    The two placeholders are part of the contract, and concrete identifiers
+    supplied by the Spec may contain separators.  They must be recognized
+    before generic tokenization; otherwise ``{type_id}`` becomes two ordinary
+    whitelist tokens and a partial/adjacent identifier can be accepted.
+    """
+
+    protected = {"{message_id}", "{type_id}"}
+    protected.update(str(token).lower() for token in (derived_tokens or set()) if token)
+    protected = sorted(protected, key=lambda token: (-len(token), token))
+    result: list[str] = []
+    index = 0
+    lowered_value = value.lower()
+
+    def boundary_ok(start: int, end: int) -> bool:
+        def identifier_char(char: str) -> bool:
+            return bool(char) and (char.isalnum() or char in "_-")
+        return not identifier_char(value[start - 1] if start else "") and not identifier_char(value[end] if end < len(value) else "")
+
+    def placeholder_boundary_ok(start: int, end: int) -> bool:
+        left = value[start - 1] if start else ""
+        right = value[end] if end < len(value) else ""
+        return not (left and (left.isalnum() or left == "-")) and not (right and (right.isalnum() or right in "_-") )
+
+    while index < len(value):
+        if value[index] == "{":
+            close = value.find("}", index + 1)
+            if close >= 0:
+                candidate = value[index:close + 1]
+                lowered = candidate.lower()
+                if lowered in protected and placeholder_boundary_ok(index, close + 1):
+                    result.append(lowered[1:-1])
+                else:
+                    result.append(lowered)
+                index = close + 1
+                continue
+        matched = False
+        for token in protected:
+            if token.startswith("{"):
+                continue
+            if lowered_value.startswith(token, index):
+                end = index + len(token)
+                if boundary_ok(index, end):
+                    result.append(token)
+                else:
+                    # Preserve the undeclared adjacency as one invalid token;
+                    # do not let generic splitting turn it into whitelist words.
+                    result.append(f"__invalid__{lowered_value[index:end]}__")
+                index = end
+                matched = True
+                break
+        if matched:
+            continue
+        match = re.match(r"[A-Za-z0-9]+", value[index:])
+        if match:
+            result.append(match.group(0).lower())
+            index += len(match.group(0))
+        else:
+            index += 1
+    return result
 
 
 def _derived_layout_tokens(constraints: Mapping[str, Any]) -> set[str]:
@@ -610,7 +670,8 @@ def _validate_gate_14(draft: Mapping[str, Any], constraints: Mapping[str, Any]) 
         module = modules.get(module_id, {})
         values = [module_id, module.get("name", ""), module.get("purpose", ""), *module.get("responsibilities", [])]
         values.extend(slot.get("purpose", "") for slot in _layout_slots(draft, constraints) if slot.get("owner_module") == module_id)
-        tokens = {token for value in values if isinstance(value, str) for token in _path_tokens(value)}
+        derived = _derived_layout_tokens(constraints)
+        tokens = {token for value in values if isinstance(value, str) for token in _path_tokens(value, derived)}
         return next((layer for layer in order if layer in tokens), None)
 
     layers = {module_id: module_layer(module_id) for module_id in modules}
@@ -646,9 +707,10 @@ def _validate_gate_14(draft: Mapping[str, Any], constraints: Mapping[str, Any]) 
 def _validate_gate_15(draft: Mapping[str, Any], constraints: Mapping[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     allowed = _LAYOUT_TOKEN_WHITELIST | _derived_layout_tokens(constraints)
+    derived = _derived_layout_tokens(constraints)
     for index, item in enumerate(draft.get("layout", {}).get("files", [])):
         value = item.get("path") if item.get("path") is not None else item.get("path_pattern", "")
-        for token in _path_tokens(value) + _path_tokens(item.get("purpose", "")):
+        for token in _path_tokens(value, derived) + _path_tokens(item.get("purpose", ""), derived):
             if token not in allowed:
                 issues.append(_issue("arch_15", "ARCH_PATH_TOKEN_INVALID", f"/layout/files/{index}", f"layout token {token!r} is not in the shared responsibility whitelist or derived identifiers"))
     return issues

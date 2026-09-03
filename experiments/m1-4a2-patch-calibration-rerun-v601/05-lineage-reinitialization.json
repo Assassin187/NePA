@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0",
+  "change": "m1-4a2-patch-calibration-rerun",
+  "reason": "A fresh lineage was required after fixing the deterministic replay defect identified by the first live V0 attempt.",
+  "previous_lineage_id": "2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+  "lineage_id": "a85f28d7f96f41cc7ef615c4bd03e95cbd8d1ed134f7d60894ecb4ce7ffbc415",
+  "lineage_root": "runs/_calibration/s4-architecture/a85f28d7f96f41cc7ef615c4bd03e95cbd8d1ed134f7d60894ecb4ce7ffbc415",
+  "repair_mode": "patch",
+  "semantic_depth": 2,
+  "trial_count_per_slot": 3,
+  "provider_io_before_initialization": false,
+  "trial_leaves_before_v0": 0,
+  "current_patch_schema_sha256": "dcfa37ed73d8db65e8ae4147e4f0ccc083c07e387036c7af833e7603dc8dc456",
+  "current_applier_sha256": "8b8c91626d2769e28b8526e0f6f35c687722c8b87a1a3980e6dec99284f6a96d",
+  "current_prompt_sha256": "4d97877fb99a1382018bfc933e7452877e838d5ed11cbd82acf08ef679fbfdb5",
+  "historical_invalid_lineage_preserved": true,
+  "historical_invalid_lineage_admitted": false
+}

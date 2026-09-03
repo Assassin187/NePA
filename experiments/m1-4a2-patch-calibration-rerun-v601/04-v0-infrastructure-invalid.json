@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.0",
+  "change": "m1-4a2-patch-calibration-rerun",
+  "status": "infrastructure-invalid",
+  "lineage_id": "2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+  "version": "v0",
+  "attempt": 1,
+  "provider_io": true,
+  "complete_three_slot_assessment": false,
+  "reason": "Report recomputation detected a mismatch between runtime patch rejection and replayed patch application for qwen/trial_001 at semantic depth 1.",
+  "error": "CalibrationEvidenceError: patch application is not reproducible in trial_001 at 1",
+  "diagnosis": "The runtime path applied the ordered patch and then rejected the resulting ArchitectureDraft because it was not Schema-valid; the replay path omitted that post-application Schema check. This is an implementation/recomputation defect, not a prompt optimization result.",
+  "affected_slot": "qwen",
+  "affected_trial": "trial_001",
+  "affected_depth": 1,
+  "evidence": [
+    {
+      "path": "runs/_calibration/s4-architecture/2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8/v0/qwen/trials/trial_001/validation.json",
+      "sha256": "e64316e6286df7f5a55edeaedc963901f6c2320eeb3ed433b29c32ebf6221372"
+    },
+    {
+      "path": "runs/_calibration/s4-architecture/2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8/v0/qwen/patches/trial_001_p1.json",
+      "sha256": "ec8a6ca322cacecf484e759274049253a32c9b1e790fba517a627c87c70c8ba5"
+    },
+    {
+      "path": "runs/_calibration/s4-architecture/2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8/v0/qwen/applications/trial_001_p1.json",
+      "sha256": "fa495edbe4448886f3ef28fc117801fd10cd0396ac6bcaa2c1a6a0bb0ac87ec7"
+    }
+  ],
+  "preservation": "The invalid lineage and all three-slot trial leaves remain untouched and are not admitted to screening, revision, fallback, selection or handoff."
+}

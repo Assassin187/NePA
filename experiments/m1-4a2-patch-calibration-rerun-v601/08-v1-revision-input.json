@@ -1,0 +1,13 @@
+{
+  "hypothesis": "An explicit concrete S6 ledger projection lowers arch_02, arch_06, arch_09 P0 failures.",
+  "evidence_refs": [
+    {
+      "path": "prompt-development/versions/v0/assessment-n003.json",
+      "sha256": "3272098c1cc6cd3255b76af43914e3d1880a6dcab3ac783433b61fabd68dfc68"
+    }
+  ],
+  "expected_gates": ["arch_02", "arch_06", "arch_09", "arch_12"],
+  "expected_metrics": ["p2", "arch_semantic_first_pass_rate"],
+  "stopping_conclusion": "Stop this hypothesis after the next complete N=3 three-slot attempt if the target P0 failure cluster is not reduced to at most 4/9 with improvement in at least two slots, or if the round is infrastructure-invalid.",
+  "prompt_path": "nepa/agents/prompts/architecture_planner.md"
+}

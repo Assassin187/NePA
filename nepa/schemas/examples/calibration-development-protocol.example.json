@@ -1,17 +1,1 @@
-{
-  "schema_version": "2.0",
-  "lineage_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "status": "initialized",
-  "model_ids": ["qwen", "claude", "deepseek"],
-  "versions": ["v0", "v1", "v2"],
-  "semantic_depth": 1,
-  "base_trial_count": 5,
-  "extension_trial_count": 5,
-  "config_ref": {"path": "prompt-development/config.json", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-  "context_limits_ref": {"path": "prompt-development/context_limits.json", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
-  "api_key_env": {"qwen": "NEPA_QWEN_API_KEY", "claude": "NEPA_CLAUDE_API_KEY", "deepseek": "NEPA_DS_API_KEY"},
-  "metric_definition": "m1-4a1-architecture-calibration-metrics-v1",
-  "screening": {"p1_threshold": 0.8, "max_truncations": 0, "require_infrastructure_valid": true, "reference_p1_threshold": 0.9, "reference_relation": "strictly_below"},
-  "fallback_order": ["min_model_p1", "min_model_arch_semantic_first_pass", "min_model_schema_after_format_repair", "lower_total_cost"],
-  "components": {"statistics": {"path": "components/statistics.bundle.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}
-}
+{"schema_version":"2.0","lineage_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"initialized","model_ids":["qwen","claude","deepseek"],"versions":["v0","v1","v2","v3","v4"],"repair_mode":"patch","semantic_depth":2,"base_trial_count":3,"max_revisions":4,"initial_trial_ceiling":15,"config_ref":{"path":"prompt-development/config.json","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"context_limits_ref":{"path":"prompt-development/context_limits.json","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"api_key_env":{"qwen":"NEPA_QWEN_API_KEY","claude":"NEPA_CLAUDE_API_KEY","deepseek":"NEPA_DS_API_KEY"},"metric_definition":"m1-4a1-architecture-calibration-metrics-v1","screening":{"p2_threshold":0.6,"max_truncations":0,"require_infrastructure_valid":true,"reference_p1_threshold":0.9,"reference_relation":"strictly_below"},"fallback_order":["min_model_p2","min_model_p1","min_model_arch_semantic_first_pass","min_model_schema_after_format_repair","lower_total_cost"],"components":{"statistics":{"path":"components/statistics.bundle.json","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}}

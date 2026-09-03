@@ -102,11 +102,11 @@ def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_mode
     assert "trial_count" not in lineage["statistics"]
     assert "semantic_depth" not in lineage["statistics"]
     result = coordinator.run_version("v0")
-    assert result["assessment"]["trial_count"] == 5
+    assert result["assessment"]["trial_count"] == 3
     assert result["assessment"]["attempt"] == 1
     assert result["assessment"]["screening_pass"] is False
     assert set(instances) == {"qwen", "claude", "deepseek"}
-    assert (coordinator.root / "prompt-development/versions/v0/prompt.md").read_bytes() == Path("nepa/agents/prompts/architecture_planner.md").read_bytes()
+    assert (coordinator.root / "prompt-development/versions/v0/initial.md").read_bytes() == Path("nepa/agents/prompts/architecture_planner_initial.md").read_bytes()
     summary = write_development_report(
         coordinator.root,
         config_path=config,
@@ -118,21 +118,22 @@ def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_mode
     validate_development_report(summary, report_path.read_text(encoding="utf-8"))
     for model_id in ("qwen", "claude", "deepseek"):
         value = json.loads((coordinator.root / "v0" / model_id / "batch.json").read_text(encoding="utf-8"))
-        assert value["trial_count"] == 5
-        assert value["semantic_depth"] == 1
+        assert value["trial_count"] == 3
+        assert value["semantic_depth"] == 2
+        assert value["repair_mode"] == "patch"
         assert value["prompt_sha256"] == protocol_prompt_hash(coordinator.root)
 
 
 def protocol_prompt_hash(root: Path) -> str:
     import hashlib
-    return hashlib.sha256((root / "prompt-development/versions/v0/prompt.md").read_bytes()).hexdigest()
+    return hashlib.sha256((root / "prompt-development/versions/v0/initial.md").read_bytes()).hexdigest()
 
 
 def test_snapshot_mutation_and_selection_block_provider_work(tmp_path):
     config, limits = _config_files(tmp_path)
     instances = {}
     coordinator = PromptDevelopmentCoordinator.init(config_path=config, context_limits_path=limits, runs_root=tmp_path / "runs", provider_factory=_factory(instances), require_environment=False)
-    snapshot = coordinator.root / "prompt-development/versions/v0/prompt.md"
+    snapshot = coordinator.root / "prompt-development/versions/v0/initial.md"
     original = snapshot.read_bytes()
     snapshot.write_bytes(original + b"\n")
     with pytest.raises(PromptDevelopmentEvidenceError):
@@ -148,23 +149,25 @@ def test_fixed_key_mapping_is_checked_without_reading_values(tmp_path, monkeypat
 
 def test_revision_requires_complete_prior_failure_and_binds_one_prompt_diff(tmp_path):
     config, limits = _config_files(tmp_path)
-    source = tmp_path / "architecture_planner.md"
-    source.write_bytes(Path("nepa/agents/prompts/architecture_planner.md").read_bytes())
+    initial_source = tmp_path / "architecture_planner_initial.md"
+    repair_source = tmp_path / "architecture_planner_repair.md"
+    initial_source.write_bytes(Path("nepa/agents/prompts/architecture_planner_initial.md").read_bytes())
+    repair_source.write_bytes(Path("nepa/agents/prompts/architecture_planner_repair.md").read_bytes())
     instances = {}
     coordinator = PromptDevelopmentCoordinator.init(
         config_path=config, context_limits_path=limits, runs_root=tmp_path / "runs",
-        provider_factory=_factory(instances), prompt_source_path=source, require_environment=False,
+        provider_factory=_factory(instances), initial_prompt_source_path=initial_source, repair_prompt_source_path=repair_source, require_environment=False,
     )
     result = coordinator.run_version("v0")
     assert result["assessment"]["screening_pass"] is False
-    evidence = {"path": "prompt-development/versions/v0/assessment-n005.json", "sha256": __import__("hashlib").sha256((coordinator.root / "prompt-development/versions/v0/assessment-n005.json").read_bytes()).hexdigest()}
-    source.write_bytes(source.read_bytes() + b"\nUse a final generic consistency checklist.\n")
-    revision = coordinator.record_revision("v1", hypothesis="The self-check order is underspecified.", evidence_refs=[evidence], expected_gates=["arch_07"])
+    evidence = {"path": "prompt-development/versions/v0/assessment-n003.json", "sha256": __import__("hashlib").sha256((coordinator.root / "prompt-development/versions/v0/assessment-n003.json").read_bytes()).hexdigest()}
+    initial_source.write_bytes(initial_source.read_bytes() + b"\nUse a final generic consistency checklist.\n")
+    revision = coordinator.record_revision("v1", hypothesis="The self-check order is underspecified.", evidence_refs=[evidence], expected_gates=["arch_07"], stopping_conclusion="Stop revising if the next complete N=3 attempt still fails screening.", changed_stage="initial")
     assert revision["version"] == "v1"
     assert (coordinator.root / "prompt-development/versions/v1/revision.json").is_file()
     v1_result = coordinator.run_version("v1")
     assert v1_result["assessment"]["status"] == "complete"
-    v1_evidence_path = coordinator.root / "prompt-development/versions/v1/assessment-n005.json"
-    v1_evidence = {"path": "prompt-development/versions/v1/assessment-n005.json", "sha256": __import__("hashlib").sha256(v1_evidence_path.read_bytes()).hexdigest()}
+    v1_evidence_path = coordinator.root / "prompt-development/versions/v1/assessment-n003.json"
+    v1_evidence = {"path": "prompt-development/versions/v1/assessment-n003.json", "sha256": __import__("hashlib").sha256(v1_evidence_path.read_bytes()).hexdigest()}
     with pytest.raises(PromptDevelopmentError, match="distinct"):
-        coordinator.record_revision("v2", hypothesis="The self-check order is underspecified.", evidence_refs=[v1_evidence], prompt_bytes=source.read_bytes())
+        coordinator.record_revision("v2", hypothesis="The self-check order is underspecified.", evidence_refs=[v1_evidence], prompt_bytes=initial_source.read_bytes(), stopping_conclusion="Stop revising after this hypothesis is falsified.")

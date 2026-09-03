@@ -1,0 +1,11 @@
+{
+  "schema_version": "2.0",
+  "patch_ops": [
+    {
+      "op": "replace",
+      "path": "/contracts/contract-interface/purpose",
+      "expected_presence": "present",
+      "value": "Replace this value only when the current candidate has this field present."
+    }
+  ]
+}

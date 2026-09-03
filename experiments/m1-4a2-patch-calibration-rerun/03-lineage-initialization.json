@@ -1,0 +1,15 @@
+{
+  "status": "pass",
+  "lineage_id": "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "lineage_root": "runs/_calibration/s4-architecture/2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "repair_mode": "patch",
+  "repair_contract_max_depth": 2,
+  "component_count": 10,
+  "patch_schema_ref_verified": true,
+  "prompt_source_match": true,
+  "prompt_sha256": "6a9456c8d876590532a5f6cace2661468023e95bac731a5dcb498fc8da8fc6a8",
+  "versions_admitted": ["v0"],
+  "trial_leaves_before_v0": [],
+  "historical_directories_admitted": [],
+  "provider_io": false
+}

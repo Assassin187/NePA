@@ -25,4 +25,8 @@ def architecture_draft_contract() -> tuple[dict[str, Any], Any]:
     return load_schema("architecture-draft.schema.json"), load_example("architecture-draft.example.json")
 
 
-__all__ = ["architecture_draft_contract", "load_example", "load_schema"]
+def architecture_patch_contract() -> tuple[dict[str, Any], Any]:
+    return load_schema("architecture-patch.schema.json"), load_example("architecture-patch.example.json")
+
+
+__all__ = ["architecture_draft_contract", "architecture_patch_contract", "load_example", "load_schema"]

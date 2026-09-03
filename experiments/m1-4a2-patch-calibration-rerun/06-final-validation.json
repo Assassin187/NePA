@@ -1,0 +1,72 @@
+{
+  "change": "m1-4a2-patch-calibration-rerun",
+  "lineage_id": "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "status": "stopped_after_complete_v1_screening_failure",
+  "checks": {
+    "focused_pytest_final": {
+      "command": "uv run python -m pytest -q tests/test_architecture_calibration.py tests/test_architecture_patch.py tests/test_architecture_patch_locality.py tests/test_calibration_artifacts.py tests/test_calibration_lineage.py tests/test_calibration_reporting.py tests/test_agent_invoker.py tests/test_prompt_development*.py tests/test_prompt_recovery*.py tests/test_schema_examples.py",
+      "result": "133 passed in 120.25s"
+    },
+    "full_pytest_final": {
+      "command": "uv run python -m pytest -q",
+      "result": "356 passed in 128.02s"
+    },
+    "openspec_change_strict": {
+      "command": "openspec validate m1-4a2-patch-calibration-rerun --strict",
+      "result": "valid"
+    },
+    "openspec_all_strict": {
+      "command": "openspec validate --all --strict",
+      "result": "6 passed, 0 failed"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "result": "passed"
+    },
+    "python_compile": {
+      "command": "python -m py_compile nepa/calibration/s4_architecture.py nepa/calibration/s4_prompt_development.py",
+      "result": "passed"
+    },
+    "v0_recompute": {
+      "command": "./run_m1_calibration.sh recompute ... --version v0",
+      "result": "complete assessment; screening_pass=false; all three trial_ids present; source/lineage identity stable"
+    },
+    "v1_recompute": {
+      "command": "./run_m1_calibration.sh recompute ... --version v1",
+      "result": "complete assessment; screening_pass=false; all three trial_ids present; source/lineage identity stable"
+    },
+    "v1_screening": {
+      "result": "Qwen/Claude/DeepSeek each p0=0, p1=0, p2=0; Schema-after-format-repair=1.0; locality failures=0; Claude truncations=1; no infrastructure-invalid slot"
+    },
+    "v1_prompt_source_hash": {
+      "result": "repository prompt and v1 snapshot both a7374e3019ea8f15efa4fd0f3e3bd6fa957bb86bb373889009e4afdc78ca5b6e; v0 snapshot remains 6a9456c8d876590532a5f6cace2661468023e95bac731a5dcb498fc8da8fc6a8"
+    },
+    "design_source_hash": {
+      "result": "project_docs/system_design.md remains 6da0a4918de3e78379e78b6fa371080d5ca6fc225940fac3e0dbb36b02b97d14"
+    },
+    "json_and_gold_lints": {
+      "command": "jq empty experiments/m1-4a2-patch-calibration-rerun/*.json; uv run nepa lint spec gold_file/specIR.json; uv run nepa lint spec gold_file/specIR.json --gold --manifest gold_file/test_bundle.json; uv run nepa lint target gold_file/target.json --spec gold_file/specIR.json; uv run nepa lint test-bundle gold_file/test_bundle.json --spec gold_file/specIR.json",
+      "result": "all evidence JSON parsed; four gold lints valid with zero errors/warnings"
+    }
+  },
+  "optimizer": {
+    "unique_agent_count": 1,
+    "agent_role": "architecture_prompt_optimizer",
+    "configured_assignment": "gpt-5.6-sol",
+    "reported_model_label": "GPT-5",
+    "owner_override_applied": true,
+    "admitted_prompt_revisions": 1,
+    "api_calls_by_optimizer": 0
+  },
+  "not_run_due_to_stop": [
+    "V2-V4 live attempts",
+    "V0-V4 terminal selection/fallback publication",
+    "report publication requiring a terminal selection or tie",
+    "M1-4a3 or production qualification"
+  ],
+  "evidence_refs": [
+    "experiments/m1-4a2-patch-calibration-rerun/05-optimizer-model-blocker.json",
+    "experiments/m1-4a2-patch-calibration-rerun/08-v1-prompt-optimization-review.md",
+    "experiments/m1-4a2-patch-calibration-rerun/09-v1-assessment.json"
+  ]
+}

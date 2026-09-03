@@ -32,6 +32,21 @@ def test_lineage_excludes_prompt_identity_but_binds_components():
     assert first["providers"]["fixture"]["sha256"]
 
 
+def test_patch_lineage_binds_coupled_projection_contract():
+    prepared = prepare_architecture_inputs("gold_file/specIR.json", "gold_file/target.json", "gold_file/test_bundle.json")
+    constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)
+    manifest = build_test_manifest_metadata(prepared.test_bundle, constraints)
+    planning = build_planning_index(prepared, manifest, constraints)
+    targets = {name: {"provider": "fixture", "model": name, "temperature": 0, "max_tokens": 65536, "context_window_tokens": 10000} for name in ("qwen", "claude", "deepseek")}
+    config = load_config(overrides={"providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}}, "pricing": {"models": {f"fixture/{name}": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1} for name in ("qwen", "claude", "deepseek")}}})
+    lineage = build_lineage_manifest(prepared, planning, manifest, constraints, config=config, model_targets=targets, repair_mode="patch")
+    contract = lineage["repair_contract"]
+    assert contract["coupled_projection_policy_version"] == "m1-4a2-coupled-layout-projection-v1"
+    assert "coupled_projection_sha256" not in contract
+    bundle = json.loads(_source_bundle_bytes(_CONTROLLED_COMPONENT_FILES["patch"]).decode("utf-8"))
+    assert "nepa/schemas/architecture-patch-application.schema.json" in [item["path"] for item in bundle["files"]]
+
+
 def test_referenced_provider_configuration_changes_lineage():
     prepared = prepare_architecture_inputs("gold_file/specIR.json", "gold_file/target.json", "gold_file/test_bundle.json")
     constraints = compile_delivery_constraints(prepared.spec, prepared.target_profile)

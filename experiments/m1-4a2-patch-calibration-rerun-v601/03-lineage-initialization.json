@@ -1,0 +1,19 @@
+{
+  "status": "pass",
+  "lineage_id": "2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+  "lineage_root": "runs/_calibration/s4-architecture/2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+  "repair_mode": "patch",
+  "repair_contract_max_depth": 2,
+  "patch_schema_sha256": "dcfa37ed73d8db65e8ae4147e4f0ccc083c07e387036c7af833e7603dc8dc456",
+  "patch_example_sha256": "85759f019c07edb3a8aa26508ddee738b26089b2857b2cc0187ea2da3cf913fe",
+  "applier_sha256": "82e97e636c466959a627270e251d694e984312c9c5e6877079b870259b898e43",
+  "locality_policy_version": "m1-4a2-patch-locality-v1",
+  "component_count": 10,
+  "prompt_source_match": true,
+  "prompt_sha256": "4d97877fb99a1382018bfc933e7452877e838d5ed11cbd82acf08ef679fbfdb5",
+  "trial_leaves_before_v0": [],
+  "historical_lineages_admitted": [],
+  "historical_value_hash_lineage_provenance_only": "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+  "provider_io": false,
+  "provider_calls": 0
+}

@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 43
+    assert len(schema_paths) == 52
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -53,6 +53,8 @@ def test_schema_contract_audit():
         "test-bundle.schema.json",
         "target-profile.schema.json",
         "architecture-draft.schema.json",
+        "architecture-patch.schema.json",
+        "architecture-patch-application.schema.json",
         "architecture-validation.schema.json",
         "calibration-lineage.schema.json",
         "calibration-batch.schema.json",
@@ -71,6 +73,13 @@ def test_schema_contract_audit():
         "calibration-development-outcome.schema.json",
         "calibration-development-selection.schema.json",
         "calibration-development-handoff.schema.json",
+        "calibration-development-protocol-bundle.schema.json",
+        "calibration-prompt-version-bundle.schema.json",
+        "calibration-prompt-snapshot-bundle.schema.json",
+        "calibration-prompt-revision-bundle.schema.json",
+        "calibration-attempt-declaration-bundle.schema.json",
+        "calibration-development-selection-bundle.schema.json",
+        "calibration-development-handoff-bundle.schema.json",
         "calibration-recovery-authorization.schema.json",
         "calibration-recovery-provenance.schema.json",
         "calibration-recovery-predecessor-attestation.schema.json",
