@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/revision-ledger.schema.json",
+  "title": "NePA initial revision ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entries"],
+  "properties": {"schema_version": {"const": "1.0"}, "entries": {"const": []}}
+}

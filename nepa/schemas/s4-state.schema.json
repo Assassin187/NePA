@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/s4-state.schema.json",
+  "title": "NePA mutable S4 recovery control state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "phase", "input_refs", "config_snapshot_sha256", "prompt_sha256", "strategy", "accepted_refs", "attempts", "repair_counters", "task_shard_repairs", "pending_call", "seen_issue_signatures"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "phase": {"enum": ["prepare", "architecture", "shards", "candidate", "review", "publication", "sealed", "failed"]},
+    "input_refs": {"$ref": "#/$defs/inputRefs"},
+    "config_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "prompt_sha256": {"type": "object", "additionalProperties": false, "required": ["initial", "repair"], "properties": {"initial": {"$ref": "#/$defs/sha256"}, "repair": {"$ref": "#/$defs/sha256"}}},
+    "strategy": {"enum": ["layered", "flat"]},
+    "accepted_refs": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ref"}},
+    "attempts": {"type": "object", "additionalProperties": false, "required": ["architecture", "task_shards", "critic", "flat"], "properties": {"architecture": {"type": "integer", "minimum": 0}, "task_shards": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}, "critic": {"type": "integer", "minimum": 0}, "flat": {"type": "integer", "minimum": 0}}},
+    "repair_counters": {"type": "object", "additionalProperties": false, "required": ["architecture_repairs", "critic_repairs", "global_replans"], "properties": {"architecture_repairs": {"type": "integer", "minimum": 0}, "critic_repairs": {"type": "integer", "minimum": 0}, "global_replans": {"type": "integer", "minimum": 0}}},
+    "task_shard_repairs": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "pending_call": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/pendingCall"}]},
+    "seen_issue_signatures": {"type": "array", "uniqueItems": true, "items": {"type": "array", "prefixItems": [{"enum": ["blocker", "major"]}, {"enum": ["architecture", "work_package", "task", "global"]}, {"type": "string", "minLength": 1}, {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}], "items": false, "minItems": 4, "maxItems": 4}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "inputRefs": {"type": "object", "additionalProperties": false, "required": ["spec", "target_profile", "test_bundle"], "properties": {"spec": {"$ref": "#/$defs/ref"}, "target_profile": {"$ref": "#/$defs/ref"}, "test_bundle": {"$ref": "#/$defs/ref"}}},
+    "pendingCall": {"type": "object", "additionalProperties": false, "required": ["role", "task_id", "attempt"], "properties": {"role": {"enum": ["architecture_planner", "task_planner", "plan_critic", "flat_plan_baseline"]}, "task_id": {"type": ["string", "null"]}, "attempt": {"type": "integer", "minimum": 1}}}
+  }
+}

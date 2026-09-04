@@ -13,7 +13,7 @@ from nepa.config import load_config
 
 EXPECTED_INPUTS = {
     "architecture_planner": ("planning_index", "delivery_constraints", "repair_context"),
-    "task_planner": ("work_package", "spec_slice", "adjacent_contracts", "test_metadata"),
+    "task_planner": ("work_package", "spec_slice", "adjacent_contracts", "test_metadata", "planning_budget"),
     "plan_critic": ("candidate_plan_graph", "coverage_matrix", "lint_report"),
     "flat_plan_baseline": ("planning_index", "delivery_constraints", "manifest_metadata"),
     "coder": ("task", "spec_slice", "interface_files"),

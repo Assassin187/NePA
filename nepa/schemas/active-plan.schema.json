@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/active-plan.schema.json",
+  "title": "NePA initial active Plan pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "path", "sha256", "revision_seq", "epoch"],
+  "properties": {
+    "version": {"const": "1.0.0"},
+    "path": {"const": "plan/versions/plan-1.0.0.json"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "revision_seq": {"const": 0},
+    "epoch": {"const": "E0"}
+  }
+}

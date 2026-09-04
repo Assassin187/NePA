@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/plan-critic-result.schema.json",
+  "title": "NePA PlanCritic result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "verdict", "issues"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "verdict": {"enum": ["pass", "revise"]},
+    "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
+  },
+  "$defs": {
+    "contextRef": {"type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": {"kind": {"enum": ["requirement", "message", "type", "interface_file"]}, "id": {"type": "string", "minLength": 1}}},
+    "issue": {"type": "object", "additionalProperties": false, "required": ["id", "severity", "scope", "target_id", "code", "description", "required_change", "context_refs"], "properties": {"id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"}, "severity": {"enum": ["blocker", "major", "minor"]}, "scope": {"enum": ["architecture", "work_package", "task", "global"]}, "target_id": {"type": "string", "minLength": 1}, "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}, "description": {"type": "string", "minLength": 1}, "required_change": {"type": "string", "minLength": 1}, "context_refs": {"type": "array", "items": {"$ref": "#/$defs/contextRef"}}}}
+  }
+}

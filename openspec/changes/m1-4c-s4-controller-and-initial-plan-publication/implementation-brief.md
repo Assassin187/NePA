@@ -9,7 +9,7 @@
 
 ## Outputs and acceptance commands
 
-- `_s4` canonical commitment and parent-bound checkpoint/evidence chain.
+- `plan/_s4/s4_state.json`, canonical commitment, and parent-bound checkpoint/evidence chain.
 - Canonical `plan/versions/plan-1.0.0.json`, `plan/file_ledger.json`, `plan/revision_ledger.json`, and `plan/active_plan.json`.
 - `run.json.stages.s4=done` with Plan/active-pointer refs plus Blueprint/config SHA-256 anchors; no workspace output.
 - Focused tests named in `tasks.md`, then `uv run pytest -q`; four existing `uv run nepa lint` gold commands; `openspec validate m1-4c-s4-controller-and-initial-plan-publication --strict`; `openspec validate --all --strict`; `git diff --check`.

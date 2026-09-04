@@ -25,7 +25,7 @@
         "s1": {"$ref": "#/$defs/stage"},
         "s2": {"$ref": "#/$defs/stage"},
         "s3": {"$ref": "#/$defs/stage"},
-        "s4": {"$ref": "#/$defs/stage"},
+        "s4": {"$ref": "#/$defs/s4Stage"},
         "s5": {"$ref": "#/$defs/stage"},
         "s6": {"$ref": "#/$defs/stage"},
         "s7": {"$ref": "#/$defs/stage"},
@@ -233,6 +233,39 @@
           "additionalProperties": {"$ref": "#/$defs/ref"}
         }
       }
+    },
+    "s4Stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "started_at", "ended_at", "error"],
+      "properties": {
+        "status": {"enum": ["pending", "running", "done", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "error": {"type": ["string", "null"]},
+        "output_refs": {"$ref": "#/$defs/s4OutputRefs"}
+      }
+    },
+    "s4OutputRefs": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plan", "active_plan", "delivery_blueprint_sha256", "config_snapshot_sha256"],
+          "properties": {
+            "plan": {"$ref": "#/$defs/ref"},
+            "active_plan": {"$ref": "#/$defs/ref"},
+            "delivery_blueprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "config_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["receipt"],
+          "properties": {"receipt": {"$ref": "#/$defs/ref"}}
+        }
+      ]
     },
     "budget": {
       "type": "object",

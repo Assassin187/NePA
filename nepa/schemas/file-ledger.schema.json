@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/file-ledger.schema.json",
+  "title": "NePA initial file ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "entries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "class", "state"], "properties": {"path": {"type": "string", "minLength": 1}, "class": {"enum": ["s5_frozen", "s6_owned"]}, "state": {"const": "slot_only"}}}}
+  }
+}

@@ -231,6 +231,29 @@ class RunStore:
             raise RunValidationError(f"JSON artifact is not canonical: {exc}") from exc
         return self.publish_immutable_bytes(relative_path, data)
 
+    def replace_json(
+        self,
+        relative_path: str,
+        value: object,
+        *,
+        schema_name: str | None = None,
+    ) -> ArtifactRef:
+        """Atomically replace one canonical mutable JSON control artifact."""
+
+        if schema_name is not None:
+            errors = _schema_errors(value, schema_name)
+            if errors:
+                raise RunValidationError(
+                    f"invalid {schema_name}: " + "; ".join(item["message"] for item in errors)
+                )
+        try:
+            data = canonical_json_bytes(value)
+        except (TypeError, ValueError) as exc:
+            raise RunValidationError(f"JSON artifact is not canonical: {exc}") from exc
+        path = self._confined(relative_path)
+        self._write_atomic_at(path, data)
+        return ArtifactRef(relative_path, sha256_bytes(data))
+
     def read_verified_bytes(self, relative_path: str, expected_sha256: str | None = None) -> bytes:
         """Read a confined immutable artifact and optionally verify its raw-byte hash."""
 
@@ -270,10 +293,24 @@ class RunStore:
                     f"invalid {schema_name}: " + "; ".join(item["message"] for item in errors)
                 )
 
-    def verify_stage_refs(self, stage: Mapping[str, Any]) -> None:
+    def verify_stage_refs(self, stage: Mapping[str, Any], stage_name: str | None = None) -> None:
         refs = stage.get("output_refs", {})
         if not isinstance(refs, Mapping):
             raise RunValidationError("stage output_refs must be an object")
+        if stage_name == "s4":
+            if set(refs) == {"receipt"}:
+                self.verify_ref(refs["receipt"])
+                return
+            expected = {"plan", "active_plan", "delivery_blueprint_sha256", "config_snapshot_sha256"}
+            if set(refs) != expected:
+                raise RunValidationError("S4 output_refs must contain the complete typed seal")
+            for key in ("plan", "active_plan"):
+                self.verify_ref(refs[key])
+            for key in ("delivery_blueprint_sha256", "config_snapshot_sha256"):
+                value = refs[key]
+                if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                    raise RunValidationError(f"S4 {key} must be a lowercase SHA-256 anchor")
+            return
         for ref in refs.values():
             self.verify_ref(ref)
 

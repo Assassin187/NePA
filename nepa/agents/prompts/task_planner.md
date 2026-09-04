@@ -27,6 +27,11 @@ You are the task planner. Decompose the injected work package into bounded local
 {{ inputs.test_metadata }}
 </INPUT>
 
+{# 中文维护注释：planning_budget 是控制器封存的本次工作包预算，只能用于保持任务拆分有界。 #}
+<INPUT name="planning_budget">
+{{ inputs.planning_budget }}
+</INPUT>
+
 {# 中文维护注释：输出段由调用方绑定局部任务 Schema 和最小合法示例。 #}
 ## Output Contract
 

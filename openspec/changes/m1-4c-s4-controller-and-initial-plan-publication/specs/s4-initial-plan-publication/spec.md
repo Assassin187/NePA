@@ -16,7 +16,7 @@ The system SHALL provide closed draft-2020-12 Schemas and conforming examples fo
 - **THEN** the M1-4c artifact contract rejects it
 
 ### Requirement: Initial Plan publication has one logical commit point
-The controller SHALL publish the immutable Plan version, initial file ledger, and empty revision ledger before atomically publishing the active pointer. It SHALL then reread and validate every artifact, Plan input reference, Blueprint SHA-256, pointer target, ledger path set, and configuration binding before the final atomic Run update marks S4 done. A downstream stage SHALL treat only that final Run update as the logical S4 commit point and SHALL NOT consume artifacts merely because some publication files exist. (Design 7.1.1: §4.8, §6.4.7; pipeline design 1.2.0 §5.3; M1-4c.)
+The controller SHALL publish the immutable Plan version, initial file ledger, and empty revision ledger before atomically publishing the active pointer. It SHALL then reread and validate every artifact, Plan input reference, Blueprint SHA-256, pointer target, ledger path set, and configuration binding before the final atomic Run update marks S4 done. A downstream stage SHALL treat only that final Run update as the logical S4 commit point and SHALL NOT consume artifacts merely because some publication files exist. Any later replay or resume of a Run with S4 done SHALL perform the same seal verification before returning an existing terminal result. (Design 7.1.1: §4.8, §6.4.7; pipeline design 1.2.0 §5.3; M1-4c.)
 
 #### Scenario: Complete publication succeeds
 - **WHEN** all candidate gates pass and every published artifact rereads with its expected bytes and bindings

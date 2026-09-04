@@ -7,10 +7,10 @@ M1-4a2 now provides the owner-approved ArchitecturePlanner `initial`/`repair` pr
 - Implement the complete S4 controller state machine: deterministic S4a commitment preparation, S4b ArchitecturePlanner generation/one bounded semantic repair and `ARCH_VALIDATE`, then S4c serial TaskPlanner shard expansion, deterministic linking, full lint, PlanCritic, bounded targeted repair, and seal.
 - Consume and verify the existing owner-approved M1-4a2 handoff and the byte-identical packaged ArchitecturePlanner prompt pair through the existing role routing and Agent invocation boundary.
 - Keep `layered` as the production default and support `flat` only as the explicitly configured A9 comparison arm; both normalize to the same PlanDraftIR and use the same Linker, full lint, critic, and seal path, with no fallback between strategies.
-- Persist parent-hash-bound `_s4` checkpoints and implement deterministic resume/reconciliation for architecture, shard, critic, and publication crash windows without exposing draft artifacts downstream.
+- Persist `plan/_s4/s4_state.json` plus parent-hash-bound `plan/_s4` checkpoints and implement deterministic resume/reconciliation for architecture, shard, critic, and publication crash windows without exposing draft artifacts downstream.
 - Publish canonical `plan/versions/plan-1.0.0.json`, an initial slot-only file ledger, an empty revision ledger, and `active_plan.json` at `revision_seq=0`/`epoch=E0`; only after revalidation atomically mark S4 done with the required independent Run anchors.
 - Add only the closed persisted and Agent-output contracts required by this controller, and extend the Run S4 output contract so file references and the Blueprint/configuration SHA-256 anchors remain distinct and verifiable.
-- Route budget exhaustion, invalid structured output, non-convergent repair, and invalid checkpoints as controlled S4 failure with no partially consumable Plan.
+- Route budget exhaustion, invalid structured output, and non-convergent repair as controlled S4 failure with no partially consumable Plan; checkpoint/seal damage and immutable publication conflicts remain internal errors.
 
 This change does not implement M1-4d task UIDs, obligation/guidance digests, version migration, revision append/activation, or crash recovery for later revisions. It also excludes M1-4e F2/F3, S5/S6 behavior, M1-7 public run/resume/status CLI, M2 test binding, live provider qualification, and any design expansion beyond design 7.1.1.
 

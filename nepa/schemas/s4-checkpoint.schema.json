@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/s4-checkpoint.schema.json",
+  "title": "NePA reference-only S4 checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "ordinal", "target_id", "parent_refs", "payload_refs", "report_refs", "budget_counters"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {"enum": ["commitment", "architecture_attempt", "architecture_sealed", "shard_attempt", "candidate", "review"]},
+    "ordinal": {"type": "integer", "minimum": 0},
+    "target_id": {"type": "string", "minLength": 1},
+    "parent_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "payload_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "report_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "budget_counters": {"$ref": "#/$defs/budgetCounters"}
+  },
+  "$defs": {
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "budgetCounters": {"type": "object", "additionalProperties": false, "required": ["architecture_repairs", "task_shard_repairs", "critic_repairs", "global_replans"], "properties": {"architecture_repairs": {"type": "integer", "minimum": 0}, "task_shard_repairs": {"type": "integer", "minimum": 0}, "critic_repairs": {"type": "integer", "minimum": 0}, "global_replans": {"type": "integer", "minimum": 0}}}
+  }
+}

@@ -39,20 +39,17 @@ After admission, production invocation uses the ordinary role registry, route re
 
 Alternative considered: invoke templates directly from the calibration run directory. Rejected because a historical experiment directory is evidence, not a production runtime dependency; the handoff instead authorizes the already packaged byte-identical templates.
 
-### 3. Persist a canonical commitment and reference-only checkpoint manifests
+### 3. Maintain the authoritative `plan/_s4` control state over immutable evidence
 
-S4a writes canonical `_s4/commitment.json` containing the three frozen input refs, `config_snapshot_sha256`, the normative requirement id/level set, Test Manifest contract projection, enabled/build-variant projection, planning budgets, and layer switches. It also publishes the existing canonical planning index and Delivery Constraints. Their hashes close L-C.
+S4a writes canonical `plan/_s4/commitment.json` containing the three frozen input refs, `config_snapshot_sha256`, the normative requirement id/level set, Test Manifest contract projection, enabled/build-variant projection, planning budgets, and layer switches. It also publishes the existing canonical planning index and Delivery Constraints. Their hashes close L-C.
 
-Every later accepted step publishes its payload under its natural closed Schema and a small `s4-checkpoint` manifest containing `kind`, stable ordinal/target id, exact parent artifact refs, payload/report refs, and the semantic-budget counters after that step. Checkpoints contain references rather than embedding a second copy of architecture, shard, candidate, or review data. Proposed families are:
+Add closed `s4-state` and keep `plan/_s4/s4_state.json` as the atomically replaced recovery control record required by system design §5.6.6. It records the current phase, frozen input/config/prompt hashes, accepted artifact references, architecture/critic/global counters, a shard-redo counter keyed by work-package id, the pending Agent call reservation, and seen issue signatures. It contains no architecture, task, coverage, or Blueprint semantics and is never a downstream fact source.
 
-- `architecture/attempt_NNN/` for candidate, patch/application when applicable, validation, and checkpoint;
-- `shards/<work_package_id>/attempt_NNN/` for task-shard result, validation, and checkpoint;
-- `candidates/round_NNN/` for PlanDraftIR, link report, Blueprint, candidate Plan, full-lint report, and checkpoint;
-- `reviews/round_NNN/` for the typed critic result and checkpoint.
+Every accepted step also publishes its payload under its natural closed Schema and a small immutable `s4-checkpoint` manifest containing `kind`, stable ordinal/target id, exact parent artifact refs, payload/report refs, and the counters after that step. Historical evidence remains under `plan/_s4/architecture/`, `plan/_s4/shards/`, `plan/_s4/candidates/`, and `plan/_s4/reviews/`; `s4_state.json` points only to the accepted current chain.
 
-Resume scans these stable names in state-machine order and accepts only the longest Schema-valid chain whose referenced bytes and parent hashes match. Budget use is recovered from accepted checkpoint manifests and existing LLM telemetry, so process restart cannot reset a semantic allowance. An invalid child is ignored with its descendants; an immutable path containing conflicting bytes is artifact damage, not a reason to overwrite it.
+Before a semantic Agent call, the controller atomically records one pending reservation and increments the applicable state counter. Resume validates state, immutable checkpoints, and matching `trace/llm_calls.ndjson` role/task/attempt evidence. A successful traced output completes the missing checkpoint without another provider call; no trace reuses the same reservation and attempt without a second increment; a traced failure follows its recorded failure path. An invalid child is ignored with its descendants, while conflicting immutable bytes are artifact damage.
 
-Alternative considered: maintain one mutable `_s4/state.json`. Rejected because it would create a second state authority that could disagree with the immutable artifacts and obscure crash reconciliation.
+Alternative considered: infer all control state only from immutable leaf manifests. Rejected because it contradicts system design §5.6.6 and leaves the call-to-checkpoint crash window unable to preserve pending reservations, per-package budgets, and seen issue signatures.
 
 ### 4. Bind each S4 role to one exact output contract
 
@@ -68,7 +65,7 @@ Alternative considered: allow each role to return a near-final Plan. Rejected be
 
 Add a narrow controller helper that receives semantic architecture/work packages/shards plus frozen refs and configuration, then calls the existing PlanDraftIR normalizer/Linker, Blueprint compiler, and `plan_lint(level="full")`. It publishes candidate evidence only after all S4-G0 through S4-G6 errors are zero. Both strategies and every repair round call this helper; no strategy-specific linker or lint exists.
 
-Layered expands work packages serially by stable work-package id. A local semantic critic issue invalidates and redoes only its named shard; a global issue performs one ArchitecturePlanner repair/replan and invalidates all architecture children. Flat semantic revise discards the whole flat draft. Every admitted repair is followed by complete candidate completion and a fresh critic. Mechanical recomputation consumes no semantic budget.
+Layered expands work packages serially by stable work-package id. A local semantic critic issue invalidates and redoes only its named shard; `plan_task_shard_repairs` is enforced independently for each work-package id across shard validation and critic-local redo. A global issue performs one ArchitecturePlanner replan, consumes only `plan_global_replans`, and invalidates all architecture children; it does not consume the independent initial `plan_architecture_repairs` allowance. Flat semantic revise discards the whole flat draft and consumes one critic-repair plus one global-replan unit. Every admitted repair is followed by complete candidate completion and a fresh critic. Mechanical recomputation consumes no semantic budget.
 
 ### 6. Keep the initial publication contract minimal and M1-4d-free
 
@@ -109,7 +106,7 @@ After a final critic pass, the controller regenerates candidate evidence and rer
 4. reread and semantically verify every artifact and independent anchor;
 5. return the four S4 output values so the Orchestrator atomically changes `stages.s4` to done.
 
-Files existing before step 5 are not consumable. Resume with matching bytes completes the missing suffix; conflicting immutable bytes fail closed. Once step 5 is committed, `verify_completed` runs and S4 becomes a read-only no-op.
+Files existing before step 5 are not consumable. Resume with matching bytes completes the missing suffix; conflicting immutable bytes are an internal artifact error. Once step 5 is committed, `verify_completed` runs and S4 becomes a read-only no-op. Orchestrator performs this verification before every terminal fast return as well as ordinary done-stage replay.
 
 ## Risks / Trade-offs
 

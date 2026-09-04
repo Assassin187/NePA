@@ -1,0 +1,1 @@
+{"schema_version":"1.0","kind":"commitment","ordinal":0,"target_id":"commitment","parent_refs":[],"payload_refs":[{"path":"plan/_s4/commitment.json","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}],"report_refs":[],"budget_counters":{"architecture_repairs":0,"task_shard_repairs":0,"critic_repairs":0,"global_replans":0}}

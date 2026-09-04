@@ -12,7 +12,7 @@ After either strategy produces a complete semantic draft, the controller SHALL n
 - **THEN** it is not critic-eligible or publishable
 
 ### Requirement: Critic results are validated and deterministically routed
-The controller SHALL recompute a critic verdict from the validated issue list: any blocker or major requires `revise`, while `pass` is legal only with no blocker or major. Mechanical issues SHALL be corrected only by deterministic recomputation when the source semantics are already valid. In layered mode a task/work-package-local semantic issue SHALL invalidate only the named shard and a global architecture issue SHALL invalidate the architecture and all child shards; in flat mode any semantic revise SHALL invalidate the complete flat draft. After repair, all deterministic completion gates and a fresh critic invocation SHALL rerun. (Design 7.1.1: §6.4.6; M1-4c.)
+The controller SHALL recompute a critic verdict from the validated issue list: any blocker or major requires `revise`, while no blocker or major requires `pass`; minor issues MAY coexist with `pass` and SHALL be normalized into the final Plan review. Mechanical issues SHALL be corrected only by deterministic recomputation when the source semantics are already valid. In layered mode a task/work-package-local semantic issue SHALL invalidate only the named shard and a global architecture issue SHALL invalidate the architecture and all child shards; in flat mode any semantic revise SHALL invalidate the complete flat draft. After repair, all deterministic completion gates and a fresh critic invocation SHALL rerun. (Design 7.1.1: §6.4.6; M1-4c.)
 
 #### Scenario: Critic verdict contradicts its issues
 - **WHEN** a critic reports `pass` while its issue list contains a blocker or major
@@ -20,7 +20,7 @@ The controller SHALL recompute a critic verdict from the validated issue list: a
 
 #### Scenario: Critic returns only minor issues
 - **WHEN** the issue list contains no blocker or major and the verdict is `pass`
-- **THEN** the controller normalizes the unresolved minor issues into final Plan review while preserving the complete review history only in `_s4`
+- **THEN** the controller normalizes the unresolved minor issues into final Plan review while preserving the complete review history only in `plan/_s4`
 
 ### Requirement: Candidate completion remains state-free and M1-4d-free
 The M1-4c completion and critic loops SHALL preserve the existing state-free Plan and PlanDraftIR contracts. They SHALL NOT calculate or inject task uid, obligation digest, guidance digest, migration classification, revision entry, execution status, attempts, evidence, workspace state, or task test acceptance before M2-0. Those fields SHALL not affect Blueprint semantics or initial publication. (Design 7.1.1: §5.2, §6.4.5-§6.4.7, §10.2 M1-4c/M1-4d; M1-4c.)
