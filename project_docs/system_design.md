@@ -1,8 +1,8 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：7.0.0\
-> 最后更新：2026\-09\-03\
+> 设计版本：7.1.0\
+> 最后更新：2026\-09\-04\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
 ## 0\. 阅读指南
@@ -1159,7 +1159,7 @@ Delivery Constraints 额外携带 `layout_convention_id` 与该约定资产的 c
 
 `resource_limits` 按键独立合并，禁止整体对象替换。对每个内置角色资源键，先取得该角色规则的正整数默认值，再收集该规则为此键**显式声明了映射**的全部 Spec 数值上界，最终值为默认值与全部候选上界的最小值；没有候选时保留默认值。只允许消费结构化 Spec 数值，禁止从 requirement 文本、名称相似度或 LLM 判断推断映射。多个目标角色的同名资源键同样取最小值；不同键取并集后按键名字典序输出。当前 C99 server 规则定义 `max_connections=16`、`max_event_targets=16`、`max_output_item_bytes=4096`、`max_output_batch_bytes=65536`，且这四个键当前均没有 Spec 字段映射，所以默认组合必然逐值输出这四个默认值。新增或改变键到 Spec 的映射必须先修订本节，不能由实现者自行决定。
 
-一条 `file_rules[]` 至少包含 `{id, kind, producer, mutability, path_pattern, expansion, purpose}`。`kind ∈ {app, source, header, build, documentation}`；`producer ∈ {mechanical_spec, layout_template, s6_task}`；`mutability ∈ {s5_frozen, s6_owned}`；`expansion ∈ {none, per_message, per_type}`。需要模板时只增加 `template_path`，禁止 `template_id`、模板版本或模板哈希。`producer=mechanical_spec` 必须为 `s5_frozen`，`producer=s6_task` 必须为 `s6_owned`；构建和文档文件必须为 `s5_frozen`。每条 rule 的 `id`、`path_pattern`、`kind`、`mutability` 与 `expansion` 都由对应 `layout.files[]` 条目的 `slot_id`、`path`/`path_pattern`、`render_rule`、`class` 与 `expand_over` 机械转写：`path` 非空且 `expand_over=null` 时转写为 `expansion=none`，`path_pattern` 非空且 `expand_over=messages` 时转写为 `expansion=per_message`，`path_pattern` 非空且 `expand_over=types` 时转写为 `expansion=per_type`；其余组合非法。`layout.files[]` 的完整字段与 `class`/`render_rule` 合法组合表见 `pipeline_design_s4_s9.md` §5.2.2。`kind` 与 `producer` 无法由单个 `render_rule` 值唯一确定（`render_rule=mechanical` 可产出 header 或 source，`render_rule=source_stub` 按 `build_role` 分为 `app` 与 `source`），其完整派生表由 M1\-4b2 随 `layout.files[] → file_rules[]` 转写器一并裁决并落地到 §5.2.2；在此之前**禁止**实现者自行约定该映射。Delivery Compiler 不得自行发明未在 `layout.files[]` 出现的 rule，也不得丢弃其中任何一条。
+一条 `file_rules[]` 至少包含 `{id, kind, producer, mutability, path_pattern, expansion, purpose}`。`kind ∈ {app, source, header, build, documentation}`；`producer ∈ {mechanical_spec, layout_template, s6_task}`；`mutability ∈ {s5_frozen, s6_owned}`；`expansion ∈ {none, per_message, per_type}`。需要模板时只增加 `template_path`，禁止 `template_id`、模板版本或模板哈希。`producer=mechanical_spec` 必须为 `s5_frozen`，`producer=s6_task` 必须为 `s6_owned`；构建和文档文件必须为 `s5_frozen`。每条 rule 的 `id`、`path_pattern`、`kind`、`mutability` 与 `expansion` 都由对应 `layout.files[]` 条目的 `slot_id`、`path`/`path_pattern`、`render_rule`、`class` 与 `expand_over` 机械转写：`path` 非空且 `expand_over=null` 时转写为 `expansion=none`，`path_pattern` 非空且 `expand_over=messages` 时转写为 `expansion=per_message`，`path_pattern` 非空且 `expand_over=types` 时转写为 `expansion=per_type`；其余组合非法。`layout.files[]` 的完整字段、`class`/`render_rule` 合法组合及 `kind`/`producer` 唯一派生表见 `pipeline_design_s4_s9.md` §5.2.2。派生表以 `render_rule`、`class`、`contract_id` 是否非空和 `build_role` 四项为完整判据；表外组合一律非法，Delivery Compiler 不得按文件名、后缀或协议身份补充推断。Delivery Compiler 不得自行发明未在 `layout.files[]` 出现的 rule，也不得丢弃其中任何一条。
 
 `path_pattern` 的合法占位符只有字面量 `{message_id}` 与 `{type_id}`，不得出现其他 `{...}`：
 
@@ -2240,7 +2240,7 @@ flowchart LR
 | M1\-4a1 | 通用计划架构基础设施：三输入冻结、Test Bundle 清单摘要、Test Manifest S4 元数据、planning index、窄切片 Delivery Constraints、ArchitectureDraft Schema、生产 `ARCH_VALIDATE`、可重算 trial/report、配置驱动的单模型实验驱动与协议中立检查。自由布局约定资产、`layout_convention_id`、`architecture.layout` Schema 与 `arch_11`～`arch_15` 随本项交付 | 4\.2、5\.3、5\.6\.5、6\.4\.1、6\.4\.3、6\.4\.4、6\.4\.8\.1、8\.3、8\.4、`pipeline_design_s4_s9.md` §5.2 |
 | M1\-4a2 | `ArchitecturePlanner` 共享 `initial`/`repair` 基准 prompt bundle 开发：由配置指定一个逻辑模型槽位，按 V0～V2 每版 N\=3 有界试用；每 trial 的初始规划只用 `initial`，最多两次有效 patch 语义修复只用 `repair`，同版至少 2/3 完整通过后由负责人签字交接 M1\-4c。单条失败不触发整版重跑，版本推进可以修改一份或两份模板 | 6\.4\.8\.2、8\.8 |
 | M1\-4b | 确定性编译资产：复用 M1\-4a1 的 Delivery Constraints/Schema/validator 路径，扩展系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message/per_type` 文件展开、角色支持门、Plan/Plan State Schema、完整 Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
-| M1\-4b2 | 自由布局的 Blueprint 转写：`layout.files[] → file_rules[]` 与 `build_graph → 三段构建图`的转写器，以及 `kind`/`producer` 的完整派生表（5\.6.5.3 遗留的待裁决项，裁决后落地到 `pipeline_design_s4_s9.md` §5.2.2）。布局约定资产、`layout_convention_id` 派生、`architecture.layout` Schema 与 `arch_11`～`arch_15` 已随 M1\-4a1 交付，本项**禁止**重建平行实现 | 5\.6.5.3、6\.4.1、`pipeline_design_s4_s9.md` §5.2 |
+| M1\-4b2 | 自由布局的 Blueprint 转写：按 `pipeline_design_s4_s9.md` §5.2.2 已裁决的完整派生表实现 `layout.files[] → file_rules[]`，并将 `build_graph` 转写为三段构建图；表外 `render_rule`/`class`/`contract_id`/`build_role` 组合必须受控失败。布局约定资产、`layout_convention_id` 派生、`architecture.layout` Schema 与 `arch_11`～`arch_15` 已随 M1\-4a1 交付，本项**禁止**重建平行实现 | 5\.6.5.3、6\.4.1、`pipeline_design_s4_s9.md` §5.2 |
 | M1\-4c | 完整 S4 控制器：S4a/S4b/S4c 三段推进、layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、版本文件与 `active_plan.json` 的原子 seal、修订账本创世条目；**必须**在 M1\-4a2 基准 bundle 签字且 M1\-4b/M1\-4b2 完成后开工，消费已签字的共享 `initial`/`repair` prompt bundle 和现有角色路由 | 4\.8、6\.4\.2、6\.4\.4～6\.4\.8 |
 | M1\-4d | 计划版本与修订基础设施：`plan/versions/` 版本链、`active_plan.json` 原子指针、`file_ledger.json`、哈希链 `revision_ledger.json`、`task_uid`/`obligation_digest`/`guidance_digest` 计算、四路迁移分类器与 `preservation_rate`、纪元边界与崩溃恢复 | 4\.3、4\.4、5\.2、`pipeline_design_s4_s9.md` §3、§4、§6.4 |
 | M1\-4e | 修订流水线：TR\-1～TR\-9 确定性触发谓词与评估记录、封闭补丁算子集、`PlanReviser` 角色与 delta 闭包 lint、RG\-1～RG\-5 修订门、S5 预演、原子激活与回滚、F2/F3 额度与熔断。生产额度在 `PlanReviser` 完成校准前为 0，F3 的启用以 M1\-5 幂等性测试通过为前置 | 4\.5、4\.7、6\.6.1、`pipeline_design_s4_s9.md` §6、§7 |
@@ -2584,3 +2584,4 @@ flowchart LR
 | 6\.0.1 | 2026\-08\-29 | 删除 M1\-4a2 模型生成 patch 的 prior-value SHA\-256 前置条件：patch 仅保留 `add` 目标不存在、`replace`/`remove` 目标存在的操作语义检查，以及路径白名单、冲突/重叠拒绝、原子应用、局部性与完整 Schema/`ARCH_VALIDATE` 复验。lineage、工件引用、不可变证据和报告重算的 SHA\-256 绑定保持不变；因 patch Schema 与应用语义变化，6.0.0 的值哈希 patch 证据不得进入 6.0.1 lineage | 负责人 |
 | 6\.1.0 | 2026\-08\-30 | 将 ArchitecturePlanner 的单一共享 prompt 改为共享的 `initial`/`repair` 两阶段 prompt bundle：初始规划与后续语义修复按调用深度选择独立模板，但继续共用同一角色和模型路由；V0～V4 及 R0～R2 的每次版本推进只允许修改一份模板，修改机会仍按整个 bundle 计数；正式校准冻结并复用同一版两份模板，旧单模板 trial 仅作历史证据。新增文档级约束：除满足本文已明确要求的既有契约外，任何实现位置不得新增 SHA\-256/hash 字段、摘要、前置条件或校验门；本次拆分只复用既有 trace、实验工件和 lineage 可追溯机制 | 负责人 |
 | 7\.0.0 | 2026\-09\-03 | 破坏性简化 ArchitecturePlanner 基准提示词流程：M1\-4a2 改为配置驱动的单模型 V0～V2 开发，每版 N\=3、至少 2/3 在两次有效 patch 修复内闭合即达到最低可用标准；普通失败、截断和基础设施无效只影响当前 trial，不再触发整版重跑；版本推进可同时修改 initial/repair。删除跨模型稳定性门、M1\-4a2r、M1\-4a3、B1～B4 与正式资格批次，M1\-4a2 经负责人签字后直接交接 M1\-4c，实际质量由 D1.3 完整链运行观察。同步将模型身份移出设计门槛，并放宽允许路径内的多问题 patch、稳定标识路径输入和每深度一次 patch 纠错 | 负责人 |
+| 7\.1.0 | 2026\-09\-04 | 裁决 M1\-4b2 的自由布局转写歧义：以 `render_rule`、`class`、`contract_id` 是否非空和 `build_role` 四项唯一派生 Blueprint `file_rules[].kind`/`producer`，完整八行表落地到授权子文档 §5.2.2，表外组合一律受控失败；同步 5.6.5.3 与 M1\-4b2 工作项，禁止实现按路径、后缀或协议身份猜测 | 负责人 |

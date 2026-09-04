@@ -387,8 +387,23 @@ architecture.layout = {
 - `path` 与 `path_pattern` 二者恰有一个非空。`path_pattern` 的占位符取值域**只允许** `{message_id}` 与 `{type_id}`，且必须来自 Spec 派生标识符集合；`expand_over` 只允许 `messages` 或 `types`。**禁止**引入新占位符或按协议名选择展开域；
 - `render_rule=header` 的文件必须绑定一个 `contract_id`，S5 由该 contract 的导出符号集合与机械命名派生值渲染声明，因此 S5 无需推理；
 - `render_rule=mechanical` 的文件其输入域必须落在系统内置机械契约白名单内（`6.4.1` 既有约束）；
-- `render_rule=source_stub` 的文件必须为 `class=s6_owned`；`render_rule ∈ {header, build_file, mechanical}` 的文件必须为 `class=s5_frozen`。内部接口头可以是 `s6_owned`（`6.4.1` 既有例外），此时其 `render_rule` 必须为 `source_stub` 并由 owner 任务填充实现声明之外的内容；
+- `render_rule=source_stub` 的文件必须为 `class=s6_owned`；`render_rule ∈ {header, build_file, doc, mechanical}` 的文件必须为 `class=s5_frozen`。内部接口头可以是 `s6_owned`（`6.4.1` 既有例外），此时其 `render_rule` 必须为 `source_stub` 并由 owner 任务填充实现声明之外的内容；
 - 每个 `class=s6_owned` 文件必须能被恰好一个任务在 S4c 中认领为 owner，否则 `S4-G4` 失败。
+
+`layout.files[]` 到 Blueprint `file_rules[]` 的 `kind`/`producer` 必须按下表唯一派生。`contract_id 非空` 表示该字段为一个已通过引用校验的 internal contract id；`contract_id=null` 表示字段为 JSON null：
+
+| `render_rule` | `class` | `contract_id` | `build_role` | `kind` | `producer` |
+| --- | --- | --- | --- | --- | --- |
+| `header` | `s5_frozen` | 非空 | `none` | `header` | `layout_template` |
+| `source_stub` | `s6_owned` | 非空 | `none` | `header` | `s6_task` |
+| `source_stub` | `s6_owned` | `null` | `link_source` | `source` | `s6_task` |
+| `source_stub` | `s6_owned` | `null` | `entry_point` | `app` | `s6_task` |
+| `build_file` | `s5_frozen` | `null` | `none` | `build` | `layout_template` |
+| `doc` | `s5_frozen` | `null` | `none` | `documentation` | `layout_template` |
+| `mechanical` | `s5_frozen` | 非空 | `none` | `header` | `mechanical_spec` |
+| `mechanical` | `s5_frozen` | `null` | `link_source` | `source` | `mechanical_spec` |
+
+表外组合一律非法并由 Blueprint 编译受控失败，明确包括 `mechanical + entry_point`、`header` 未绑定 contract、`build_file`/`doc` 绑定 contract 或参与链接、`source_stub` 同时绑定 contract 并参与链接、`s6_owned` 由 `layout_template`/`mechanical_spec` 生产，以及 `s5_frozen` 由 `s6_task` 生产。Delivery Compiler **禁止**按路径、文件后缀、模块名或协议身份补充猜测。
 
 **所有导出符号必须在 contract 中显式声明**（名称按 `5.6.5.2` 六条模式机械派生，签名由 ArchitecturePlanner 声明）。S5 只渲染已声明内容，**禁止**推断任何未声明符号。
 
@@ -959,4 +974,4 @@ M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因�
 | --- | --- | --- |
 | 1\.0\.0 | 2026\-08\-25 | 首版。从方案讨论稿整理为权威子文档：三层冻结 `L\-C`/`L\-A`/`L\-P`、稳定身份与失效闭包、C\.A\.P 版本与执行纪元、S4a/S4b/S4c 分期、S5 可重入物化、S6 触发评估、修订流水线与 `RG-1`～`RG-5`、修复阶梯 F0～F5、攻击面矩阵、指标重锚定。相对讨论稿的实质变更：修复阶梯由 `L0`～`L5` 改名为 `F0`～`F5`（避免与 `4.2` 四层运行时及 `10.3` 测试分层冲突）；S5 固定文件布局改为由 S4b 自由规划并新增 `arch_11`～`arch_15`（本文 §5.2）；新增启动 smoke 检查作为 M1 第二条执行真值（本文 §5.5）；F3 在 M1 即启用（本文 §10）；本文新增的效度威胁编号为 V\-8/V\-9（`9.4` 已占用 V\-7），与主文档保持全局唯一。风险登记同理：讨论稿中的 R\-13～R\-19 有七条已并入主文档 `11.1`（含语义合并），本文 §12 只保留 `11.1` 未覆盖的四条并续编为 R\-20～R\-23。本文所有内容已同步进主文档 4\.0\.0 版。 |
 | 1\.1.0 | 2026\-08\-26 | 按 `11.3` 裁决，`arch_13`/`arch_15` 的主/子文档表述冲突一律采用本文 §5.2.4 口径，主文档 `6.4.4` 同步为门编号与摘要（主文档 5\.3.0）。§5.2.4 补充两点归属说明，不改变任何门判据本身：其一，`arch_15` 的通用职责白名单是版本受控的校验器侧共享实现（与主文档 D1.11 命名来源审计同一份、属 lineage 控制面），**不**属于 §5.2.3 布局约定资产的 `advisory` 或 `hard` 段，`advisory` 的职责槽位词汇表仅为 ArchitecturePlanner 参考输入；其二，明确 `arch_15` 的判定域为 `path`/`path_pattern` 分段与 `purpose` 文本 token，二者共用同一白名单与同一 Spec 派生标识符集合。§5.2.2 的字段约束、五个子门的编号与真值级别、`§5.2.3` 的资产分段规则均不变 | 负责人 |
-
+| 1\.2.0 | 2026\-09\-04 | 裁决 M1\-4b2 的 `layout.files[] → file_rules[]` 转写：新增由 `render_rule`、`class`、`contract_id` 是否非空及 `build_role` 唯一决定 `kind`/`producer` 的八行完整派生表，表外组合一律受控失败，并明确禁止按路径、后缀、模块名或协议身份猜测 | 负责人 |
