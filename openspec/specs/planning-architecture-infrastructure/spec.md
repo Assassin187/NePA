@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the deterministic, protocol-neutral ArchitecturePlanner input, output-validation, lineage, and isolated trial evidence boundary that M1-4a2 and M1-4a3 must reuse before production S4 planning can be qualified.
+Define the deterministic, protocol-neutral ArchitecturePlanner input, output-validation, lineage, and isolated trial evidence boundary used to establish the owner-approved M1-4a2 baseline before production S4 planning.
 
 ## Requirements
 
@@ -75,87 +75,63 @@ The system SHALL expose one deterministic `ARCH_VALIDATE` result over a Schema-v
 - **THEN** the trial is rejected before model output can be counted in a lineage report
 
 ### Requirement: Lineage identity freezes every non-prompt comparison variable
-The system SHALL derive a `lineage_id` from a canonical lineage manifest that binds the frozen input references, planning-index and Delivery-Constraints construction, ArchitectureDraft Schema, canonical serializer, `ARCH_VALIDATE`, exactly the configured Claude/Qwen/DeepSeek candidate model request configurations, and calibration statistical definitions. The shared ArchitecturePlanner prompt hash SHALL be recorded by each prompt version but SHALL NOT be part of `lineage_id`, because it is the only variable M1-4a2 may change within a lineage. Any bound component change SHALL produce a different lineage id; evidence from different lineages SHALL NOT be aggregated or compared as one prompt-only experiment. (Design: §6.4.8.1-§6.4.8.3, §8.3, §9.2.)
+The system SHALL derive `lineage_id` from frozen input references, planning-index and Delivery-Constraints construction, ArchitectureDraft Schema, patch Schema, serializer, patch application/locality behavior, path normalization, coupled-reference projection, `ARCH_VALIDATE`, the one configured logical model slot and its request configuration, metric definitions and two-stage invocation contract. Prompt source bytes and versions SHALL remain existing referenced version artifacts outside lineage identity. Any non-prompt component or configured slot change SHALL create a new lineage; changing either or both prompt templates between V0～V2 SHALL remain in the same lineage and record exact diffs. Historical evidence from another lineage SHALL NOT be aggregated. (Design: §0.1, §6.4.8.1～§6.4.8.2, §8.3, §9.2.)
 
-#### Scenario: Only the shared prompt changes
-- **WHEN** a later prompt version changes prompt bytes while every lineage-bound component remains identical
-- **THEN** it has a new prompt hash/version under the same lineage id
+#### Scenario: Prompt templates change
+- **WHEN** a revision changes initial, repair or both while all non-prompt components remain equal
+- **THEN** it stays in the lineage and records both stage diffs
 
-#### Scenario: A controlled component changes
-- **WHEN** an input, Schema, validator, serializer, input constructor, Delivery Constraints compiler, model request configuration, or metric definition changes
-- **THEN** a new lineage id is required and prior trials cannot enter the new lineage report
+#### Scenario: Configured model slot changes
+- **WHEN** the logical slot, provider endpoint, route or request parameters change
+- **THEN** a new lineage is required without any design-document change
 
-#### Scenario: A prompt label is reused for different bytes
-- **WHEN** a prompt-version label already exists under a lineage with a different prompt SHA-256
-- **THEN** publication fails as an artifact conflict rather than overwriting or mixing evidence
+### Requirement: Configured single-model trial execution is isolated and cache-independent
+The active M1-4a2 protocol SHALL execute exactly one configured logical model slot. Its three trials SHALL use fresh history-free sessions and disabled cross-trial cache. The slot name SHALL be a safe configured identifier and SHALL NOT be constrained to a provider or model name. (Design: §6.4.8.1～§6.4.8.2, §8.3.)
 
-### Requirement: Three-model trial execution is isolated and cache-independent
-The calibration driver SHALL dispatch one batch for each of the exactly configured Claude, Qwen, and DeepSeek candidates for a prompt version. All three batches SHALL consume identical frozen planning-index, Delivery-Constraints, ArchitectureDraft Schema, validator, and raw prompt hashes. Each model SHALL have an independent directory, client/session, cache root, trace stream, call sequence, and trial identity. Every trial and every semantic-repair call SHALL use a fresh no-history ArchitecturePlanner invocation with cross-trial cache reads/writes disabled; no candidate SHALL read, vote on, or combine another candidate's response. (Design: §4.6, §6.4.8.1-§6.4.8.3, §8.3-§8.4, §9.2.)
+#### Scenario: Single-slot batch starts
+- **WHEN** active preflight resolves one configured calibration slot
+- **THEN** exactly three isolated trial identities are declared under that slot before provider I/O
 
-#### Scenario: A three-model batch starts
-- **WHEN** a valid lineage, prompt version, and trial declaration are dispatched
-- **THEN** all three model batches record the same input/schema/validator/prompt hashes and distinct model roots, sessions, traces, caches, and trial ids
-
-#### Scenario: Two trials have identical request material
-- **WHEN** two independent trials happen to render byte-identical requests
-- **THEN** the second trial still performs its own logical model completion and does not consume a cache entry from the first
-
-#### Scenario: One model produces an architecture
-- **WHEN** one candidate model returns a Schema-valid or semantically valid draft
-- **THEN** neither other candidate receives that draft or any derived vote, hint, or state
-
-#### Scenario: Infrastructure retry is exhausted without a model response
-- **WHEN** a trial exhausts the M1-2 transport retry policy without any model response
-- **THEN** that model batch is marked `infrastructure-invalid`, no failed trial is silently replaced, and the prompt version cannot be treated as a complete comparable batch until rerun
+#### Scenario: Model implementation changes
+- **WHEN** a different configured model is selected for a future experiment
+- **THEN** the design and prompt remain unchanged while a new lineage records the new request configuration
 
 ### Requirement: Semantic repair is explicit, fresh, and bounded by the declared protocol
-The M1-4a trial engine SHALL validate the first Schema-legal candidate immediately with `ARCH_VALIDATE`. If a declared development or qualification protocol permits a semantic repair, each repair SHALL be a new no-history ArchitecturePlanner invocation containing the unchanged frozen inputs, the prior Schema-valid candidate, and only the exact canonical `ARCH_VALIDATE` failure list. Schema-format repair SHALL remain solely inside the M1-2 logical completion and SHALL be counted separately. The infrastructure SHALL support recording zero, one, or two semantic repairs but SHALL NOT choose M1-4a2 prompt versions, M1-4a3 qualification disposition, or production repair budgets. (Design: §6.4.8.2-§6.4.8.3, §8.4.)
+The M1-4a2 trial engine SHALL use the initial template for depth zero and the repair template for at most two successfully applied semantic transitions. Before rendering repair, it SHALL normalize numeric validator issue positions to stable identifier paths in the current candidate. A patch MAY change multiple concrete leaves when every leaf is authorized by at least one current failure. Patch operations SHALL remain presence-checked, conflict-free, atomically applied and fully revalidated. If an admitted layout identity changes, the controller SHALL derive only exact old-to-new substitutions in module ownership and work-package allowed-file references; unrelated model operations that are independently allowed SHALL remain admissible. One rejected payload at each semantic depth MAY receive one correction call, and no rejected payload SHALL mutate the candidate, consume effective depth or trigger full-draft replacement. (Design: §6.4.8.1～§6.4.8.2, §8.4, §8.8.)
 
-#### Scenario: The initial candidate passes
-- **WHEN** the first Schema-legal candidate passes all architecture gates
-- **THEN** the trial stops semantic repair and records success at `p0`
+#### Scenario: Numeric issue path is rendered
+- **WHEN** a validator issue points through an array index whose item has a stable id
+- **THEN** the repair request presents the equivalent stable identifier path and no numeric array path
 
-#### Scenario: One semantic repair is allowed
-- **WHEN** the initial candidate fails and the declared protocol permits one semantic repair
-- **THEN** the next call has no conversation history and contains only the unchanged base inputs, prior candidate, and exact ordered validator failures as repair context
+#### Scenario: Patch fixes multiple current failures
+- **WHEN** all operations map to currently allowed concrete paths
+- **THEN** they may apply atomically even when one operation also triggers exact layout-reference projection
 
-#### Scenario: Schema repair occurs
-- **WHEN** M1-2 repairs malformed structured output within one logical completion
-- **THEN** the trial records the format-repair consumption separately and does not decrement a semantic-repair allowance
-
-#### Scenario: No semantic repair is declared
-- **WHEN** the initial candidate fails `ARCH_VALIDATE` and the batch declaration permits zero semantic repairs
-- **THEN** the trial records a semantic failure without issuing another ArchitecturePlanner call
+#### Scenario: Patch needs correction
+- **WHEN** the first payload at a depth is rejected for format, path or application semantics
+- **THEN** one correction call may run against the unchanged candidate and a successful corrected patch establishes that depth's candidate
 
 ### Requirement: Trial artifacts and calibration reports are hash-bound and recomputable
-Calibration evidence SHALL be stored under `runs/_calibration/s4-architecture/<lineage_id>/<prompt_version>/<model_id>/`. Each model root SHALL contain canonical `batch.json`, `trials/trial_NNN/request_ref.json`, `response_ref.json`, and `validation.json`, a dedicated trace/cache area, and `calibration_report.json`. Request/response index entries SHALL bind every initial, format-repair, and semantic-repair evidence item by path and SHA-256. Recomputing a report from only the lineage, batch, trial, validation, and trace evidence SHALL reproduce the canonical report bytes and SHALL reject missing, mutated, duplicate, cross-lineage, cross-prompt, or cross-model evidence. (Design: §5.5, §6.4.8.1, §9.1.5.)
+Calibration evidence SHALL remain under `runs/_calibration/s4-architecture/<lineage_id>/<prompt_version>/<model_slot>/`. Each declared trial SHALL retain every request attempt, response, validation, patch, application and correction record. Completed trial leaves SHALL be immutable. Recompute SHALL reproduce the single-slot report and reject missing, mutated, duplicate, cross-lineage or cross-bundle evidence. Historical artifact contracts SHALL remain available for read-only recomputation. (Design: §0.1, §5.5, §6.4.8.1～§6.4.8.2, §9.1.5.)
 
-#### Scenario: A complete model batch is recomputed
-- **WHEN** all declared trial records and their referenced evidence are present and valid
-- **THEN** report recomputation produces a byte-identical `calibration_report.json`
+#### Scenario: One trial exhausts infrastructure attempts
+- **WHEN** its final attempt records no usable response
+- **THEN** recomputation records that trial as infrastructure-invalid while retaining other completed trials in the version
 
-#### Scenario: Referenced evidence changes
-- **WHEN** a request, response, validation, trace, or parent artifact no longer matches its recorded SHA-256
-- **THEN** recomputation fails and publishes no replacement report over the existing evidence
-
-#### Scenario: A partial batch is inspected
-- **WHEN** fewer than the declared number of trials are durably complete
-- **THEN** batch status remains incomplete and no headline rate is represented as a completed N-trial result
+#### Scenario: Historical batch is recomputed
+- **WHEN** a legacy lineage declares the former fixed-slot contract
+- **THEN** the legacy reader recomputes it without admitting any leaf to the new selector
 
 ### Requirement: Calibration metrics preserve fixed denominators and failure evidence
-Each complete per-model report SHALL use the declared trial count `N` as the denominator for `schema_first_pass_rate`, `schema_after_format_repair_rate`, `arch_raw_first_pass_rate`, `arch_semantic_first_pass_rate`, `p0`, `p1`, and `p2` when the corresponding repair depth was declared. `arch_raw_first_pass_rate` SHALL count raw responses that need neither format nor semantic repair; `arch_semantic_first_pass_rate` and `p0` SHALL count the first Schema-legal candidate passing without semantic repair. `p1` and `p2` SHALL be cumulative success within at most one or two semantic repairs. A second Schema failure or absent semantic candidate SHALL count as failure in the fixed denominator. Reports SHALL also include unconditional k/N results for every `arch_01`-`arch_10` gate, gate-failure co-occurrence, repair gain, per-trial and aggregate calls/tokens/cost/latency, finish reasons, truncation, format repairs, semantic repairs, full returned model/version identity, and parameter-support states. Undeclared metric depths SHALL be `null` with a machine-readable reason rather than zero. (Design: §6.4.8.2-§6.4.8.3, §9.1.5, §9.2.)
+The active single-slot report SHALL use N=3 as the denominator for Schema rates, p0, p1 and p2. Schema failure, semantic failure, truncation, rejected/exhausted patch repair and infrastructure-invalid SHALL remain non-passes in that denominator. Reports SHALL retain per-gate results, repair gain, rejection reasons, attempts, tokens, cost, latency, finish reason, requested/returned model identity and parameter support. (Design: §6.4.8.2, §9.1.5, §9.2.)
 
-#### Scenario: A response fails Schema twice
-- **WHEN** both the original structured response and M1-2 format-repair response fail the ArchitectureDraft Schema
-- **THEN** that trial remains in N and contributes failure to all architecture success rates
+#### Scenario: Two trials pass by p2
+- **WHEN** exactly two of three trials pass within two effective repairs
+- **THEN** p2 is 2/3 and the report supplies sufficient evidence for minimum-usability selection
 
-#### Scenario: A repair succeeds
-- **WHEN** a trial first passes all gates after exactly one semantic repair
-- **THEN** it is excluded from `p0`, included in `p1` and `p2` when both are declared, and contributes the exact per-gate repair gain
-
-#### Scenario: A batch declares only one semantic repair
-- **WHEN** the completed batch protocol has a maximum semantic-repair depth of one
-- **THEN** `p2` is `null` with an undeclared-depth reason and is not reported as zero
+#### Scenario: One trial is infrastructure-invalid
+- **WHEN** two trials pass and one exhausts infrastructure attempts
+- **THEN** p2 remains 2/3 and the infrastructure failure remains visible rather than invalidating the report
 
 ### Requirement: Planning and calibration assets remain protocol neutral
 The shared planning/calibration framework, ArchitectureDraft Schema/example, validators, and ArchitecturePlanner prompt source SHALL NOT contain protocol-name branches or embedded target-protocol message names, field names, REQ ids, paths, interface constants, ports, or topic/subscription semantics. The shared ArchitecturePlanner prompt SHALL additionally contain no model/provider-specific condition. Deterministic static checks SHALL scan these assets, and at least one non-MQTT application-layer fixture SHALL pass the same input builder, Delivery Constraints compiler, ArchitectureDraft Schema, `ARCH_VALIDATE`, lineage, and prompt-rendering path without editing shared sources. Concrete protocol identifiers in generated artifacts SHALL be traceable to the frozen fixture inputs or documented language/role rules. (Design: §6.4, §6.4.8.1, §8.8, D1.11.)

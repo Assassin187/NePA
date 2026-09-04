@@ -103,23 +103,27 @@ The system SHALL expose an Agent invocation operation with explicit `role`, `inp
 - **THEN** the Agent layer has still called `LLMClient.complete` exactly once and adds no further repair attempt
 
 ### Requirement: M1-3 provides the required built-in role skeletons
-The system SHALL register prompt and invocation skeletons for ArchitecturePlanner, TaskPlanner, PlanCritic, FlatPlanBaseline, Coder, Diagnoser, and Fixer. Their required inputs SHALL match the role boundaries in the authoritative design: ArchitecturePlanner receives the planning index, delivery constraints, and an explicit `repair_context` that is `null` for an initial call or contains only the prior Schema-valid candidate and exact canonical `ARCH_VALIDATE` failures for a fresh semantic-repair call; TaskPlanner receives one work package, its spec slice, adjacent contracts, and test metadata; PlanCritic receives a candidate plan graph, coverage matrix, and lint report; FlatPlanBaseline receives the planning index, delivery constraints, and manifest metadata; Coder receives one task, its spec slice, and interface files; Diagnoser receives build errors and relevant code; Fixer receives a diagnosis and target files. M1-4a1 SHALL own and bind the production ArchitectureDraft Schema/example through the existing invocation-contract slot; the shared ArchitecturePlanner prompt development and production freeze remain M1-4a2 and M1-4a3 responsibilities.
+The system SHALL register ArchitecturePlanner, TaskPlanner, PlanCritic, FlatPlanBaseline, Coder, Diagnoser and Fixer with their authoritative inputs and output contracts. ArchitecturePlanner SHALL remain one role and route but use `architecture_planner_initial.md` for a null repair context and `architecture_planner_repair.md` for a non-null context. Initial calls SHALL return a complete ArchitectureDraft. M1-4a2 repair calls SHALL return only the lineage-frozen patch payload. Every repair call SHALL be fresh, history-free and self-contained; it SHALL NOT concatenate or rely on the initial template. If a patch is rejected for payload format, path or application semantics, the same semantic depth MAY issue one fresh correction call containing the unchanged candidate, current failures, normalized allowed paths and exact rejection reason. A successfully applied candidate transition, not a rejected payload, SHALL consume semantic depth. The existing trace SHALL record every call without adding bundle or template digest fields. (Design: §4.5, §6.4.8, §8.8.)
 
-#### Scenario: The built-in catalog is inspected
-- **WHEN** the Agent registry is initialized
-- **THEN** it contains exactly the seven role identifiers, with ArchitecturePlanner requiring `planning_index`, `delivery_constraints`, and `repair_context`, and every other role retaining its specified input names
+#### Scenario: Initial call is rendered
+- **WHEN** ArchitecturePlanner receives a null repair context
+- **THEN** only the initial template is rendered and ArchitectureDraft is the output contract
 
-#### Scenario: M1-4a1 supplies the production contract
-- **WHEN** an M1-4a ArchitecturePlanner invocation binds the production ArchitectureDraft JSON Schema and conforming example
-- **THEN** the shared M1-3 invoker uses that contract without introducing another schema registry or provider-completion path
+#### Scenario: Repair call is rendered
+- **WHEN** ArchitecturePlanner receives a repair context
+- **THEN** only the self-contained repair template is rendered with current candidate, failures and normalized allowed paths, and patch is the output contract
 
-#### Scenario: An initial architecture call is rendered
-- **WHEN** ArchitecturePlanner is invoked for an initial candidate
-- **THEN** `repair_context` is explicitly delimited and contains canonical `null`
+#### Scenario: First patch is rejected
+- **WHEN** a repair patch is rejected for format, path or application semantics and no correction has been used at this depth
+- **THEN** one fresh correction call receives the exact rejection reason while the candidate and semantic depth remain unchanged
 
-#### Scenario: A semantic-repair architecture call is rendered
-- **WHEN** ArchitecturePlanner is invoked as a fresh semantic-repair call
-- **THEN** `repair_context` is explicitly delimited and contains only the prior Schema-valid candidate and exact canonical validator issue list supplied by the caller
+#### Scenario: Corrected patch is also rejected
+- **WHEN** the one allowed correction at a semantic depth is rejected
+- **THEN** that depth ends without candidate mutation or full-draft fallback
+
+#### Scenario: Prompt trace is recorded
+- **WHEN** any initial, repair or correction call completes
+- **THEN** existing trace fields identify the rendered request, stage and usage without a new prompt-bundle hash gate
 
 ### Requirement: FlatPlanBaseline is an explicit comparison strategy only
 The system SHALL make FlatPlanBaseline invocable only when the resolved planning strategy is `flat`. It SHALL NOT use FlatPlanBaseline as a fallback for failed layered planning or silently switch between flat and layered strategies.
