@@ -1,7 +1,7 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：7.1.0\
+> 设计版本：7.1.1\
 > 最后更新：2026\-09\-04\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
@@ -1435,7 +1435,7 @@ Critic verdict 由控制器复核：存在任一 blocker/major 时必须为 `rev
 #### 6\.4.7 Seal、发布与恢复
 
 1. 在 `_s4` 生成包含最终 `review` 的 canonical candidate，重跑 Schema、full lint、coverage 重算与 critic 门；
-2. 以临时文件写入、`fsync` 文件和目录、原子改名发布 `plan/versions/plan-1.0.0.json`，再以同样方式发布指向它的 `plan/active_plan.json`，并写入修订账本的创世条目；
+2. 以临时文件写入、`fsync` 文件和目录、原子改名发布 `plan/versions/plan-1.0.0.json`，初始化全部文件均为 `state=slot_only` 的 `plan/file_ledger.json` 与 `entries=[]` 的空 `plan/revision_ledger.json`，再以同样方式发布指向初始版本且 `revision_seq=0`、`epoch="E0"` 的 `plan/active_plan.json`；首条真实修订记录由 M1\-4d 从 `revision_seq=1` 开始追加，M1\-4c 不制造创世条目；
 3. 重新读取正式文件并核对其 SHA\-256、三项 input refs 与顶层 blueprint hash，同时核对 `active_plan.json` 的指向与哈希；
 4. 最后一次原子更新 `run.json`：把 `stages.s4.status` 标为 `done`，同时写入 `output_refs.plan={path:"plan/versions/plan-1.0.0.json", sha256}`、`output_refs.active_plan`、`output_refs.delivery_blueprint_sha256` 与 `output_refs.config_snapshot_sha256`。该 seal receipt 是独立于 Plan 的完整性锚点，也是下游可消费 Plan 的逻辑 commit point。
 
@@ -2241,7 +2241,7 @@ flowchart LR
 | M1\-4a2 | `ArchitecturePlanner` 共享 `initial`/`repair` 基准 prompt bundle 开发：由配置指定一个逻辑模型槽位，按 V0～V2 每版 N\=3 有界试用；每 trial 的初始规划只用 `initial`，最多两次有效 patch 语义修复只用 `repair`，同版至少 2/3 完整通过后由负责人签字交接 M1\-4c。单条失败不触发整版重跑，版本推进可以修改一份或两份模板 | 6\.4\.8\.2、8\.8 |
 | M1\-4b | 确定性编译资产：复用 M1\-4a1 的 Delivery Constraints/Schema/validator 路径，扩展系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message/per_type` 文件展开、角色支持门、Plan/Plan State Schema、完整 Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
 | M1\-4b2 | 自由布局的 Blueprint 转写：按 `pipeline_design_s4_s9.md` §5.2.2 已裁决的完整派生表实现 `layout.files[] → file_rules[]`，并将 `build_graph` 转写为三段构建图；表外 `render_rule`/`class`/`contract_id`/`build_role` 组合必须受控失败。布局约定资产、`layout_convention_id` 派生、`architecture.layout` Schema 与 `arch_11`～`arch_15` 已随 M1\-4a1 交付，本项**禁止**重建平行实现 | 5\.6.5.3、6\.4.1、`pipeline_design_s4_s9.md` §5.2 |
-| M1\-4c | 完整 S4 控制器：S4a/S4b/S4c 三段推进、layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、版本文件与 `active_plan.json` 的原子 seal、修订账本创世条目；**必须**在 M1\-4a2 基准 bundle 签字且 M1\-4b/M1\-4b2 完成后开工，消费已签字的共享 `initial`/`repair` prompt bundle 和现有角色路由 | 4\.8、6\.4\.2、6\.4\.4～6\.4\.8 |
+| M1\-4c | 完整 S4 控制器：S4a/S4b/S4c 三段推进、layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、版本文件与 `active_plan.json` 的原子 seal、slot-only 初始文件台账与空修订账本；**必须**在 M1\-4a2 基准 bundle 签字且 M1\-4b/M1\-4b2 完成后开工，消费已签字的共享 `initial`/`repair` prompt bundle 和现有角色路由 | 4\.8、6\.4\.2、6\.4\.4～6\.4\.8 |
 | M1\-4d | 计划版本与修订基础设施：`plan/versions/` 版本链、`active_plan.json` 原子指针、`file_ledger.json`、哈希链 `revision_ledger.json`、`task_uid`/`obligation_digest`/`guidance_digest` 计算、四路迁移分类器与 `preservation_rate`、纪元边界与崩溃恢复 | 4\.3、4\.4、5\.2、`pipeline_design_s4_s9.md` §3、§4、§6.4 |
 | M1\-4e | 修订流水线：TR\-1～TR\-9 确定性触发谓词与评估记录、封闭补丁算子集、`PlanReviser` 角色与 delta 闭包 lint、RG\-1～RG\-5 修订门、S5 预演、原子激活与回滚、F2/F3 额度与熔断。生产额度在 `PlanReviser` 完成校准前为 0，F3 的启用以 M1\-5 幂等性测试通过为前置 | 4\.5、4\.7、6\.6.1、`pipeline_design_s4_s9.md` §6、§7 |
 | M1\-5 | S5 实现：按 Blueprint 自由布局物化的协议中立机械模板；用同一模板代码路径渲染 MQTT 与非 MQTT fixture；重算 Blueprint、独占脚手架、机械派生、双轴工件所有权、内部契约映射、默认构建、启动 smoke、纪元提交与 output receipt；**差异驱动幂等重入**（同一 Blueprint 重跑零变更，Blueprint 变化只处理差异集） | 5\.6、6\.5、7\.2～7\.4、`pipeline_design_s4_s9.md` §5.4、§5.5 |
@@ -2585,3 +2585,4 @@ flowchart LR
 | 6\.1.0 | 2026\-08\-30 | 将 ArchitecturePlanner 的单一共享 prompt 改为共享的 `initial`/`repair` 两阶段 prompt bundle：初始规划与后续语义修复按调用深度选择独立模板，但继续共用同一角色和模型路由；V0～V4 及 R0～R2 的每次版本推进只允许修改一份模板，修改机会仍按整个 bundle 计数；正式校准冻结并复用同一版两份模板，旧单模板 trial 仅作历史证据。新增文档级约束：除满足本文已明确要求的既有契约外，任何实现位置不得新增 SHA\-256/hash 字段、摘要、前置条件或校验门；本次拆分只复用既有 trace、实验工件和 lineage 可追溯机制 | 负责人 |
 | 7\.0.0 | 2026\-09\-03 | 破坏性简化 ArchitecturePlanner 基准提示词流程：M1\-4a2 改为配置驱动的单模型 V0～V2 开发，每版 N\=3、至少 2/3 在两次有效 patch 修复内闭合即达到最低可用标准；普通失败、截断和基础设施无效只影响当前 trial，不再触发整版重跑；版本推进可同时修改 initial/repair。删除跨模型稳定性门、M1\-4a2r、M1\-4a3、B1～B4 与正式资格批次，M1\-4a2 经负责人签字后直接交接 M1\-4c，实际质量由 D1.3 完整链运行观察。同步将模型身份移出设计门槛，并放宽允许路径内的多问题 patch、稳定标识路径输入和每深度一次 patch 纠错 | 负责人 |
 | 7\.1.0 | 2026\-09\-04 | 裁决 M1\-4b2 的自由布局转写歧义：以 `render_rule`、`class`、`contract_id` 是否非空和 `build_role` 四项唯一派生 Blueprint `file_rules[].kind`/`producer`，完整八行表落地到授权子文档 §5.2.2，表外组合一律受控失败；同步 5.6.5.3 与 M1\-4b2 工作项，禁止实现按路径、后缀或协议身份猜测 | 负责人 |
+| 7\.1.1 | 2026\-09\-04 | 同步 M1\-4c 初始发布与授权子文档 §5.3：S4 seal 初始化 slot-only `file_ledger.json` 与 `entries=[]` 的空 `revision_ledger.json`，`active_plan.json` 从 `revision_seq=0`、`epoch=E0` 开始；删除创世修订条目表述，首条真实修订仍由 M1\-4d 从序号 1 追加，通用版本迁移、任务 uid 与摘要归属不变 | 负责人 |
