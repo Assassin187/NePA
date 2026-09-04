@@ -49,7 +49,7 @@ METRIC_DEFINITION = "m1-4a1-architecture-calibration-metrics-v1"
 RECOVERY_METRIC_DEFINITION = "m1-4a2r-recovery-metrics-v1"
 REPAIR_IMPACT_POLICY_VERSION = "repair-impact-v1"
 DESIGN_BASELINE = {
-    "project_docs/system_design.md": "0974a27aa49c2cfdbc598a48b4f86f330ac3ddfec603f29264a8a1208e6f7020",
+    "project_docs/system_design.md": "94d7bdf4d9f1d57ed4c0fd50401c10449052d32c09d02abce59e73bb8aeea18f",
     "project_docs/pipeline_design_s4_s9.md": "6ebf3c693e519fd14229b3591b4226d51c9df399380f28164d5d981d45c51af8",
 }
 PATCH_SCHEMA_VERSION = "2.0"
@@ -371,8 +371,12 @@ def _derive_coupled_layout_operations(
         # controller-derived operations below.
         if old.get(field) != new.get(field):
             continue
-    if any(path not in allowed_model_changes for path in changed):
-        raise CalibrationEvidenceError("coupled projection rejects a broader model edit")
+    coupled_targets = ("/modules/", "/work_packages/")
+    for path in changed:
+        if path in allowed_model_changes:
+            continue
+        if path.startswith(coupled_targets) and ("/owns_files" in path or "/allowed_files" in path):
+            raise CalibrationEvidenceError("layout reference lists are controller-managed during a path change")
 
     replacements: dict[str, str] = {}
     for change in changes:
@@ -664,7 +668,7 @@ class CalibrationModelTarget:
     context_window_tokens: int
 
     def __post_init__(self) -> None:
-        if not self.provider.strip() or not self.model.strip() or self.max_tokens != 65536 or self.context_window_tokens <= 0 or self.temperature < 0:
+        if not self.provider.strip() or not self.model.strip() or self.max_tokens <= 0 or self.context_window_tokens <= 0 or self.temperature < 0:
             raise CalibrationDeclarationError("model target has invalid provider, model, temperature, token, or context values")
 
     @classmethod
@@ -719,10 +723,13 @@ class CalibrationBatchDeclaration:
 
     def targets(self, config: ResolvedConfig) -> dict[str, CalibrationModelTarget]:
         values = self.models or config.calibration_models
-        if set(values) != set(MODEL_IDS):
-            raise CalibrationDeclarationError(f"calibration models must be exactly {MODEL_IDS}")
+        if not values:
+            raise CalibrationDeclarationError("calibration models must contain at least one logical slot")
+        model_ids = tuple(sorted(values))
+        if any(not re.fullmatch(r"[a-z][a-z0-9_]*", model_id) for model_id in model_ids):
+            raise CalibrationDeclarationError("calibration model slots must be safe lowercase identifiers")
         targets: dict[str, CalibrationModelTarget] = {}
-        for model_id in MODEL_IDS:
+        for model_id in model_ids:
             raw_target = values[model_id]
             if hasattr(raw_target, "model_dump"):
                 raw_target = raw_target.model_dump(mode="json")
@@ -980,9 +987,9 @@ def build_lineage_manifest(
     targets = model_targets or config.calibration_models
     target_projection: dict[str, Any] = {}
     slot_controls: dict[str, Any] = {}
-    for model_id in MODEL_IDS:
-        if model_id not in targets:
-            raise CalibrationDeclarationError(f"missing lineage model target {model_id}")
+    if not targets:
+        raise CalibrationDeclarationError("lineage requires at least one model target")
+    for model_id in sorted(targets):
         target = CalibrationModelTarget.from_value(targets[model_id])
         limit = (context_window_tokens or {}).get(model_id, target.context_window_tokens)
         target_projection[model_id] = {
@@ -1036,8 +1043,11 @@ def build_lineage_manifest(
         raise CalibrationDeclarationError("lineage metric-definition contract or implementation hash drift")
     semantic_stats_bytes = canonical_json_bytes(semantic_stats)
     calibration_projection = {
-        "api_key_env": dict(FIXED_API_KEY_ENVS),
-        "model_ids": list(MODEL_IDS),
+        "api_key_env": {
+            model_id: config.providers[target["provider"]].api_key_env
+            for model_id, target in sorted(target_projection.items())
+        },
+        "model_ids": sorted(target_projection),
     }
     if calibration is not None:
         supplied_calibration = dict(calibration)
@@ -1593,7 +1603,7 @@ class ArchitectureCalibrationDriver:
         adapters = _provider_map(self.provider_factory, model_id, target, derived, store)
         self._register_adapters(model_id, adapters)
         telemetry = LLMTelemetry(store, secret_env_names={item.api_key_env for item in derived.providers.values() if item.api_key_env})
-        client = LLMClient(derived, adapters, store=store, telemetry=telemetry)
+        client = LLMClient(derived, adapters, store=store, telemetry=telemetry, max_transport_attempts=3)
         invoker = AgentInvoker(derived, client)
         binding = ArchitecturePlannerContractBinding(invoker)
         schema, example = binding.contract(declaration.repair_mode, 0)
@@ -1648,7 +1658,7 @@ class ArchitectureCalibrationDriver:
                 raise CalibrationEvidenceError(f"uncommitted or incomplete trial directory cannot be reused: {trial_id}")
             self._run_trial(store, lineage, model_id, target, declaration, binding, planning, manifest, constraints, trial_id, prompt_hash, template_bytes)
         report = recompute_calibration_report(store.root, config=self.config)
-        if self.publish_reports and report["status"] == "complete":
+        if self.publish_reports:
             _publish_json(store, "calibration_report.json", report, schema_name="calibration-report.schema.json")
         return ArtifactRef(
             str(store.root.relative_to(lineage_store.root)),
@@ -1682,6 +1692,7 @@ class ArchitectureCalibrationDriver:
         terminal = "semantic-fail"
         previous_context: Any = None
         previous_validation: Mapping[str, Any] | None = None
+        rejected_patch_attempts: list[dict[str, Any]] = []
         for depth in range(declaration.semantic_depth + 1):
             prior_trace_count = len(_trace_rows(store, trial_id))
             try:
@@ -1735,9 +1746,6 @@ class ArchitectureCalibrationDriver:
                     mapping = map_architecture_failures_to_paths(candidate, previous_context["validation_issues"])
                     allowed_paths = mapping["allowed_paths"]
                     patch_data = canonical_json_bytes(parsed) if parsed is not None else canonical_json_bytes({})
-                    patch_path = f"patches/{trial_id}_p{depth}.json"
-                    store.publish_immutable_bytes(patch_path, patch_data)
-                    patch_ref = _ref(patch_path, patch_data)
                     try:
                         candidate, projection_evidence = apply_architecture_patch_with_projection(
                             candidate, parsed or {}, allowed_paths, constraints,
@@ -1746,6 +1754,74 @@ class ArchitectureCalibrationDriver:
                     except CalibrationEvidenceError as exc:
                         candidate = before_candidate
                         rejection_reason = str(exc)
+                        rejected_patch_path = f"patches/{trial_id}_p{depth}_rejected_1.json"
+                        store.publish_immutable_bytes(rejected_patch_path, patch_data)
+                        rejected_patch_ref = _ref(rejected_patch_path, patch_data)
+                        application_value = {
+                            "schema_version": PATCH_SCHEMA_VERSION,
+                            "patch_ref": rejected_patch_ref,
+                            "applied": False,
+                            "rejection_reason": rejection_reason,
+                            "before_sha256": _sha(canonical_json_bytes(before_candidate)),
+                            "model_operations": projection_evidence["model_operations"],
+                            "derived_operations": [],
+                            "projection": projection_evidence["projection"],
+                        }
+                        _validate_schema_artifact(application_value, "architecture-patch-application.schema.json", f"{trial_id}/patch_application")
+                        application_data = canonical_json_bytes(application_value)
+                        application_path = f"applications/{trial_id}_p{depth}_rejected_1.json"
+                        store.publish_immutable_bytes(application_path, application_data)
+                        rejected_application_ref = _ref(application_path, application_data)
+                        correction_task_id = f"{trial_id}_p{depth}_correction"
+                        rejected_patch_attempts.append({
+                            "depth": depth,
+                            "reason": rejection_reason,
+                            "patch_ref": rejected_patch_ref,
+                            "application_ref": rejected_application_ref,
+                            "correction_task_id": correction_task_id,
+                        })
+                        correction_context = {
+                            **previous_context,
+                            "patch_rejection": {
+                                "reason": rejection_reason,
+                                "rejected_patch": parsed,
+                                "instruction": "Correct only the rejected patch format, path, or application method; keep the current candidate unchanged.",
+                            },
+                        }
+                        architecture_planner_context_preflight(
+                            planning, constraints,
+                            model_limits={model_id: target.context_window_tokens},
+                            requested_output_tokens=target.max_tokens,
+                            safety_margin_ratio=self.config.planning.context_safety_margin_ratio,
+                            output_schema=schema, output_example=example,
+                            repair_context=correction_context,
+                            template_bytes=phase_template_bytes,
+                        )
+                        correction = binding.invoke(
+                            planning_index=planning, delivery_constraints=constraints,
+                            repair_context=correction_context,
+                            run_id=f"calibration:{lineage['lineage_id']}:{declaration.prompt_version}:{model_id}",
+                            task_id=correction_task_id, attempt=depth + 1, use_cache=False,
+                            template_bytes=phase_template_bytes,
+                            repair_mode=declaration.repair_mode, depth=depth, phase=phase,
+                        )
+                        response = correction.response
+                        parsed = correction.parsed if isinstance(correction.parsed, dict) else None
+                        trace = _latest_trace(store, correction_task_id)
+                        patch_data = canonical_json_bytes(parsed) if parsed is not None else canonical_json_bytes({})
+                        rejection_reason = None
+                        try:
+                            candidate, projection_evidence = apply_architecture_patch_with_projection(
+                                before_candidate, parsed or {}, allowed_paths, constraints,
+                            )
+                            _validate_schema_artifact(candidate, "architecture-draft.schema.json", f"{trial_id}/corrected_patched_candidate")
+                        except CalibrationEvidenceError as correction_exc:
+                            candidate = before_candidate
+                            rejection_reason = str(correction_exc)
+                    patch_path = f"patches/{trial_id}_p{depth}.json"
+                    store.publish_immutable_bytes(patch_path, patch_data)
+                    patch_ref = _ref(patch_path, patch_data)
+                    if rejection_reason is not None:
                         application_value = {
                             "schema_version": PATCH_SCHEMA_VERSION,
                             "patch_ref": patch_ref,
@@ -1756,13 +1832,12 @@ class ArchitectureCalibrationDriver:
                             "derived_operations": [],
                             "projection": projection_evidence["projection"],
                         }
-                        _validate_schema_artifact(application_value, "architecture-patch-application.schema.json", f"{trial_id}/patch_application")
                         application_data = canonical_json_bytes(application_value)
                         application_path = f"applications/{trial_id}_p{depth}.json"
                         store.publish_immutable_bytes(application_path, application_data)
                         application_ref = _ref(application_path, application_data)
                         attempts.append(self._attempt_record(
-                    store, trial_id, depth, response, None, None, trace, True,
+                            store, trial_id, depth, response, None, None, trace, True,
                             response.repair_attempts > 0, patch_ref=patch_ref,
                             application_ref=application_ref, allowed_paths=allowed_paths,
                             rejection_reason=rejection_reason,
@@ -1861,6 +1936,7 @@ class ArchitectureCalibrationDriver:
             "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
             "model_id": model_id, "trial_id": trial_id, "semantic_depth_declared": declaration.semantic_depth,
             "attempts": attempts, "terminal": terminal, "first_passing_depth": first_passing,
+            "patch_rejections": rejected_patch_attempts,
         }
         request_value = {
             "schema_version": "2.0", "lineage_id": lineage["lineage_id"], "prompt_version": declaration.prompt_version,
@@ -1941,12 +2017,13 @@ class ArchitectureCalibrationDriver:
         prepared, planning, manifest, constraints = self._prepare(declaration)
         lineage_store, lineage = self._publish_lineage(prepared, planning, manifest, constraints, targets, declaration)
         results: dict[str, ArtifactRef] = {}
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        model_ids = tuple(sorted(targets))
+        with ThreadPoolExecutor(max_workers=len(model_ids)) as executor:
             futures = {
                 model_id: executor.submit(self._model_worker, lineage_store, lineage, model_id, targets[model_id], declaration, planning, manifest, constraints)
-                for model_id in MODEL_IDS
+                for model_id in model_ids
             }
-            for model_id in MODEL_IDS:
+            for model_id in model_ids:
                 results[model_id] = futures[model_id].result()
         return results
 
@@ -2160,7 +2237,8 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
                     raise CalibrationEvidenceError(f"invalid patch trace in {trial_dir.name} at {index}") from exc
                 last_trace = trace_value
         trace = last_trace or {}
-        if trace.get("task_id") != trial_dir.name or trace.get("attempt") != index + 1 or trace.get("run_id") != f"calibration:{lineage['lineage_id']}:{batch['prompt_version']}:{model_id}" or trace.get("stage") != "S4" or trace.get("agent_role") != "architecture_planner":
+        expected_task_ids = {trial_dir.name, f"{trial_dir.name}_p{depth}_correction"}
+        if trace.get("task_id") not in expected_task_ids or trace.get("attempt") != index + 1 or trace.get("run_id") != f"calibration:{lineage['lineage_id']}:{batch['prompt_version']}:{model_id}" or trace.get("stage") != "S4" or trace.get("agent_role") != "architecture_planner":
             raise CalibrationEvidenceError(f"patch trace identity drift in {trial_dir.name} at {index}")
         if trace.get("provider") != batch.get("provider") or trace.get("requested_provider") != batch.get("provider") or trace.get("requested_model") != batch.get("model") or trace.get("cached") is not False or trace.get("use_cache") is not False:
             raise CalibrationEvidenceError(f"patch trace request controls drift in {trial_dir.name} at {index}")
@@ -2194,6 +2272,27 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
                 patch_value = json.loads(_verify_ref(store.root, patch_ref, f"{trial_dir.name}/patch" ).decode("utf-8"))
                 _validate_schema_artifact(patch_value, "architecture-patch.schema.json", f"{trial_dir.name}/patch")
                 repair_context = {"candidate": current_candidate, "validation_issues": current_validation.get("issues", []), "allowed_paths": allowed_paths}
+                if trace.get("task_id") == f"{trial_dir.name}_p{depth}_correction":
+                    rejection = next(
+                        (item for item in validation.get("patch_rejections", []) if item.get("depth") == depth),
+                        None,
+                    )
+                    if not isinstance(rejection, Mapping) or rejection.get("correction_task_id") != trace.get("task_id"):
+                        raise CalibrationEvidenceError(f"patch correction has no rejected parent in {trial_dir.name} at {index}")
+                    rejected_patch = json.loads(_verify_ref(store.root, rejection["patch_ref"], f"{trial_dir.name}/rejected_patch").decode("utf-8"))
+                    rejected_application = json.loads(_verify_ref(store.root, rejection["application_ref"], f"{trial_dir.name}/rejected_application").decode("utf-8"))
+                    _validate_schema_artifact(rejected_patch, "architecture-patch.schema.json", f"{trial_dir.name}/rejected_patch")
+                    _validate_schema_artifact(rejected_application, "architecture-patch-application.schema.json", f"{trial_dir.name}/rejected_application")
+                    if rejected_application.get("patch_ref") != rejection.get("patch_ref") or rejected_application.get("applied") is not False or rejected_application.get("rejection_reason") != rejection.get("reason"):
+                        raise CalibrationEvidenceError(f"rejected patch correction parent is inconsistent in {trial_dir.name} at {index}")
+                    repair_context = {
+                        **repair_context,
+                        "patch_rejection": {
+                            "reason": rejection["reason"],
+                            "rejected_patch": rejected_patch,
+                            "instruction": "Correct only the rejected patch format, path, or application method; keep the current candidate unchanged.",
+                        },
+                    }
                 projection_evidence = {
                     "model_operations": [dict(operation) for operation in patch_value["patch_ops"]],
                     "derived_operations": [],
@@ -2241,10 +2340,14 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
                     json.loads(_verify_ref(store.root, locality_ref, f"{trial_dir.name}/locality").decode("utf-8"))
         else:
             candidate_ref = attempt.get("candidate_ref")
-            if not isinstance(candidate_ref, Mapping):
-                raise CalibrationEvidenceError(f"initial attempt has no candidate ref in {trial_dir.name}")
-            current_candidate = json.loads(_verify_ref(store.root, candidate_ref, f"{trial_dir.name}/candidate").decode("utf-8"))
-            _validate_schema_artifact(current_candidate, "architecture-draft.schema.json", f"{trial_dir.name}/candidate")
+            if attempt.get("infrastructure_invalid"):
+                if candidate_ref is not None or attempt.get("validation_ref") is not None or attempt.get("schema_valid") or attempt.get("semantic_verdict") != "not-evaluable":
+                    raise CalibrationEvidenceError(f"infrastructure-invalid initial leaves are inconsistent in {trial_dir.name}")
+            else:
+                if not isinstance(candidate_ref, Mapping):
+                    raise CalibrationEvidenceError(f"initial attempt has no candidate ref in {trial_dir.name}")
+                current_candidate = json.loads(_verify_ref(store.root, candidate_ref, f"{trial_dir.name}/candidate").decode("utf-8"))
+                _validate_schema_artifact(current_candidate, "architecture-draft.schema.json", f"{trial_dir.name}/candidate")
         rendered = _render_architecture_prompt(
             frozen["planning_index"], frozen["delivery_constraints"], repair_context,
             architecture_patch_contract()[0] if depth > 0 else architecture_draft_contract()[0],
@@ -2259,8 +2362,10 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
         if prompt_data not in expected_prompts or _sha(prompt_data) != trace.get("prompt_sha256") or _sha(expected_prompt) != trace.get("effective_prompt_sha256"):
             raise CalibrationEvidenceError(f"patch provider prompt does not match its contract in {trial_dir.name} at {index}")
         response_value = json.loads(_verify_ref(store.root, response_evidence[-1], f"{trial_dir.name}/final_response").decode("utf-8"))
-        parsed_value = extract_first_json_value(str(response_value.get("text", ""))) if response_value.get("parsed") is None else response_value.get("parsed")
-        if depth == 0 and parsed_value != current_candidate:
+        parsed_value = None
+        if not attempt.get("infrastructure_invalid"):
+            parsed_value = extract_first_json_value(str(response_value.get("text", ""))) if response_value.get("parsed") is None else response_value.get("parsed")
+        if depth == 0 and not attempt.get("infrastructure_invalid") and parsed_value != current_candidate:
             raise CalibrationEvidenceError(f"initial candidate is not derived from provider output in {trial_dir.name}")
         if depth > 0 and patch_ref is not None:
             if parsed_value != json.loads(_verify_ref(store.root, patch_ref, f"{trial_dir.name}/patch_recheck").decode("utf-8")):

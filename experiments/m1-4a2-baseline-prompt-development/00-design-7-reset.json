@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-09-03",
+  "design_version": "7.0.0",
+  "change": "m1-4a2-patch-calibration-rerun",
+  "status": "initialized-no-provider-io",
+  "new_experiment": {
+    "lineage_id": "ee5a23a8fcbaa5dc273f36c0365707fac5a9684f050463fc32ec7fd6bc3b67a5",
+    "lineage_root": "runs/_calibration/s4-architecture/ee5a23a8fcbaa5dc273f36c0365707fac5a9684f050463fc32ec7fd6bc3b67a5",
+    "lineage_sha256": "09189d4d753981956a8c1b2fbd722b310fd55ddace4548b47d83f5c275a130e2",
+    "protocol_sha256": "d4f23c70bd731ef2737a827879a880783b3d363946d5c43c2a539ceba366e8ee",
+    "model_slot": "architecture_primary",
+    "versions": ["v0", "v1", "v2"],
+    "trials_per_version": 3,
+    "initial_trial_ceiling": 9,
+    "completed_initial_trials": 0,
+    "provider_calls_made_by_initialization": 0,
+    "initial_prompt_sha256": "66ac8c8eb6e15919b85bc8d93cb6b57588c0f21687e124edfc02fe5a5d009bbe",
+    "repair_prompt_sha256": "eae104e752498056b59e76d3cd4f087f8fb954555dccfb1382045742d3f94e7b"
+  },
+  "stopped_old_attempt": {
+    "lineage_id": "58377f793cb867208c989d0ef43716bc072e8cd11eb58dca5c69b83a23776047",
+    "attempt": 5,
+    "prior_state": "unstarted",
+    "new_state": "stopped-by-design-7.0.0",
+    "provider_calls_after_stop": 0
+  },
+  "legacy_diagnostic_lineages": [
+    "2656c887f54b02c3ec8f7f63a0622d2fb0f6bcb29a366fac51735c5be717d7f0",
+    "2d297e0ebd5bfdb4a88e73528428c02173be2be13a09169e7db9a0b15fb5e2c8",
+    "49cce2766275f525761fd2a4035df00b20754538f37f9c62bdba061f3bfdbd2a",
+    "58377f793cb867208c989d0ef43716bc072e8cd11eb58dca5c69b83a23776047",
+    "586aef1c0fd52eee0f10e828bf7552a1d2d45a18f6ea119877e24f053a5a7bb7",
+    "756d74f239a07559f40d6c503ef87df9e677bedcbc7db765cae1c4357b69f810",
+    "8e0336e9ba795fb913604961a9559aae3433f5e44d81e1571089a1f4785b6d13",
+    "966954e7865b97339a123d30f558fe882a09bac8d00dcf30ead1ea2edae434bf",
+    "a85f28d7f96f41cc7ef615c4bd03e95cbd8d1ed134f7d60894ecb4ce7ffbc415",
+    "b651aa5c2118add34551a8814859e352c01268548a86b4d704add63b33011ebf",
+    "daa917e4c0362d5bce575df3e1ef7436f35942aa0075ba21e3f432ca4ce48772"
+  ],
+  "legacy_policy": {
+    "historical_files_modified": false,
+    "may_enter_new_statistics": false,
+    "may_produce_new_handoff": false,
+    "read_only_validation_and_recomputation_retained": true
+  },
+  "live_boundary": {
+    "selection_requires": "at least 2 of 3 trials pass within two effective repairs",
+    "owner_approval_required_before_m1_4c_handoff": true,
+    "production_quality_claimed": false,
+    "live_execution_performed": false
+  }
+}

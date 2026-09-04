@@ -166,6 +166,7 @@ class LLMClient:
         backoff: Any = lambda retry_number: 2 ** (retry_number - 1),
         monotonic: Any = time.monotonic,
         telemetry: Any | None = None,
+        max_transport_attempts: int = 4,
     ) -> None:
         self.config = config
         self.providers = dict(providers or {})
@@ -174,6 +175,9 @@ class LLMClient:
         self._sleeper = sleeper
         self._backoff = backoff
         self._monotonic = monotonic
+        if max_transport_attempts < 1:
+            raise ValueError("max_transport_attempts must be positive")
+        self._max_transport_attempts = max_transport_attempts
         self._pending_evidence: list[LLMResponse] = []
         self._probe_records: list[CapabilityProbeResult] = []
         self.telemetry = telemetry
@@ -240,7 +244,7 @@ class LLMClient:
                 )
             except (TransportError, ProviderError) as exc:
                 retryable = getattr(exc, "retryable", False)
-                if not retryable or attempts >= 4:
+                if not retryable or attempts >= self._max_transport_attempts:
                     if isinstance(exc, TransportError):
                         exc.attempts = attempts
                     else:

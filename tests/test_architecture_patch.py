@@ -114,7 +114,7 @@ def test_static_layout_projection_updates_exact_module_and_work_package_closure(
 
 
 def test_expanded_layout_projection_preserves_unrelated_list_entries():
-    from tests.test_architecture_validation import _valid_draft
+    from test_architecture_validation import _valid_draft
 
     candidate, _planning, _manifest, constraints = _valid_draft()
     candidate["modules"][0]["owns_files"].append("src/codec/unrelated.c")
@@ -132,7 +132,7 @@ def test_expanded_layout_projection_preserves_unrelated_list_entries():
 
 def test_expanded_projection_revalidates_as_one_atomic_all_gate_candidate():
     from nepa.speclib.architecture import validate_architecture
-    from tests.test_architecture_validation import _valid_draft
+    from test_architecture_validation import _valid_draft
 
     candidate, planning, manifest, constraints = _valid_draft()
     before = validate_architecture(candidate, planning, manifest, constraints)
@@ -146,8 +146,8 @@ def test_expanded_projection_revalidates_as_one_atomic_all_gate_candidate():
     assert len(after["gates"]) == 15
 
 
-def test_layout_projection_rejects_domain_change_missing_closure_and_broader_edit():
-    from tests.test_architecture_validation import _valid_draft
+def test_layout_projection_rejects_domain_change_and_missing_closure_but_keeps_other_legal_edits():
+    from test_architecture_validation import _valid_draft
 
     candidate, _planning, _manifest, constraints = _valid_draft()
     domain_patch = _replace("/layout/files/message-codecs/path_pattern", "src/codec/{type_id}.c")
@@ -169,5 +169,5 @@ def test_layout_projection_rejects_domain_change_missing_closure_and_broader_edi
             {"op": "replace", "path": "/modules/codec/name", "expected_presence": "present", "value": "Changed"},
         ],
     }
-    with pytest.raises(CalibrationEvidenceError, match="broader"):
-        apply_architecture_patch_with_projection(candidate, broader, ["/layout", "/modules"], constraints)
+    changed, _evidence = apply_architecture_patch_with_projection(candidate, broader, ["/layout", "/modules"], constraints)
+    assert changed["modules"][0]["name"] == "Changed"

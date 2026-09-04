@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://nepa.local/schemas/calibration-baseline-owner-approval.schema.json","type":"object","additionalProperties":false,"required":["approved","reviewer"],"properties":{"approved":{"const":true},"reviewer":{"type":"string","minLength":1},"note":{"type":"string"},"approved_at":{"type":"string","minLength":1}}}

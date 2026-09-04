@@ -107,7 +107,7 @@ class _RetryingProvider:
 
     def complete(self, request, *, model, native_schema):
         self.calls += 1
-        if self.calls < 4:
+        if self.calls < 3:
             raise TransportError("retryable fixture transport", provider="fixture")
         return LLMResponse(
             text=pathlib.Path("nepa/schemas/examples/architecture-draft.example.json").read_text(encoding="utf-8"),
@@ -176,10 +176,10 @@ def test_report_counts_transport_retries_from_output_evidence(tmp_path):
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=lambda *args: {"fixture": _RetryingProvider()}).run(_declaration())
     root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
     report = recompute_calibration_report(root)
-    assert report["usage"]["calls"] == 4
+    assert report["usage"]["calls"] == 3
     assert report["usage"]["tokens_in"] == 11
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
-    assert validation["attempts"][0]["call_metrics"][0]["transport_attempts"] == 4
+    assert validation["attempts"][0]["call_metrics"][0]["transport_attempts"] == 3
 
 
 def test_semantic_repair_is_a_separate_attempt_with_bounded_evidence(tmp_path):
@@ -206,12 +206,13 @@ def test_two_workers_overlap_but_keep_model_roots_separate(tmp_path):
         assert all(root.name not in trace.get("provider_prompt_paths", []) for trace in traces)
 
 
-def test_infrastructure_invalid_worker_does_not_publish_a_report(tmp_path):
+def test_infrastructure_invalid_worker_publishes_its_own_report_without_blocking_others(tmp_path):
     def providers(model_id, *args):
         return {"fixture": _TransportFailureProvider()} if model_id == "qwen" else {"fixture": _Provider()}
 
     ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=providers).run(_declaration())
-    assert not list(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen/calibration_report.json"))
+    failed_report = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen/calibration_report.json"))
+    assert json.loads(failed_report.read_text())["status"] == "infrastructure-invalid"
     assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/claude/calibration_report.json"))
     assert list(tmp_path.glob("_calibration/s4-architecture/*/v0/deepseek/calibration_report.json"))
 
@@ -226,7 +227,94 @@ def test_stream_decoding_failure_is_committed_as_infrastructure_invalid(tmp_path
     validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
     assert validation["terminal"] == "infrastructure-invalid"
     assert validation["attempts"][0]["infrastructure_invalid"] is True
-    assert not (root / "calibration_report.json").exists()
+    assert json.loads((root / "calibration_report.json").read_text())["status"] == "infrastructure-invalid"
+
+
+def test_one_unavailable_trial_does_not_rerun_or_block_the_other_trials(tmp_path):
+    class TrialLocalProvider:
+        native_structured_output = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, request, *, model, native_schema):
+            self.calls += 1
+            if self.calls <= 3:
+                raise TransportError("first trial unavailable", provider="fixture")
+            return LLMResponse(
+                text=pathlib.Path("nepa/schemas/examples/architecture-draft.example.json").read_text(),
+                tokens_in=1, tokens_out=1, cost_usd=0, model=model,
+                parameter_support={"temperature": ParameterSupportState.UNKNOWN},
+            )
+
+    instances = {}
+    def providers(model_id, *args):
+        instance = instances.setdefault(model_id, TrialLocalProvider())
+        return {"fixture": instance}
+
+    ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=providers).run(
+        _declaration(trial_count=3)
+    )
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
+    report = json.loads((root / "calibration_report.json").read_text())
+    assert [item["terminal"] for item in report["trial_metrics"]] == [
+        "infrastructure-invalid", "semantic-fail", "semantic-fail",
+    ]
+    assert instances["qwen"].calls == 5
+    assert sorted(path.name for path in (root / "trials").iterdir()) == ["trial_001", "trial_002", "trial_003"]
+
+
+def test_rejected_patch_gets_one_correction_without_consuming_an_extra_depth(tmp_path):
+    from test_architecture_validation import _valid_draft
+
+    valid, _planning, _manifest, _constraints = _valid_draft()
+    invalid = json.loads(json.dumps(valid))
+    module_id = invalid["modules"][0]["id"]
+    correct_contracts = list(valid["modules"][0]["provides_contracts"])
+    invalid["modules"][0]["provides_contracts"] = ["unknown-contract"]
+
+    class CorrectionProvider:
+        native_structured_output = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, request, *, model, native_schema):
+            self.calls += 1
+            if self.calls == 1:
+                value = invalid
+            elif self.calls == 2:
+                value = {"schema_version": "2.0", "patch_ops": [{
+                    "op": "replace", "path": "/modules/0/provides_contracts",
+                    "expected_presence": "present", "value": correct_contracts,
+                }]}
+            else:
+                value = {"schema_version": "2.0", "patch_ops": [{
+                    "op": "replace", "path": f"/modules/{module_id}/provides_contracts",
+                    "expected_presence": "present", "value": correct_contracts,
+                }]}
+            return LLMResponse(
+                text=json.dumps(value), tokens_in=1, tokens_out=1, cost_usd=0, model=model,
+                parameter_support={"temperature": ParameterSupportState.UNKNOWN},
+            )
+
+    instances = {}
+    def providers(model_id, *args):
+        instance = instances.setdefault(model_id, CorrectionProvider())
+        return {"fixture": instance}
+
+    ArchitectureCalibrationDriver(_fixture_config(), runs_root=tmp_path, provider_factory=providers).run(
+        _declaration(semantic_repair_depth=2, repair_mode="patch", context_window_tokens={name: 110000 for name in ("qwen", "claude", "deepseek")})
+    )
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
+    validation = json.loads((root / "trials/trial_001/validation.json").read_text())
+    assert validation["terminal"] == "pass"
+    assert validation["first_passing_depth"] == 1
+    assert len(validation["attempts"]) == 2
+    assert len(validation["patch_rejections"]) == 1
+    assert "numeric" in validation["patch_rejections"][0]["reason"]
+    assert instances["qwen"].calls == 3
+    assert recompute_calibration_report(root)["metrics"]["p1"] == 1.0
 
 
 def test_declared_prompt_hash_cannot_override_template_hash(tmp_path):

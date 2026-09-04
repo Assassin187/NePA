@@ -1,8 +1,8 @@
 # NePA 系统设计文档
 
 > 文档状态：Active\
-> 设计版本：6.1.0\
-> 最后更新：2026\-08\-30\
+> 设计版本：7.0.0\
+> 最后更新：2026\-09\-03\
 > 说明：本文档只描述系统设计。实现进度与迁移记录在本文档之外维护；本文档自身的修改记录见 12.5。
 
 ## 0\. 阅读指南
@@ -69,7 +69,7 @@
 | 构建/测试沙箱           | Docker（Linux 容器，默认禁网）                      | 8\.5      |
 | 生成工作区版本管理      | git（每任务一次提交）                               | 6\.6      |
 | 提示词模板语言          | 英文模板正文 \+ 中文维护注释                        | 8\.8      |
-| M1 架构规划校准模型     | Qwen、Claude、DeepSeek 三模型并行；共享同一协议中立 ArchitecturePlanner initial/repair 两阶段 prompt bundle | 4\.6、6\.4\.8、8\.3 |
+| M1 架构规划基准模型     | 由实验配置选择一个逻辑模型槽位；共享同一协议中立 ArchitecturePlanner initial/repair 两阶段 prompt bundle | 4\.6、6\.4\.8、8\.3 |
 | 生成项目文件布局        | 由 S4b 自由规划并机械校验；符号命名与资源上限仍机械派生 | 5\.6.5、`pipeline_design_s4_s9.md` §5.2 |
 | 计划修订粒度            | 三层冻结 `L\-C`/`L\-A`/`L\-P` \+ 封闭补丁算子集；修复阶梯 F0～F5 | `pipeline_design_s4_s9.md` §2、§7 |
 | M1 执行真值             | 默认构建变体全部通过 \+ 启动 smoke 检查通过         | 7\.4、`pipeline_design_s4_s9.md` §5.5 |
@@ -388,7 +388,7 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 3. 评审类角色**应当**绑定与被评审内容生产者不同的型号（3.3 结论 3：低相关视角叠加）。
 4. 每次调用的 token 数、成本**必须**记入 trace（5.5），按角色/阶段聚合进报告（P7），为后续成本\-质量消融实验提供数据（9.3）。
 
-M1\-4a2/M1\-4a3 是上述生产单模型静态路由之外的**受控校准实验**：Qwen、Claude、DeepSeek 三个固定候选必须在相同冻结输入、相同 `ArchitecturePlanner` initial/repair 两阶段 prompt bundle、相同 Schema 与相同 validator 上并行运行。这里的并行仅指三个彼此隔离的实验批次可同时执行；三者不得共享会话、缓存、运行目录或中间状态，也不启用 4.9 的运行时蜂群。校准结束后，正式 S4 仍按本节的静态角色路由使用一个生产模型。
+M1\-4a2 是上述生产单模型静态路由之外的受控基准提示词实验：实验配置指定一个逻辑模型槽位，使用冻结输入、ArchitecturePlanner initial/repair 两阶段 prompt bundle、Schema 与 validator 独立运行。实验不启用 4.9 的运行时蜂群，也不改变正式 S4 的静态角色路由。
 
 ### 4\.7 预算与停止条件
 
@@ -462,7 +462,7 @@ v1 为线性流水线；以下扩展点在架构上预留接口，未来按需�
 
 为此，编排器的任务调度接口**应当**设计为"提交任务集合 → 收集结果集合"，内部是串行还是并行对上层透明（8.2）。
 
-M1\-4a2/M1\-4a3 的三模型并行是隔离实验批次的固定要求，不属于本节 E1～E4，也不改变“v1 正式运行不实现蜂群”的边界。
+M1\-4a2 的单模型隔离实验不属于本节 E1～E4，也不改变“v1 正式运行不实现蜂群”的边界。
 
 ## 5\. 数据工件与 Schema
 
@@ -1291,7 +1291,7 @@ S4R（计划修订，见 6.5）的中间产物写入并列目录 `plan/_s4r/rev_
 | 输入      | 三项冻结输入：`spec/spec.json`、Target Profile、Test Bundle 元数据与 `gold_file/test_bundle.json` |
 | 输出      | `plan/versions/plan-1.0.0.json` 与指向它的 `plan/active_plan.json`；内部可恢复工件 `plan/_s4/` |
 | 角色/模型 | ArchitecturePlanner、TaskPlanner、PlanCritic；flat 实验另用 FlatPlanBaseline（均 T1；Critic 原则上不同型号） |
-| 预算      | bring\-up 候选：架构修复 ≤ 1；每工作包 shard 重做 ≤ 1；critic 语义修复累计 ≤ 2；全局重规划 ≤ 1；架构修复值在 M1\-4a3 冻结，其余由完整链 D1.3 复核 |
+| 预算      | bring\-up 候选：架构修复 ≤ 1；每工作包 shard 重做 ≤ 1；critic 语义修复累计 ≤ 2；全局重规划 ≤ 1；架构修复值与其余预算均由完整链 D1.3 复核 |
 
 S4 的不变量是：**最终工件一次性、原子发布，不等于由一次模型响应生成。** 每次 L3 Agent 调用仍只完成一个认知任务；id、哈希、排序、依赖链接与覆盖索引等机械字段全部由 L2 控制器生成。生产默认统一走 `layered` 策略，即使 MQTT 最小规格能塞进一次调用也不走小规格捷径。
 
@@ -1449,11 +1449,11 @@ Critic verdict 由控制器复核：存在任一 blocker/major 时必须为 `rev
 
 #### 6\.4.8 S4 架构规划开发与校准协议
 
-S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足 contract 集合等式、ready/provider 条件、需求唯一 primary、文件槽位、工作包 DAG 与测试 readiness 闭包，其联合通过率无法由单门直觉推断。因此 M1\-4a 的正常路径必须依次完成基础设施、`initial`/`repair` 两阶段 prompt bundle 优化、正式架构校准三个阶段；禁止跳过开发过程直接用一版未经迭代的 bundle 做资格判定。M1\-4a2 完成 V0～V4 后若按固定 fallback 规则仍为确定性平局且无法产生唯一候选，只能进入 6.4.8.2.1 的有界恢复分支；该分支不是正常路径的替代，也不得绕过正式架构校准。
+S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足 contract 集合等式、ready/provider 条件、需求唯一 primary、文件槽位、工作包 DAG 与测试 readiness 闭包，其联合通过率无法由单门直觉推断。因此 M1\-4a 只完成两项工作：先建立与生产同形的窄切片基础设施，再编写、试用并选出一套能够完成任务的 `initial`/`repair` 基准 prompt bundle。隔离实验只证明该 bundle 在当前配置模型上达到最低可用标准，不判断跨模型稳定性、工程质量或生产成功率；这些只能在框架完成后的 D1.3 完整运行中观察。
 
-正常三阶段及条件恢复分支都只处理 `ArchitecturePlanner`：TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer 的 prompt 不在本节优化范围。各阶段使用 MQTT gold 输入作为第一个实验实例，但框架、Schema、validator 与 `initial`/`repair` 两份 prompt 必须遵守 6.4 的协议中立硬约束，禁止为 MQTT 定制。
+本节只处理 `ArchitecturePlanner`：TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer 的 prompt 不在本节优化范围。实验使用 MQTT gold 输入作为第一个实例，但框架、Schema、validator 与 `initial`/`repair` 两份 prompt 必须遵守 6.4 的协议中立硬约束，禁止为 MQTT 或当前模型定制。
 
-正常三阶段及条件恢复分支的调用链只允许 ArchitecturePlanner、8.4 的结构化输出校验/修复和生产 `ARCH_VALIDATE`；禁止调用 TaskPlanner、Linker、PlanCritic、FlatPlanBaseline、Plan seal 及 S5/S6。校准目录不是正式 Run，不得写入 `run.json`、S4 receipt、正式 report 或 `nepa eval runs`，其候选架构也不得被下游消费。它只证明 ArchitecturePlanner 窄切片的资格，不证明完整 S4 可发布率。
+该调用链只允许 ArchitecturePlanner、8.4 的结构化输出校验/修复和生产 `ARCH_VALIDATE`；禁止调用 TaskPlanner、Linker、PlanCritic、FlatPlanBaseline、Plan seal 及 S5/S6。实验目录不是正式 Run，不得写入 `run.json`、S4 receipt、正式 report 或 `nepa eval runs`，其候选架构也不得被下游消费。只有最终选中的 prompt bundle 及其负责人签字可以交给 M1\-4c。
 
 ##### 6\.4.8.1 M1\-4a1：通用计划架构基础设施
 
@@ -1461,95 +1461,41 @@ S4 是全链最大的经验不确定点：ArchitecturePlanner 必须同时满足
 
 1. 冻结 gold Spec、Target Profile、Test Manifest 元数据，生成与正式 S4 相同的 `planning_index.json` 与 Delivery Constraints；Test Bundle 实现、runner、oracle 仍不可见；
 2. 实现 ArchitectureDraft Schema、canonical serializer 与生产 `ARCH_VALIDATE` 的全部 `S4-G2` 子门；实验与生产必须调用同一实现，禁止另写宽松实验校验器；
-3. 实现同时调度 Qwen、Claude、DeepSeek 的实验驱动。三模型读取同一输入，并逐字节共享同一版 `initial`/`repair` prompt bundle；各自使用独立会话、缓存、trace 和目录，“并行”不表示共享上下文或相互投票；
-4. 产物写入 gitignored 的 `runs/_calibration/s4-architecture/<lineage_id>/<prompt_version>/<model_slot>/`，至少包含 `batch.json`、`trials/trial_NNN/{request_ref,response_ref,validation.json}` 与可重算报告。目录键**必须**是配置中稳定的逻辑槽位名（如 `qwen`/`deepseek`），**禁止**使用 provider 返回的模型标识字符串，否则批次会因中途改名而散落到多个目录；每个 trial 实际解析到的标识字符串记在该 trial 的 `request_ref` 内；
+3. 实现由实验配置指定一个逻辑模型槽位的实验驱动。逻辑槽位名称、provider、具体模型和调用参数都来自配置，不在设计文档中写死；
+4. 产物写入 gitignored 的 `runs/_calibration/s4-architecture/<lineage_id>/<prompt_version>/<model_slot>/`，至少包含 `batch.json`、`trials/trial_NNN/{request_ref,response_ref,validation.json}` 与可重算报告。目录键必须是配置中稳定的逻辑槽位名，禁止使用 provider 返回的模型标识字符串；每个 trial 实际解析到的标识字符串记在该 trial 的 `request_ref` 内；
 5. 实现协议中立静态扫描和非 MQTT fixture：框架与 `initial`/`repair` 两份 prompt 不得出现 MQTT 专有标识符，协议相关内容只能通过冻结输入注入；
 6. 本阶段只提供窄切片所需的 Delivery Constraints 能力。M1\-4b 必须复用并扩展同一确定性实现完成完整 Blueprint/Plan/Linker，禁止另建平行代码路径。
 
-基础设施验收后，Schema、validator、serializer、输入构造、语义修复 patch Schema、patch 应用器、失败码到允许修改路径的局部性映射、Qwen/Claude/DeepSeek 三模型配置及统计口径组成一个 `lineage_id`。这里的"三模型配置"按 9.2 的配置等价类理解：指三个**逻辑模型槽位**及其 provider 端点、路由档位与调用参数，**不含**模型标识字符串本身；槽位所解析到的 `model` 值或 provider 返回的版本字符串变化**不新建** lineage，也不作废已采集的 trial。提示词开发期间只允许改变共享 `ArchitecturePlanner` prompt bundle 中的一个阶段模板；上述任一其他要素（包括候选槽位集合或 `max_tokens`）变化都必须新建 lineage，旧数据不得混合比较。
+基础设施验收后，Schema、validator、serializer、输入构造、语义修复 patch Schema、patch 应用器、失败码到允许修改路径的局部性映射、当前逻辑模型槽位配置及统计口径组成一个 `lineage_id`。模型槽位的 provider 端点、路由档位与调用参数属于实验身份，provider 返回的模型标识字符串只记录、不用于设计门槛。更换槽位配置必须新建 lineage，旧数据不得混合比较，但不需要修改设计文档。提示词版本推进可以修改 `initial`、`repair` 或二者，只要记录依据与逐字差异；Schema、validator 或其他非提示词要素变化仍必须新建 lineage。
 
-五处已知的强制新建 lineage 场景：其一，自由布局规划（5.6.5.3）改变了 ArchitectureDraft Schema、`ARCH_VALIDATE` 子门集合与输入构造（新增布局约定资产），在此之前按固定文件槽采集的架构校准数据一律作废；其二，6.4.8.2.1 改变恢复筛选与修复局部性的证据口径；其三，6.0.0 将 M1\-4a2 改为两次 patch 语义修复并新增 patch Schema、应用器和失败路径映射，旧的整份 ArchitectureDraft 修复 trial 不得进入新开发批；其四，6.0.1 删除模型生成 patch 中的 prior-value SHA\-256 前置条件并相应改变 patch Schema 与应用语义，6.0.0 的含值哈希 patch trial 不得进入 6.0.1 开发批；其五，6.1.0 把单一 ArchitecturePlanner prompt 拆为 `initial`/`repair` 两阶段 bundle 并改变调用时的模板选择，旧的单模板 trial 不得进入两阶段开发批。五种情况下旧数据都只能作为可追溯的历史证据保留，不得进入新 lineage 的分母、候选集合或阈值推导。
+已知的强制新建 lineage 场景包括：自由布局规划改变 Schema、validator 与输入构造；patch Schema、应用器或失败路径映射变化；模型槽位配置或调用参数变化；单模板改为 `initial`/`repair` 两阶段 bundle；以及本次 7.0.0 将固定三模型整版实验改为单模型逐样本实验。旧数据只能作为可追溯历史证据保留，不得进入新 lineage 的分母、候选集合或选择结果。
 
-##### 6\.4.8.2 M1\-4a2：三模型共享 ArchitecturePlanner 两阶段 Prompt Bundle 优化
+##### 6\.4.8.2 M1\-4a2：ArchitecturePlanner 两阶段基准 Prompt Bundle 开发
 
-优化对象是**同一套模型无关、协议中立的 `initial`/`repair` 两阶段 prompt bundle**。`initial` 模板只用于每个 trial 的 depth 0 初始规划：接收冻结规划输入并生成完整 `ArchitectureDraft`；`repair` 模板只用于 depth 1/2 的后续语义修复：接收当前候选、精确 validator 失败和控制器允许的修改范围，并遵守调用阶段已经冻结的输出契约。M1\-4a2 的 repair 输出契约为 patch；M1\-4a2r 继续使用该分支既有的完整 `ArchitectureDraft` 修复契约；M1\-4a3 与生产 S4 则遵守其已冻结的调用形态。两份模板属于同一个 ArchitecturePlanner 角色和模型路由，拆分模板**不新增角色**，也不得把初始规划指令重新拼接进 repair 请求。
+优化对象是**同一套模型无关、协议中立的 `initial`/`repair` 两阶段 prompt bundle**。`initial` 模板只用于每个 trial 的 depth 0 初始规划并生成完整 `ArchitectureDraft`；`repair` 模板只用于 depth 1/2 的 patch 语义修复，接收当前候选、精确 validator 失败和控制器允许的修改范围。两份模板属于同一个 ArchitecturePlanner 角色和模型路由，拆分模板不新增角色，也不得把初始规划指令重新拼接进 repair 请求。
 
-一个 `Vn` prompt 版本必须把 `initial` 与 `repair` 两份模板作为不可拆分的版本对发布和选择；三模型在同一版本上使用完全相同的两份模板，禁止跨版本混搭。禁止为某一模型建立专用版本、条件分支或模型专属 few-shot；禁止把 MQTT 报文名、字段名、REQ id、文件名、接口名或一次成功的 MQTT 架构写入任一模板。允许的改动只有通用职责说明、约束表达、输出顺序、自检清单和与协议无关的抽象示例。
+一个 `Vn` prompt 版本必须把 `initial` 与 `repair` 两份模板作为不可拆分的版本对发布和选择，禁止跨版本混搭。模板不得包含针对当前模型的条件分支，也不得把 MQTT 报文名、字段名、REQ id、文件名、接口名或一次成功的 MQTT 架构写入模板。允许的内容是通用职责说明、可执行构造顺序、约束表达、自检清单和与协议无关的抽象示例。
 
-采用最多五版的有界开发协议：
+采用最多三版的有界开发协议：
 
-1. **V0 基线**：Qwen、Claude、DeepSeek 各自运行 N \= 3 个独立 trial；
-2. **V1～V4 定点优化（按需）**：前一版未满足筛选门且完整逐门与修复证据支持一个可检验、与此前不同的 prompt 缺陷假设时，才允许修改 prompt bundle。每次版本推进只能修改 `initial` 或 `repair` 其中一份，另一份必须保持逐字节不变；每版再次由三个模型各运行 N \= 3，不扩样、不补抽。V1～V4 对整个 bundle 共提供最多四次修改机会，**不是**每个阶段各四次；禁止 V5 或开放式调参直到“看起来通过”。
+1. **V0 基线**：配置指定的模型槽位运行 N \= 3 个独立 trial；
+2. **V1～V2 按需改进**：前一版未达到最低可用标准时，根据完整失败与修复证据修改 `initial`、`repair` 或二者，并记录原因和逐字差异；每版仍运行 N \= 3，禁止补抽或继续到 V3。若 V0 或 V1 已达到最低标准，立即停止，不再为了挑选更高分版本继续运行。
 
-每个模型预注册的**初始生成 trial 硬上限为 15 个**，即 V0～V4 全部执行时 `5 × 3 = 15`；首个版本通过筛选门后立即早停，未使用的初始生成额度作废。语义 patch 修复调用与 8.4 的结构化输出修复调用不计入这 15 个初始生成 trial，但必须逐次计入实际调用数、token、成本和延迟。
+当前模型槽位预注册的初始生成 trial 硬上限为 9 个，即 V0～V2 全部执行时 `3 × 3 = 9`；首个版本达到最低标准后立即早停，未使用额度作废。语义 patch、patch 纠错与结构化输出修复不计入这 9 个初始生成 trial，但必须逐次记录调用数、token、成本和延迟。
 
 每个 trial 都必须以一次全新、无会话历史的 `initial` 调用开始并关闭跨 trial 缓存。初始响应先做 ArchitectureDraft Schema 校验，可沿用 8.4 的一次结构修复；首次 Schema 合法候选立即运行完整 `ARCH_VALIDATE` 并记为 `p0`。若语义失败，开发批依次允许最多两次全新、无会话历史的 `repair` 调用：第一次只携带当前候选、精确 canonical 失败清单和控制器由这些失败机械派生的允许修改路径，应用后记为 `p1`；若仍失败，第二次以第一次 patch 原子应用后的候选及其最新完整 validator 失败为输入，应用后记为 `p2`。通过 `p0` 或 `p1` 后立即停止该 trial 的后续语义修复。每次 request/trace 必须明确记录所选阶段模板及 bundle 版本，使调用链可重放；不得依赖会话历史推断当前阶段。
 
-两次语义修复都必须使用 patch 模式：模型只返回符合 lineage 冻结 patch Schema 的操作列表，禁止返回完整 `ArchitectureDraft`。每个操作的目标路径必须落在本轮失败码对应的允许修改路径并满足操作对应的存在性规则：`add` 的目标必须不存在，`replace`/`remove` 的目标必须存在；patch Schema **禁止**要求模型计算或返回 prior-value hash、SHA\-256 或其他值摘要。控制器拒绝越界、冲突、存在性不符、不可应用或试图改写非失败区域的 patch。一个 patch 只有在全部操作可原子应用、patch 外的 canonical 值保持不变、结果重新通过 ArchitectureDraft Schema 且完整重跑 `ARCH_VALIDATE` 后才形成下一深度的候选；失败 patch 及拒绝原因完整留存，不得退回整份重写。结构化输出修复只修复 patch 载荷的格式，不得把它扩展成完整架构重写。
+两次语义修复都必须使用 patch 模式：模型只返回符合 lineage 冻结 patch Schema 的操作列表，禁止返回完整 `ArchitectureDraft`。控制器在请求前把 validator 中的数组数字位置转换成当前候选上的稳定标识路径。一个 patch 可以同时修复本轮失败映射允许的多个区域；布局路径变化需要的精确引用替换由控制器机械投影，不得因为同一 patch 还包含其他允许修改而拒绝。每个操作仍须满足路径、冲突与存在性规则，全部操作原子应用，随后重跑 ArchitectureDraft Schema 与完整 `ARCH_VALIDATE`。如果某一语义深度的 patch 仅因格式、路径或应用方式被拒绝，控制器把拒绝原因反馈给一次全新的纠错调用；纠错不改变当前候选，只有成功应用后的候选才消耗一个有效语义深度。每个深度最多一次纠错，禁止退回整份重写。
 
 `initial`/`repair` bundle 的实现与实验记录**禁止**新增 bundle SHA\-256、组合 hash、单模板摘要字段、摘要比对门或任何新的 hash 前置条件；版本一致性通过既有 prompt 工件引用、版本号、逐字节内容和不可变发布记录判定。第 5 章与 9.2 已明确要求的实验工件、lineage 和报告可追溯性机制保持原样，但不得因本次拆分而扩展其 hash 覆盖面。其他实现位置统一遵守 0.1 第 5 条。
 
-三个模型的校准请求统一固定 `max_tokens = 65536`；候选集与该参数均属于 lineage 控制面。429/5xx/网络重试绑定原 trial；重试耗尽且没有模型响应时该模型批次标为 `infrastructure-invalid`，排障后重跑该版本的三模型批次。
+调用参数来自当前实验配置并属于 lineage 控制面。429/5xx/网络错误只绑定当前 trial，在统一 provider 重试之外最多再重试该 trial 两次；耗尽后该 trial 记为 `infrastructure-invalid` 并按未通过计入固定 N \= 3 分母，其他 trial 与已发布结果保持有效，禁止重跑整个版本。
 
-开发版的筛选门必须由 Qwen、Claude、DeepSeek **分别**满足：`p2 ≥ 0.60`（N \= 3 的离散口径即至少 2/3 trial 在至多两次语义 patch 修复内闭合），且无截断、无基础设施无效。`p1`、`schema_after_format_repair_rate`、`arch_semantic_first_pass_rate`、`p0`、逐门首次及逐修复深度通过率、同一硬门的重复失败与 patch 局部性结果**只作为诊断证据**，用于选择 V1～V4 的唯一修改假设，不单独否决一个已被两次局部 patch 修复闭合的版本。筛选门阈值**必须**严格低于 6.4.8.3 的 B1（见本节末的单调收紧不变量）。首个满足筛选门的版本立即成为正式校准候选，禁止继续修改后择优挑选。若 V4 后仍无版本满足，按“先最大化三个模型中最低的 `p2`，再依次比较最低 `p1`、最低首次语义通过率、最低 Schema 通过率、总成本”确定唯一候选；这只决定进入 M1\-4a3 的 prompt bundle，不等于通过生产资格门。
+最低可用标准为 `p2 ≥ 2/3`：同一版本三个 trial 中至少两个在至多两次有效语义 patch 后通过全部十五个 `ARCH_VALIDATE` 子门。普通错误、截断或基础设施无效只影响对应 trial，不使版本作废。`p0`、`p1`、Schema 通过率、逐门失败、patch 拒绝和成本只作为改进提示词的诊断证据。首个达到标准的版本成为基准候选；负责人核对两份模板、协议中立检查和可重算证据并签字后，发布仅供 M1\-4c 消费的交接记录。该记录只证明最低可用性，不证明跨模型稳定性或生产质量。
 
-每轮修改记录必须包含：前一版 bundle 版本与两份 prompt 工件引用、失败证据、唯一修改假设、被修改的唯一阶段、具体 diff、预期改善子门和停止结论。禁止同一轮同时修改 `initial` 与 `repair`，也禁止同时修改 prompt bundle 与 Schema/validator/模型配置后把结果归因于 prompt。
+每轮修改记录必须包含前一版 bundle 版本、两份 prompt 工件引用、失败证据、修改原因、两份模板各自的具体 diff、预期改善点和停止结论。允许只改一份或同时修改两份模板；仍禁止在同一 lineage 中同时修改 prompt bundle 与 Schema、validator 或模型配置后把结果归因于 prompt。
 
-若 V0～V4 的固定 fallback 排名仍完全相同，系统必须记录 `PROMPT_SELECTION_TIE`，不得任意选择一个版本或向 M1\-4a3 交接。只有经负责人明确批准的 M1\-4a2r 才能继续下述恢复流程；否则 M1\-4a2 以无候选状态停止。
-**校准门单调收紧不变量**：M1\-4a2 →（条件）M1\-4a2r → M1\-4a3 的 rate 阈值必须单调收紧——开发或恢复阶段裁决的任一 rate 阈值都**必须**严格低于 M1\-4a3 中同一指标的资格阈值，且这两个阶段**不得**引入 M1\-4a3 未设的 rate 硬门。理由是筛选门只负责淘汰明显不合格的 prompt bundle 并确定进入正式批次的唯一候选；M1\-4a2 每版每模型 N \= 3、最多 15 个初始生成 trial 的开发样本，以及 M1\-4a2r 每版每模型 N \= 5 的恢复样本，都没有认定正式资格的分辨力。开发阶段以 `p2 ≥ 0.60` 筛选可在两次局部 patch 修复内闭合的 bundle，恢复阶段仍按其独立协议以 `p1 ≥ 0.80` 筛选；M1\-4a3 的生产资格仍由正式 N \= 10 批次中的 B1/B2/B3/B4 判定，二者不得混用或互相替代。生产资格判定只发生在 M1\-4a3。截断与基础设施无效不属于 rate 阈值：在开发/恢复阶段它们是版本有效性前置条件（一旦观测到即不得作为候选），在 M1\-4a3 则按失败计入固定分母（6.4.8.3）。这一差异是刻意的——正式批次不因个别 trial 无效而作废，而筛选阶段观测到截断说明 bundle/Schema 的输出规模已贴近 `max_tokens` 上限，应先修对应阶段 prompt 而不是把它送进资格批次。任何把筛选门提高到等于或高于对应正式资格阈值的修改都必须按 11.3 裁决并在 12.5 记一行。
-
-
-###### 6\.4.8.2.1 M1\-4a2r：`PROMPT_SELECTION_TIE` 后的有界恢复
-
-本分支只在 M1\-4a2 已完整执行到 V4、固定 fallback 规则产生确定性平局、没有 prompt bundle 被选中且没有向 M1\-4a3 交接时启用。进入分支前必须有负责人批准和相应设计记录；原 V0～V4 及其结论保持不可变，只作为恢复输入的来源证据。
-
-恢复分支必须创建新 lineage，并在 R0 前冻结 prompt bundle 以外的输入、Schema、validator、serializer、三模型配置、调用参数、统计口径及修复局部性判据。旧 lineage 的 trial 不得复制、续跑或计入新 lineage。R0 可以吸收既有失败实验中已证实的通用经验，但仍必须使用同一套模型无关、协议中立、精确算法式的 `initial`/`repair` prompt bundle。
-
-恢复采用 R0/R1/可选 R2 的有界协议：R0 是新的 `initial`/`repair` prompt bundle；只有完整 R0 失败且证据支持一个可证伪的 prompt 缺陷假设时才能修改为 R1；只有完整 R1 失败且证据支持第二个、与前次不同的可证伪假设时才能修改为 R2。每次版本推进只能修改其中一份模板，另一份必须保持逐字节不变；最多修改 bundle 两次，禁止 R3、递归恢复或开放式调参；同一 lineage 内除被选中的单份 prompt 字节外不得改变其他控制变量。
-
-每个实际执行的 R0/R1/R2 都由 Qwen、Claude、DeepSeek 分别完成全新 N \= 5 trial，不扩到 N \= 10。每个 trial 的初始规划只使用 `initial` 模板，并允许至多一次无会话历史的 `repair` 语义修复；修复输入只包含首次 Schema 合法的完整 `ArchitectureDraft` 和精确 `ARCH_VALIDATE` 失败清单，模型仍返回完整 `ArchitectureDraft`，控制器机械比较修复前后差异并重跑完整 validator。这里保留恢复分支原有的完整架构修复输出契约，只改变模板选择，不把 M1\-4a2 的 patch 输出契约扩展到本分支。
-
-恢复筛选门保持其独立口径，由三个模型分别满足：`p1 ≥ 0.80`（每版每模型 N \= 5、每 trial 至多一次语义修复）、无截断或基础设施无效、每次修复都有完整可重算的差异/局部性证据，且交接候选本身通过完整 `ARCH_VALIDATE`。`schema_after_format_repair_rate`、`p0`、逐门首次通过率和首次重复失败只作为诊断证据，不在本分支单独否决一个已被一次局部修复闭合的版本。质量审计同样只用于识别机械通过但架构质量可疑的样本，不参与 `ARCH_VALIDATE` 或 prompt 选择；把它升级为硬门必须另行修改设计。
-
-首个满足恢复筛选门的 R0/R1/R2 立即成为唯一交接候选，不得继续修改，也不得在失败版本之间做 fallback 排名。若证据不足以支持下一次修改，或 R2 仍失败，则结果为 `no_selection`；控制器必须恢复进入本分支前的 prompt bundle，禁止向 M1\-4a3 交接。恢复成功只取得进入 M1\-4a3 正式 N \= 10 资格批次的入场券，不替代 B1/B2/B3/B4、模型裁决或生产冻结；`no_selection` 后再次开启恢复必须先形成新的设计决策。
-
-##### 6\.4.8.3 M1\-4a3：三模型正式架构校准与生产模型裁决
-
-正式资格批次固定 M1\-4a2 正常选出的共享 `initial`/`repair` prompt bundle，或发生确定性平局时由 M1\-4a2r 唯一交接的恢复 bundle，并固定该候选所属 lineage 的输入、Schema、validator、serializer 和调用参数。R0/R1/R2 的开发 trial 不得计入正式资格批次。Qwen、Claude、DeepSeek 并行、各自运行 N \= 10 个独立 trial，总计 30 个 trial；三个批次必须使用同一 bundle 版本、逐字节相同的两份 prompt 与 `max_tokens = 65536`，但分别记录完整 provider/model/version 和参数能力状态。批次身份由 `lineage_id` \+ bundle 版本 \+ 模型槽位构成，**不含**模型标识字符串：批次中途出现新的标识字符串既不作废该批次也不拆分批次（9.2 规则 1），`calibration_report.json` 与 `model_comparison.json` 逐 trial 记录实际解析到的标识字符串，并在聚合层给出其全集与各自调用占比；本定义不得通过新增 bundle hash 或摘要字段实现。
-
-每个 trial 的初始规划只使用 `initial` 模板，在首次 Schema 合法候选上计算 `p0`，即零次语义修复后通过全部 `ARCH_VALIDATE` 子门；失败后依次运行最多两次只使用 `repair` 模板、只携带精确失败清单且无隐藏对话历史的定点修复。`p1` 表示至多一次语义修复后通过的比例，`p2` 表示至多两次语义修复后通过的比例。结构化输出修复单独计数，不计入这两个语义修复额度。所有 headline rate 的分母固定为该模型全部 10 个 trial；Schema 二次失败或没有语义候选均按失败计入。
-
-每模型 `calibration_report.json` 至少报告：
-
-- `schema_first_pass_rate`、`schema_after_format_repair_rate`、`arch_raw_first_pass_rate`、`arch_semantic_first_pass_rate`、`p0`、`p1`、`p2`；
-- 各 `ARCH_VALIDATE` 子门无条件 k/N、失败共现矩阵，以及每次修复的增益；
-- 每 trial 与聚合的调用数、token、成本、延迟、`finish_reason`、截断、结构修复和语义修复消耗。
-
-同时必须生成三模型 `model_comparison.json`，逐模型并排展示上述指标、完整模型版本、参数能力状态和失败样本索引。禁止只给三模型平均值或把任一模型失败隐藏在合并统计中。
-
-**预置处置分支**：
-
-| 分支 | 条件 | 处置 |
-| ---- | ---- | ---- |
-| B1 三模型通过 | 三个模型各自 `p1 ≥ 0.90` | 冻结共享 `initial`/`repair` prompt bundle、Schema、validator 与 `plan_architecture_repairs = 1`；按 8.3 已配置的 `roles.architecture_planner` 静态路由确定生产模型，无需暂停人工选型 |
-| 人工选型暂停 | 任意一个模型 `p1 < 0.90` | 立即输出完整三模型对比并暂停 M1\-4c，等待负责人指定一个生产候选；禁止自动按均值、成本或单项最高分代选 |
-| B2 加额度 | 负责人选中的候选满足 `0.75 ≤ p1 < 0.90`，且失败分散在三个以上子门 | 使用同一正式 N \= 10 批次已记录的第二次修复结果；仅当 `p2 ≥ 0.90` 才冻结 `plan_architecture_repairs = 2`，否则转 B3 |
-| B3 拆调用 | 负责人选中的候选 `p1 < 0.75`、失败集中于同一子门集合，或 B2 后 `p2 < 0.90` | 执行下述 ARCHITECT 分步方案并对该候选重建 N \= 10 批次；分步资格率按每 trial 三步全部通过计算 |
-| B4 上报 | B3 后资格率仍 < 0.75 | 停止实现并向项目负责人报告；任何简化 5.2.1 架构约束的动作都必须走 11.3，禁止实现者自行决定 |
-
-“人工选型暂停”只解决三模型不能共同达到 B1 时由谁作为生产候选，**不豁免**被选模型的 B1/B2/B3/B4 资格门。若被选模型本身已满足 B1，可直接冻结；否则必须按表继续验证。
-
-**ARCHITECT 分步方案（B3）**：把单次 ArchitecturePlanner 初始规划拆为固定三步串行调用，每步使用共享 `initial` prompt 中对应的协议中立指令；每步失败后的定点修复只使用共享 `repair` prompt，步间由确定性代码传递已冻结的上一步结果：
-
-1. **模块与契约**：输出模块职责、non\-goals、假设，以及 internal contract 的 owner、ready gate、provider/consumer，校验 `arch_01`～`arch_05`；
-2. **工作包与文件**：输出工作包目标、`allowed_files`、contract 集合与 `depends_on`，校验 contract 集合等式、工作包 DAG 与文件槽位；
-3. **需求责任**：输出 `requirement_responsibilities`，校验每条非 DEFINITION requirement 恰一个 primary 工作包与 `arch_10` readiness 闭包投影。
-
-分步后每步各有一次定点修复额度，`plan_architecture_repairs` 表示每步上限；必须同步 4.7 与 8.3 的生产配置。分步不改变最终 `ArchitectureDraft`、完整 `ARCH_VALIDATE` 子门或 Linker 输入，也不得削弱任何硬门。
-
-正式校准完成的条件是：所有要求批次完整且可重算，负责人已记录模型处置、最终共享 `initial`/`repair` prompt bundle 的版本及两份工件引用、Schema/validator 的既有版本标识、生产模型、ARCHITECT 调用形态和架构修复默认值。不得为 bundle 或两份 prompt 新增 hash/摘要字段或校验门。由于隔离协议不运行 PlanCritic，`plan_global_replans` 只能是完整链联调的暂定上限，最终由完整 S4～S6 连续运行复核。
-
-共享 prompt bundle 中任一模板、Schema、validator、输入构造、模型配置或调用形态变化都使相关资格签字失效。任一 prompt 模板变化时必须回到 M1\-4a2，并在三个模型上重新开发/筛选；其他变化必须新建 lineage。完整链若暴露本协议遗漏的发布前硬门，必须先将其前置到生产 `ARCH_VALIDATE`，再按本节重建批次，禁止混合调参前后的样本。
+若 V2 后仍无版本达到 2/3，系统按“第二轮通过数、第一轮通过数、初始通过数、Schema 通过数、较低成本、较早版本”确定唯一参考版本并生成诊断报告，但不得把它标为可用基准或发布 M1\-4c 交接。不存在平局恢复、递归调参或独立正式校准分支。完整链运行如果暴露提示词问题，应以实际运行证据启动新的 M1\-4a2 短周期；不得把旧隔离样本当作实际质量结论。
 
 ### 6\.5 S5 项目脚手架
 
@@ -1894,10 +1840,8 @@ providers:
   deepseek:  {kind: openai_compat, base_url: https://api.deepseek.com}
   qwen:      {kind: openai_compat, base_url: https://dashscope.aliyuncs.com/compatible-mode/v1}
 
-calibration_models: # M1-4a2/M1-4a2r/M1-4a3 固定候选；三者共享 ArchitecturePlanner initial/repair prompt bundle
-  qwen:     {provider: qwen, model: qwen3.7-max-2026-06-08, temperature: 0.0, max_tokens: 65536}
-  claude:   {provider: anthropic, model: claude-opus-5, temperature: 0.0, max_tokens: 65536}
-  deepseek: {provider: deepseek, model: deepseek-v4-flash, temperature: 0.0, max_tokens: 65536}
+calibration_models: # M1-4a2 恰好选择一个逻辑槽位；具体模型属于配置而非设计门槛
+  architecture_primary: {provider: anthropic, model: claude-opus-5, temperature: 0.0, max_tokens: 65536}
 
 tiers:            # 档位→具体型号
   T1: {provider: anthropic, model: claude-opus-5, temperature: 0.0, max_tokens: 16000}
@@ -1951,7 +1895,7 @@ sandbox:
 
 当前 Claude/Anthropic Provider 的请求目标**必须严格使用**上例中人工配置的 `providers.anthropic.base_url`，即 `https://www.sotamodel.net/v1/chat/completions`。该字段在当前 `anthropic` adapter 中表示完整请求地址，不是供实现追加路径的主机前缀；实现不得改用 Anthropic 官方默认地址、不得再拼接 `/v1/messages` 或其他路径，也不得根据 provider 名或模型名推断/替换端点。API 密钥环境变量及 Claude 模型名称以本节配置为准。
 
-运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。其中 temperature 等采样值是客户端**请求配置**，不是 provider 已应用的承诺；实际能力状态按 8.4/5.5 逐调用记录。`calibration_models` 只用于 M1\-4a2/M1\-4a2r/M1\-4a3 的隔离实验，不把三个模型同时路由进正式 S4。S4 各项预算的正式默认值按 4.7 与 6.4.8 由实测冻结，示例中的数值不构成已验证默认值。
+运行开始时把解析后的完整配置（含密钥占位符，不含密钥值）快照进 `run.json`。其中 temperature 等采样值是客户端**请求配置**，不是 provider 已应用的承诺；实际能力状态按 8.4/5.5 逐调用记录。`calibration_models` 只用于 M1\-4a2 的隔离实验且必须恰含一个逻辑槽位，不改变正式 S4 的角色路由。S4 各项预算的正式默认值最终由 D1.3 完整运行复核，示例中的数值不构成已验证默认值。
 
 **scope 配置**（`configs/scope-<protocol>.yaml`，doc\-run 必需）：字段为 `protocol`、`version`、`features_included[]`、`features_excluded[]: {feature, reason, message_names?[], sections?[]}`、`assumptions[]`。S2 以它过滤提取范围（6.2），但不把 scope 复制进 Spec IR；S3 按 6.3 的三条机械规则检查产物没有越出 scope，范围身份与哈希由 `run.json` 保留。目标实现角色只由 Target Profile 表达，不在 scope 中重复。`features_excluded[]` 的可选 `message_names[]`/`sections[]` 是让排除项参与机械判定的唯一途径；只写自然语言 `feature` 的排除项会被列入 `unchecked_scope_exclusions[]`。
 
@@ -2060,7 +2004,7 @@ nepa report <run_id> [--open]            # 重新生成/查看报告
 9. 输入分节定界符明确，避免模型把错误日志当成指令；
 10. 给模型留 `notes`/`assumptions` 字段承接说明性内容，防止它把话写进代码字段。
 
-协议中立硬门适用于 M1 的全部通用框架、prompt、S5 布局代码与机械模板，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。框架、prompt 与模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径、接口常量、端口与 topic/subscription 语义。用一个非 MQTT 最小应用层 fixture（可取 HTTP、CoAP 或 SMTP）渲染完整 S5 scaffold 后，任何 MQTT 名称/路径/接口残留必须为 0，且所有路径、符号与逐报文文件都能由同一归一化、六模式和展开规则重算；该门证明模板协议中立，不替代 M6 的端到端跨协议能力验收。MQTT 运行的最终 prompt 与 scaffold 只可在**输入派生区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map、接口文件或 5.6.5 已声明的语言/角色规则，不能来自模板或框架中的 MQTT 常量。M1\-4a2 及 M1\-4a2r 的共享 ArchitecturePlanner `initial`/`repair` 两份 prompt 都必须扫描模型名称和 provider 名称，禁止模型专属条件块。
+协议中立硬门适用于 M1 的全部通用框架、prompt、S5 布局代码与机械模板，尤其是 `ArchitecturePlanner`、TaskPlanner、PlanCritic、FlatPlanBaseline、Coder、Diagnoser、Fixer。框架、prompt 与模板源码必须通过静态扫描，匹配 `(?i)\bmqtt_[A-Za-z0-9_]*` 的标识符数量必须为 0；同时扫描 MQTT 专有报文名、REQ id、路径、接口常量、端口与 topic/subscription 语义。用一个非 MQTT 最小应用层 fixture（可取 HTTP、CoAP 或 SMTP）渲染完整 S5 scaffold 后，任何 MQTT 名称/路径/接口残留必须为 0，且所有路径、符号与逐报文文件都能由同一归一化、六模式和展开规则重算；该门证明模板协议中立，不替代 M6 的端到端跨协议能力验收。MQTT 运行的最终 prompt 与 scaffold 只可在**输入派生区**出现具体标识符，且每个字节必须可追溯到冻结 Spec、Target Profile、Test Manifest 元数据、Plan、Blueprint、internal contract map、接口文件或 5.6.5 已声明的语言/角色规则，不能来自模板或框架中的 MQTT 常量。M1\-4a2 的共享 ArchitecturePlanner `initial`/`repair` 两份 prompt 都必须扫描模型名称和 provider 名称，禁止模型专属条件块。
 
 S4 额外规则：生产 `layered` 角色禁止任何单个 prompt 同时要求模型完成全局架构、所有工作包任务展开、最终编号/coverage 和运行状态。ArchitecturePlanner、TaskPlanner、PlanCritic 使用独立模板与新鲜上下文；Critic 只能返回 issue list，不能重写整份 Plan。A9 唯一例外是专用 `FlatPlanBaseline`：它可一次生成完整语义草稿，但仍禁止最终 id/hash/coverage/review/state，且只在显式 `planning.strategy=flat` 时注册，绝不是生产 fallback。
 
@@ -2284,7 +2228,7 @@ flowchart LR
 
 **入口条件**：M0 DoD 全部通过。
 
-**关键路径风险与门禁**：M1 的关键路径中段是 S4 架构环节，其联合首次通过率是全项目最大的经验未知量（R\-12）。正常路径 M1\-4a1 → M1\-4a2 → M1\-4a3 必须严格串行；若 M1\-4a2 以 `PROMPT_SELECTION_TIE` 停止，则必须先完成条件分支 M1\-4a2r 并取得唯一交接候选，之后才可进入 M1\-4a3。M1\-4a3 完成资格裁决并签字后才允许开工 M1\-4c。M1\-4b/M1\-4b2 在复用 M1\-4a1 已建立的窄切片确定性实现后，可以与 M1\-4a2/M1\-4a2r/M1\-4a3 并行扩展完整编译资产与自由布局支持；M1\-5～M1\-8 不依赖校准结论。修订相关工作项按三段推进：M1\-4d（版本链与迁移基础设施）与 M1\-5 的幂等重入先落地，M1\-6 的 F0/F1 随后上线，M1\-4e 的 F2/F3 最后启用且以 M1\-6b 的根因分布结论与 D1.12 通过为前置；`PlanReviser` 未完成校准前 F2/F3 生产额度为 0。若任意一个正式候选模型未达到 B1，M1\-4a3 必须先输出三模型对比并暂停，M1\-4c 不得越过负责人选型点。
+**关键路径风险与门禁**：M1 的关键路径中段是 S4 架构环节，其联合首次通过率是全项目最大的经验未知量（R\-12）。正常路径 M1\-4a1 → M1\-4a2 必须串行；M1\-4a2 选出达到 2/3 最低可用标准的基准 bundle、通过协议中立检查并取得负责人签字后，才允许 M1\-4c 消费。M1\-4b/M1\-4b2 可以与 M1\-4a2 并行扩展完整编译资产与自由布局支持；M1\-5～M1\-8 不依赖隔离实验结论。提示词的实际质量由框架完成后的 D1.3 完整运行观察，不在 M1\-4a2 增设跨模型资格门。修订相关工作项按三段推进：M1\-4d（版本链与迁移基础设施）与 M1\-5 的幂等重入先落地，M1\-6 的 F0/F1 随后上线，M1\-4e 的 F2/F3 最后启用且以 M1\-6b 的根因分布结论与 D1.12 通过为前置；`PlanReviser` 未完成校准前 F2/F3 生产额度为 0。
 
 **工作分解**：
 
@@ -2292,14 +2236,12 @@ flowchart LR
 | ----- | ------------------------------------------------------------ | ------------------ |
 | M1\-1 | 运行框架：Run v3、config、run\_store（原子写）、orchestrator（阶段状态机、预算、resume），以及 S4～S6 预算/流程错误受控早退所需的最小 S9 core/Report v2 部分报告 | 4\.7、4\.8、5\.4、5\.6.2、8\.2、8\.3 |
 | M1\-2 | LLM 层：Claude、Qwen、DeepSeek 所需 provider（Anthropic 严格使用 8.3 配置的完整请求地址）、结构化输出统一策略、重试限流、缓存、采样参数 capability probe/能力状态记账、telemetry/trace | 8\.3、8\.4、5\.5         |
-| M1\-3 | Agent 通用框架：调用器及 ArchitecturePlanner / TaskPlanner / PlanCritic、A9 专用 FlatPlanBaseline 与编码/修复角色的注册接口和模板骨架；ArchitecturePlanner 的生产 Schema、共享 `initial`/`repair` prompt bundle 开发与冻结分别归 M1\-4a1/M1\-4a2/M1\-4a3，禁止在本项另行定制 | 4\.5、8\.8 |
-| M1\-4a1 | 通用计划架构基础设施：三输入冻结、Test Bundle 清单摘要、Test Manifest S4 元数据、planning index、窄切片 Delivery Constraints、ArchitectureDraft Schema、生产 `ARCH_VALIDATE`、可重算 trial/report、三模型隔离并行驱动与协议中立检查。**自由布局的四项前置资产随本项交付**（原列于 M1\-4b2）：布局约定资产格式与 `advisory`/`hard` 分段、`layout_convention_id` 派生、`architecture.layout` Schema、`arch_11`～`arch_15` 五个校验子门；依据是 6\.4.8.1 第 2 项要求本项实现全部 `S4-G2` 子门，且 D1.0 要求全部校准批次在含 `layout` 与 `arch_11`～`arch_15` 的 lineage 上采集，四项缺失则 M1\-4a1～M1\-4a3 无法在自由布局上运行 | 4\.2、5\.3、5\.6.5、6\.4.1、6\.4.3、6\.4.4、6\.4.8.1、8\.3、8\.4、`pipeline_design_s4_s9.md` §5.2 |
-| M1\-4a2 | `ArchitecturePlanner` 共享 `initial`/`repair` prompt bundle 优化：Qwen/Claude/DeepSeek 对同一模型无关、协议中立两阶段 bundle 按 V0～V4 有界迭代，每版每模型 N\=3、每模型最多 15 个初始生成 trial；每 trial 的初始规划只用 `initial`，最多两次 patch 语义修复只用 `repair`，三个模型分别达到 `p2 ≥ 0.60` 才通过；每次版本推进仅允许修改一份阶段模板，以逐门与逐修复深度证据选择正式校准候选 | 6\.4.8.2、8\.8 |
-| M1\-4a2r | 条件式 prompt bundle 恢复：仅在 M1\-4a2 的 V0～V4 固定 fallback 仍为确定性平局时，以新 lineage 执行 R0/R1/可选 R2；三模型每版各 N\=5、初始规划使用 `initial`、每 trial 至多一次使用 `repair` 的局部修复，以 `p1`、修复局部性和完整 validator 闭合选出唯一交接候选，否则 `no_selection` | 6\.4.8.2.1、8\.8 |
-| M1\-4a3 | 正式架构校准与生产模型裁决：三个模型并行各 N\=10，按模型计算 `p0/p1/p2` 和逐门结果；全部达到 B1 才自动通过，任一未达到即输出三模型比较并暂停等待负责人选型；随后按 B1/B2/B3/B4 完成资格门并冻结决策 | 4\.6、4\.7、6\.4.8.3、8\.3、9\.1.5 |
+| M1\-3 | Agent 通用框架：调用器及 ArchitecturePlanner / TaskPlanner / PlanCritic、A9 专用 FlatPlanBaseline 与编码/修复角色的注册接口和模板骨架；ArchitecturePlanner 的生产 Schema 与共享 `initial`/`repair` prompt bundle 开发分别归 M1\-4a1/M1\-4a2，禁止在本项另行定制 | 4\.5、8\.8 |
+| M1\-4a1 | 通用计划架构基础设施：三输入冻结、Test Bundle 清单摘要、Test Manifest S4 元数据、planning index、窄切片 Delivery Constraints、ArchitectureDraft Schema、生产 `ARCH_VALIDATE`、可重算 trial/report、配置驱动的单模型实验驱动与协议中立检查。自由布局约定资产、`layout_convention_id`、`architecture.layout` Schema 与 `arch_11`～`arch_15` 随本项交付 | 4\.2、5\.3、5\.6\.5、6\.4\.1、6\.4\.3、6\.4\.4、6\.4\.8\.1、8\.3、8\.4、`pipeline_design_s4_s9.md` §5.2 |
+| M1\-4a2 | `ArchitecturePlanner` 共享 `initial`/`repair` 基准 prompt bundle 开发：由配置指定一个逻辑模型槽位，按 V0～V2 每版 N\=3 有界试用；每 trial 的初始规划只用 `initial`，最多两次有效 patch 语义修复只用 `repair`，同版至少 2/3 完整通过后由负责人签字交接 M1\-4c。单条失败不触发整版重跑，版本推进可以修改一份或两份模板 | 6\.4\.8\.2、8\.8 |
 | M1\-4b | 确定性编译资产：复用 M1\-4a1 的 Delivery Constraints/Schema/validator 路径，扩展系统内置应用层/C99 生成规则、命名六模式、逐键资源合并、`none/per_message/per_type` 文件展开、角色支持门、Plan/Plan State Schema、完整 Blueprint、PlanDraftIR、确定性 Linker，以及 `plan_lint` 的 basic/full 两级与 snapshot/transition/execution 状态校验 | 5\.2、5\.6.5、6\.4.1、6\.4.5 |
 | M1\-4b2 | 自由布局的 Blueprint 转写：`layout.files[] → file_rules[]` 与 `build_graph → 三段构建图`的转写器，以及 `kind`/`producer` 的完整派生表（5\.6.5.3 遗留的待裁决项，裁决后落地到 `pipeline_design_s4_s9.md` §5.2.2）。布局约定资产、`layout_convention_id` 派生、`architecture.layout` Schema 与 `arch_11`～`arch_15` 已随 M1\-4a1 交付，本项**禁止**重建平行实现 | 5\.6.5.3、6\.4.1、`pipeline_design_s4_s9.md` §5.2 |
-| M1\-4c | 完整 S4 控制器：S4a/S4b/S4c 三段推进、layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、版本文件与 `active_plan.json` 的原子 seal、修订账本创世条目；**必须**在 M1\-4a3 签字且 M1\-4b/M1\-4b2 完成后开工，消费最终生产模型、共享 `initial`/`repair` prompt bundle、ARCHITECT 调用形态和预算 | 4\.8、6\.4.2、6\.4.4～6\.4.8 |
+| M1\-4c | 完整 S4 控制器：S4a/S4b/S4c 三段推进、layered task shards、A9 flat baseline、PlanCritic、预算化定点修复、检查点/resume、版本文件与 `active_plan.json` 的原子 seal、修订账本创世条目；**必须**在 M1\-4a2 基准 bundle 签字且 M1\-4b/M1\-4b2 完成后开工，消费已签字的共享 `initial`/`repair` prompt bundle 和现有角色路由 | 4\.8、6\.4\.2、6\.4\.4～6\.4\.8 |
 | M1\-4d | 计划版本与修订基础设施：`plan/versions/` 版本链、`active_plan.json` 原子指针、`file_ledger.json`、哈希链 `revision_ledger.json`、`task_uid`/`obligation_digest`/`guidance_digest` 计算、四路迁移分类器与 `preservation_rate`、纪元边界与崩溃恢复 | 4\.3、4\.4、5\.2、`pipeline_design_s4_s9.md` §3、§4、§6.4 |
 | M1\-4e | 修订流水线：TR\-1～TR\-9 确定性触发谓词与评估记录、封闭补丁算子集、`PlanReviser` 角色与 delta 闭包 lint、RG\-1～RG\-5 修订门、S5 预演、原子激活与回滚、F2/F3 额度与熔断。生产额度在 `PlanReviser` 完成校准前为 0，F3 的启用以 M1\-5 幂等性测试通过为前置 | 4\.5、4\.7、6\.6.1、`pipeline_design_s4_s9.md` §6、§7 |
 | M1\-5 | S5 实现：按 Blueprint 自由布局物化的协议中立机械模板；用同一模板代码路径渲染 MQTT 与非 MQTT fixture；重算 Blueprint、独占脚手架、机械派生、双轴工件所有权、内部契约映射、默认构建、启动 smoke、纪元提交与 output receipt；**差异驱动幂等重入**（同一 Blueprint 重跑零变更，Blueprint 变化只处理差异集） | 5\.6、6\.5、7\.2～7\.4、`pipeline_design_s4_s9.md` §5.4、§5.5 |
@@ -2312,10 +2254,10 @@ flowchart LR
 
 | id    | 标准                                                         | 判定方式                                     |
 | ----- | ------------------------------------------------------------ | -------------------------------------------- |
-| D1.0  | M1\-4a1/2/3 顺序完成；正常 M1\-4a2 按 V0～V4 对共享 `initial`/`repair` prompt bundle 最多修改四次，每次只改一份模板，三模型每版各 N\=3、每模型最多 15 个初始生成 trial；每 trial 的初始规划只使用 `initial`，至多两次 patch 语义修复只使用 `repair`，三个模型分别达到 `p2 ≥ 0.60` 才可正常交接。初始生成与 patch/格式修复调用必须分项记账，patch 只能修改当前失败映射允许的路径并在原子应用后重跑完整 Schema 与 `ARCH_VALIDATE`。若 M1\-4a2 发生 `PROMPT_SELECTION_TIE`，则在 M1\-4a3 前条件式完成 M1\-4a2r：新 lineage 的 R0/R1/可选 R2 最多修改 bundle 两次且每次只改一份模板，三模型每版各 N\=5、每 trial 至多一次使用 `repair` 的局部修复，三个模型分别达到 `p1 ≥ 0.80`、修复局部性合格且交接候选完整 `ARCH_VALIDATE` 闭合后才可唯一交接，`no_selection` 不算完成。基础设施和 ArchitecturePlanner 两份 prompt 都通过协议中立 lint；正式批次由 Qwen/Claude/DeepSeek 在同一 bundle 版本和逐字节相同的两份 prompt 上各完成 N\=10 独立 trial，跨 trial 缓存关闭，三个 `calibration_report.json` 与 `model_comparison.json` 可从 30 个 trial 重算 `p0/p1/p2`、逐门 k/N、修复增益、失败共现、成本/延迟/截断和参数能力状态。三个模型都达到 B1 方可自动通过；任一未达到时已有暂停与负责人选型记录，所选模型随后通过 B1 或 B2/B3 的资格门。负责人已签字冻结生产模型、共享 bundle 版本及两份 prompt 工件引用、Schema/validator 的既有版本标识、ARCHITECT 调用形态、架构修复默认值及全局重规划暂定上限；不得为 bundle 或阶段模板新增 SHA\-256/hash 字段、摘要或校验门，既有实验工件与 lineage 可追溯性机制保持不变；B4 不得绕过。全部批次**必须**在包含自由布局的新 lineage 上采集（`ArchitectureDraft` Schema 含 `layout`、`ARCH_VALIDATE` 含 `arch_11`～`arch_15`、输入含布局约定资产）；按固定文件槽或单一共享 prompt 采集的历史批次一律作废，不得进入分母或候选集合 | 静态/fixture lint \+ 开发与恢复批次重算脚本 \+ 三模型对比 \+ 负责人签字 |
+| D1.0  | M1\-4a1/2 顺序完成；M1\-4a2 使用配置指定的一个逻辑模型槽位，按 V0～V2 每版 N\=3 开发共享 `initial`/`repair` prompt bundle，初始生成最多 9 次。每 trial 初始规划只使用 `initial`，至多两次有效 patch 语义修复只使用 `repair`；patch 只修改当前失败映射允许的路径，布局引用由控制器精确投影，应用后重跑完整 Schema 与 `ARCH_VALIDATE`。普通失败、截断或基础设施无效只影响对应 trial，不触发其他 trial 或整版重跑；同版至少 2/3 完整通过才可成为基准。基础设施与两份 prompt 通过协议中立 lint，报告和选择可从新 lineage 逐样本重算；负责人已签字确认 bundle 版本、两份工件引用及最低可用证据后，才可交接 M1\-4c。隔离实验不作跨模型稳定性或生产质量结论，后者由 D1.3 完整运行观察。历史固定槽、单模板、三模型或旧协议样本不得进入新分母 | 静态/fixture lint \+ 单模型开发批重算脚本 \+ 负责人签字 |
 | D1.1  | `nepa run --spec ... --until s6` 正常结束；run.json 中 S4～S6 均 done、`termination_kind=planned_stop`、`exit_code=0` 且无 outcome/report；活动计划版本与 Plan State 合法并与 S4～S6 receipts 绑定；workspace 通过全部构建变体（默认 `make` 与 `make SAN=1`）**且启动 smoke 通过**（7.4 契约，S5 出口与 S6 出口各一次） | 运行 \+ snapshot/execution lint \+ 构建脚本 \+ smoke 脚本 |
 | D1.2  | `task_completion_rate@final = 100%`，Plan State 无 blocked/incomplete（默认，可推翻）。该门是**过程指标**：M1 的实现目标由 D1.1 的构建与 smoke 承担，任务完成率只用于确认执行链无残留终态。若发生过修订，还必须同时记录 `@r0` 口径与版本谱系，不得只报 `@final` | plan \+ plan\_state \+ revision\_ledger |
-| D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立。这是 S4～S6 全联合链稳定性与 M1\-4a3 所选生产模型/预算的正式复核，**禁止**由 6.4.8 的隔离校准替代 | 脚本化执行并核对 run.json、Plan、Plan State（M2\-6 后改用 `nepa eval runs`） |
+| D1.3  | 可重复性：同配置连续 3 次运行，D1.1 与 D1.2 均成立。这是观察基准提示词在 S4～S6 完整链中实际质量、稳定性与预算是否合适的正式依据，禁止由 6.4.8 的隔离实验替代 | 脚本化执行并核对 run.json、Plan、Plan State（M2\-6 后改用 `nepa eval runs`） |
 | D1.4  | 断点恢复：在 S4 架构后/工作包展开中/critic 后，S5 物化中/首提交后/receipt 前，以及 S6 attempt 中/commit-state 间/S6 receipt 前注入 kill，`nepa resume` 均可完成且满足 D1.1 | 故障注入脚本 |
 | D1.5  | 零人工修改：workspace 的 git 历史全部为 NePA 生成的提交      | `git log` 审计脚本                           |
 | D1.6  | trace 完整：每次 LLM 调用有 trace 行、请求参数及 `reported_applied/reported_ignored/unknown` 能力状态、S4 phase/work package 标识，且 prompt/output 全文存在；S6 每个任务 attempt 1 的执行角色恰为 Coder、所有 attempt > 1 的执行角色恰为 Fixer | trace 审计脚本 |
@@ -2473,7 +2415,7 @@ flowchart LR
 | R\-9  | **L2 进程测试脆弱**：单线程 select server 的就绪/退出时序在沙箱中不稳定 | M2            | 中   | M2\-0 明确就绪/退出语义；随机端口、就绪探测、超时强杀与 flaky 审计 | 同一 L2 用例在参考实现上偶发失败                           |
 | R\-10 | **覆盖映射失真**：REQ↔测试、测试 gate、公开测试边界↔生成物任一错漏，覆盖矩阵给出虚假安全感 | 评估 | 中 | manifest 声明 req/gate；Linker 生成并重算 coverage；M2\-0 后为公开边界增加机械闭合校验；代码 `Implements:` 注释交叉 grep（7.3）、D4.3 抽查 | 抽查映射不符，或 full lint 发现 readiness/公开边界缺口 |
 | R\-11 | **分层规划漂移**：架构、工作包 shard、S5 blueprint 或 Plan State 彼此错位 | M1/M5 | 高 | 父工件 hash、确定性 Linker、独立 PlanCritic、S4/S5 output receipts、Plan State snapshot/execution lint 与 reconciliation | 相同 issue 重现；S5 blueprint/seal 不同；Plan/State 或 commit/evidence 对账失败 |
-| R\-12 | **S4 联合门一次通过率过低、局部修复不稳定或模型差异过大**：ArchitecturePlanner 同时满足 contract 等式、ready/provider、需求唯一 primary、文件槽位与 DAG 等约束的概率可能远低于单门直觉；三模型表现可能分化，修复也可能越出失败字段，且机械通过不必然代表架构质量充分 | M1 | 高 | 按 6.4.8 先完成共享 `initial`/`repair` prompt bundle 的有界三模型开发；确定性平局时才以新 lineage 执行 M1\-4a2r，用 `p0`/逐门结果诊断、以 `p1`/修复局部性/完整 validator 闭合筛选并保留质量审计；随后仍各做 N\=10 正式校准，逐模型保留 `p0/p1/p2`、逐门失败与对比，任一未达 B1 即暂停人工选型 | 恢复批任一模型 `p1 < 0.80` 或修复局部性失败；正式批任一模型 `p1 < 0.90`，失败集中于相同子门，或第二次修复后仍不足以支撑稳定联调 |
+| R\-12 | **S4 联合门一次通过率过低或局部修复不稳定**：ArchitecturePlanner 同时满足 contract 等式、ready/provider、需求唯一 primary、文件槽位与 DAG 等约束的概率可能远低于单门直觉；机械通过也不必然代表架构质量充分 | M1 | 高 | 按 6.4.8 用当前配置模型完成共享 `initial`/`repair` prompt bundle 的 V0～V2 有界开发，保留 `p0/p1/p2`、逐门失败、patch 拒绝与成本作为诊断；达到 2/3 后只认定最低可用，实际质量和稳定性在 D1.3 完整链中观察 | V2 后仍不足 2/3；或 D1.3 中架构规划反复失败、修复越界、成本明显失控 |
 | R\-13 | **修订机制复杂度反噬**：版本链、迁移分类、纪元与账本引入的状态空间远大于单一冻结计划，实现缺陷可能表现为难以复现的工件损坏 | M1 | 高 | 全部状态迁移收敛到 L2 控制器的单一原子更新点（5.2.4）；D1.13 用合成触发与崩溃注入逐门验证；F2/F3 生产额度默认为 0，按 10.2 三段分期开启 | resume 后出现无法归类为“唯一合法状态”的现场，或账本与 `active_plan.json` 对账失败 |
 | R\-14 | **修订被当成万能出口**：控制器倾向于用改计划代替修代码，成本与不可比性同时上升 | 研究效度/成本 | 中 | 触发只用确定性谓词（6.6.1），LLM 无权发起；F2 ≤ 3、F3 ≤ 1 硬额度与熔断（4.7）；`revision.effectiveness` 与 A\-REV 直接检验 | `revision.count` 接近额度上限而 `revision.effectiveness` ≤ 0 |
 | R\-15 | **`PlanReviser` 未标定即上线**：修订补丁质量未知，可能产生机械合法但工程更差的计划 | M1 | 中 | 生产额度在校准完成前为 0（10.2）；有界开发协议约束其输入与输出；补丁算子集封闭且不含删除/改名已发布接口；RG\-4 由不同型号 PlanCritic 复核 delta 闭包 | 修订后 `first_pass_rate`（`INHERIT` 分母）低于修订前基线，或补丁被 RG\-4 高频拒绝 |
@@ -2506,7 +2448,7 @@ flowchart LR
 | O\-16 | 大规格下的全局输入分区与 S2/S3 分批归并                      | 架构→工作包展开只解决 S4 的详细输出规模；ArchitecturePlanner 的 planning index、S2 Reduce 与 S3 整本评审在完整 MQTT5/HTTP 量级仍可能超过上下文，而静默裁剪会漏规范性需求 | 先以 token preflight 在超限时受控失败（4\.7）；进入完整协议规模前由 scale gate 判定：可容纳则直接运行，否则先交付确定性分区与归并方案（10\.6） | 完整协议规模的 pipeline 前 |
 | O\-17 | M2 生成测试资产及公开测试契约                                | M0/M1 只有 Test Bundle 前置清单；测试目录、runner、oracle、reference/workspace 路由、adapter、CLI、server 进程、构建入口与 Blueprint 映射均未设计 | M2\-0 统一裁决生成资产与公开边界，更新本文档和 Schema 后才允许 M2\-1 生成测试与实现 S7 | M2\-1 开工前 |
 | O\-18 | S4～S9 修订机制的六个待裁决点（`PQ-1`～`PQ-6`）              | 触发阈值、租约上限 κ、迁移分类粒度、F3 额度、承诺层是否允许收缩、布局约定的演进方式等仍待数据支持；这些点全部局限在子文档范围内，不影响主文档的阶段接口 | 逐条按 `pipeline_design_s4_s9.md` §11 的“建议默认方向”执行；裁决后在该子文档正文落地并在 12.5 记一行。**该表由子文档所有，本文档不复制条目**，避免两处编号分叉 | 见子文档各条决策时机 |
-| O\-19 | 模型漂移是否需要行为侧替代控制？ | 4\.1.0 把模型标识降为只记录（9\.2 规则 1），R\-6 随之升为高且模型侧再无前置控制：provider 同名改版与中转端点改名掩盖的真实换版都无法检出，跨实验比较的解释力下降。已提出但未采纳的候选判据是**行为侧**检测——同一配置等价类内，若 9\.1 主指标的 median 移出该配置既有 \[min, max\]，则该组实验作废重跑。该判据的已知问题是需要先有足够同配置重复才能建立基线，而校准与首批正式批次本身处在基线之前，过早启用会把正常模型方差误判为漂移，重新引入本次要消除的“批次无法完成”问题 | **暂不引入任何替代作废判据**，维持 9\.2 规则 1 的“只记录 \+ 事后方差监控”；实现者**禁止**自行加入模型漂移作废条件。待同配置基线可从 `eval runs` 重算后再评估上述候选判据（含阈值与最小样本量），届时按 11\.3 规则 1 裁决并在 12\.5 记一行 | 同配置基线可用后（M1\-4a3 与 M1 正式批次积累完成），M2 正式实验批次前 |
+| O\-19 | 模型漂移是否需要行为侧替代控制？ | 4\.1.0 把模型标识降为只记录（9\.2 规则 1），R\-6 随之升为高且模型侧再无前置控制：provider 同名改版与中转端点改名掩盖的真实换版都无法检出，跨实验比较的解释力下降。已提出但未采纳的候选判据是**行为侧**检测——同一配置等价类内，若 9\.1 主指标的 median 移出该配置既有 \[min, max\]，则该组实验作废重跑。该判据的已知问题是需要先有足够同配置重复才能建立基线，而校准与首批正式批次本身处在基线之前，过早启用会把正常模型方差误判为漂移，重新引入本次要消除的“批次无法完成”问题 | **暂不引入任何替代作废判据**，维持 9\.2 规则 1 的“只记录 \+ 事后方差监控”；实现者**禁止**自行加入模型漂移作废条件。待同配置基线可从 `eval runs` 重算后再评估上述候选判据（含阈值与最小样本量），届时按 11\.3 规则 1 裁决并在 12\.5 记一行 | 同配置基线可由 M1 正式运行重算后，M2 正式实验批次前 |
 
 ### 11\.3 决策与变更流程
 
@@ -2641,3 +2583,4 @@ flowchart LR
 | 6\.0.0 | 2026\-08\-29 | 破坏性修订 M1\-4a2 开发协议：改为 V0～V4、每版三模型各 N\=3、每模型最多 15 个初始生成 trial 与最多四次 prompt 优化；每 trial 的两次架构语义修复均改为局部 patch 模式，冻结 patch Schema/应用器/失败路径映射并禁止整份重写；开发筛选改为三个模型分别达到 `p2 ≥ 0.60`，fallback 同步以 `p2` 为首要指标。M1\-4a2r 与 M1\-4a3 的样本、阈值和生产资格规则保持不变 | 负责人 |
 | 6\.0.1 | 2026\-08\-29 | 删除 M1\-4a2 模型生成 patch 的 prior-value SHA\-256 前置条件：patch 仅保留 `add` 目标不存在、`replace`/`remove` 目标存在的操作语义检查，以及路径白名单、冲突/重叠拒绝、原子应用、局部性与完整 Schema/`ARCH_VALIDATE` 复验。lineage、工件引用、不可变证据和报告重算的 SHA\-256 绑定保持不变；因 patch Schema 与应用语义变化，6.0.0 的值哈希 patch 证据不得进入 6.0.1 lineage | 负责人 |
 | 6\.1.0 | 2026\-08\-30 | 将 ArchitecturePlanner 的单一共享 prompt 改为共享的 `initial`/`repair` 两阶段 prompt bundle：初始规划与后续语义修复按调用深度选择独立模板，但继续共用同一角色和模型路由；V0～V4 及 R0～R2 的每次版本推进只允许修改一份模板，修改机会仍按整个 bundle 计数；正式校准冻结并复用同一版两份模板，旧单模板 trial 仅作历史证据。新增文档级约束：除满足本文已明确要求的既有契约外，任何实现位置不得新增 SHA\-256/hash 字段、摘要、前置条件或校验门；本次拆分只复用既有 trace、实验工件和 lineage 可追溯机制 | 负责人 |
+| 7\.0.0 | 2026\-09\-03 | 破坏性简化 ArchitecturePlanner 基准提示词流程：M1\-4a2 改为配置驱动的单模型 V0～V2 开发，每版 N\=3、至少 2/3 在两次有效 patch 修复内闭合即达到最低可用标准；普通失败、截断和基础设施无效只影响当前 trial，不再触发整版重跑；版本推进可同时修改 initial/repair。删除跨模型稳定性门、M1\-4a2r、M1\-4a3、B1～B4 与正式资格批次，M1\-4a2 经负责人签字后直接交接 M1\-4c，实际质量由 D1.3 完整链运行观察。同步将模型身份移出设计门槛，并放宽允许路径内的多问题 patch、稳定标识路径输入和每深度一次 patch 纠错 | 负责人 |

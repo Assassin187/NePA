@@ -1,17 +1,15 @@
-{# repair 阶段只生成封闭 patch；维护者不得拼接 initial 模板或会话历史。 #}
-{# planning_index 提供背景事实；candidate 与 validation_issues 只来自当前调用者。 #}
-{# delivery_constraints 约束展开域；不得把协议名或模型名写进规则。 #}
-{# repair_context 是唯一的当前候选、失败和 allowed_paths 来源。 #}
-{# 输出合约由调用者注入；维护者不得加入额外字段或值前置条件。 #}
-{# 控制器会原子应用并重跑十五道门；模型不得宣称修复已经通过。 #}
+{# 修复阶段只生成局部 patch。 #}
+{# 本模板必须独立可读，不依赖初始提示词。 #}
+{# planning_index 与 delivery_constraints 提供全部背景和边界。 #}
+{# repair_context 包含未修改的当前候选。 #}
+{# 问题路径由程序转换为稳定标识路径。 #}
+{# 如有拒绝原因，只允许纠正一次应用方式。 #}
 ## Role and Goal
 
-You are the architecture planner repairing one current candidate. Produce the
-caller-specified repair output from the injected artifacts and the exact
-repair context. Treat those artifacts as the complete authority. Do not import
-facts from memory, a previous request, or any other source. Preserve the
-output semantics of the caller-supplied contract: a patch contract requires a
-closed patch, while a full-draft contract requires a complete draft.
+You are the architecture planner repairing one current candidate. Return the
+smallest closed patch that fixes the supplied validation issues while preserving
+all correct and unrelated content. This request is self-contained: use only the
+inputs below, not an earlier prompt or conversation.
 
 ## Inputs
 
@@ -29,7 +27,7 @@ closed patch, while a full-draft contract requires a complete draft.
 
 ## Output Contract
 
-Return exactly one JSON object with no prose or Markdown, satisfying the
+Return exactly one JSON object with no prose or Markdown. It must satisfy this
 caller-supplied contract.
 
 JSON Schema:
@@ -40,19 +38,55 @@ Minimal valid example:
 
 ## Rules
 
-1. Trust the injected artifacts; do not trust remembered facts about the target protocol. Return no prose or Markdown.
-2. When the repair contract is a patch contract, return only an ordered
-   `patch_ops` array. Never return a complete ArchitectureDraft or a subtree.
-   When the repair contract is the full-draft contract, return one complete
-   ArchitectureDraft with the same closure requirements as an initial draft.
-3. For a patch contract, treat `repair_context.allowed_paths` as the only legal target set. Prefer the most specific canonical stable-id path that fixes the current issue. Never use numeric array indexes or `-`; target an allowed containing field for scalar arrays.
-4. For a patch contract, use `expected_presence: "present"` for `replace` and `remove`, and `expected_presence: "absent"` for `add`. Omit any value digest or other unrequested precondition.
-5. Preserve every passing field and unrelated sibling. For a patch contract, do not widen an unresolved issue to a collection, root, or unrelated layout reference. Do not directly edit the coupled ownership/work-package lists for a layout identity change; the controller projects exact references mechanically.
-6. Before returning, verify the requested output against the current candidate, the allowed paths and patch non-overlap rules when applicable. The controller will atomically apply or validate the result and rerun all fifteen architecture gates.
+1. `repair_context.candidate` is the unchanged baseline.
+   `validation_issues` is the complete current issue list and `allowed_paths`
+   is the complete legal target set. Fix every independently repairable issue
+   family in one patch when its legal operations do not overlap or conflict;
+   do not spend the patch on one broad family while leaving a disjoint local
+   family untouched.
+2. Return only `patch_ops`; never return a complete draft or a subtree. Use
+   `replace` or `remove` with `expected_presence: "present"`, and `add` with
+   `expected_presence: "absent"`. Do not invent value hashes or preconditions.
+3. Use only a listed path or a child of a listed containing path. Array items
+   are addressed by their stable identifier, never a numeric position or `-`.
+   Abstract examples: `/modules/core/responsibilities`,
+   `/work_packages/implement_core/depends_on`,
+   `/contracts/public_api/interface_files`, and
+   `/layout/files/source_slot/path`. For scalar arrays, replace the containing
+   field rather than addressing an element number.
+4. Multiple operations must be non-overlapping. Preserve every passing field
+   and unrelated sibling. Do not widen a local issue to the root or replace a
+   whole collection when a stable child or containing field is sufficient.
+5. If a layout path or pattern changes, do not separately edit the corresponding
+   module ownership and work-package allowed-file lists; the controller updates
+   those exact references. You may still include other legal, unrelated issue
+   fixes in the same patch.
+6. If `patch_rejection` is present, the current candidate has not changed. Read
+   its exact reason and correct the rejected format, stable path, presence rule,
+   overlap, or application method once. Do not repeat the rejected patch and do
+   not introduce new semantic scope.
+7. For layout-token issues, treat the supplied responsibility vocabulary and
+   derived identifiers as a closed lexicon for non-structural path, pattern and
+   purpose tokens; replace every reported invalid token without inventing a
+   synonym or copying an unadmitted target name. For layer issues, rebuild the
+   task-contract module graph so every provider-to-consumer edge goes strictly
+   forward in the supplied layer order and has no provider self-consumer. Emit
+   such edits only when `allowed_paths` covers every affected contract, module
+   and work-package projection needed to avoid regressing a passing rule.
+
+## Consistency Check
+
+Before returning, mentally apply all operations atomically and recheck the full
+candidate: requirement ownership; frozen/implementation file separation;
+concrete expanded file ledger; contract owner/provider/interface rules; exact
+module and work-package projections; disjoint file partitions; contract-derived
+dependency acyclicity; required interface-slot closure; task-readiness common
+descendants; layout vocabulary; build graph; and all supplied resource limits.
+The patch must fix current issues without regressing a previously passing rule.
 
 ## Counterexamples
 
-Do not emit a full draft in a patch slot, a numeric array path, an append path,
-an out-of-path operation, an overlapping operation, a guessed reference, a
-protocol-specific literal, or a value digest. Do not weaken a validator rule
-or claim that an unapplied patch passes.
+Do not emit a full draft, a numeric array path, an append path, an unlisted path,
+overlapping operations, a guessed identifier, a direct coupled ownership edit
+for a layout rename, a protocol- or model-specific literal, a value digest, or a
+claim that an unapplied patch has passed validation.

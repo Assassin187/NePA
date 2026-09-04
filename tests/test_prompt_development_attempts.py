@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from nepa.calibration.s4_prompt_development import PromptDevelopmentCoordinator, PromptDevelopmentEvidenceError
+from nepa.calibration.s4_prompt_development import PromptDevelopmentCoordinator, PromptDevelopmentError, PromptDevelopmentEvidenceError
 
 
 def _declaration(lineage_id: str, version: str, attempt: int):
@@ -25,7 +25,7 @@ def _outcome(lineage_id: str, version: str, attempt: int, status: str):
     }
 
 
-def test_next_attempt_is_monotonic_and_invalid_attempt_is_not_resumed(tmp_path):
+def test_failed_version_attempt_is_preserved_and_not_rerun(tmp_path):
     lineage_id = "b" * 64
     root = tmp_path / lineage_id
     attempt_dir = root / "prompt-development/versions/v0/attempts/attempt_001"
@@ -33,7 +33,8 @@ def test_next_attempt_is_monotonic_and_invalid_attempt_is_not_resumed(tmp_path):
     (attempt_dir / "declaration.json").write_text(json.dumps(_declaration(lineage_id, "v0", 1)), encoding="utf-8")
     (attempt_dir / "outcome.json").write_text(json.dumps(_outcome(lineage_id, "v0", 1, "infrastructure-invalid")), encoding="utf-8")
     coordinator = PromptDevelopmentCoordinator(root)
-    assert coordinator._next_attempt("v0") == 2
+    with pytest.raises(PromptDevelopmentError, match="cannot be rerun"):
+        coordinator._next_attempt("v0")
 
 
 def test_next_attempt_rejects_gapped_attempt_history(tmp_path):

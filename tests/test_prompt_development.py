@@ -22,25 +22,19 @@ def _config_files(tmp_path: Path):
     config.write_text(
         """
 providers:
-  qwen-provider: {kind: openai_compat, base_url: https://qwen.invalid, api_key_env: NEPA_QWEN_API_KEY}
-  claude-provider: {kind: anthropic, base_url: https://claude.invalid, api_key_env: NEPA_CLAUDE_API_KEY}
-  deepseek-provider: {kind: openai_compat, base_url: https://deepseek.invalid, api_key_env: NEPA_DS_API_KEY}
+  selected-provider: {kind: anthropic, base_url: https://selected.invalid, api_key_env: NEPA_SELECTED_API_KEY}
 calibration_models:
-  qwen: {provider: qwen-provider, model: model-qwen, temperature: 0.0, max_tokens: 65536}
-  claude: {provider: claude-provider, model: model-claude, temperature: 0.0, max_tokens: 65536}
-  deepseek: {provider: deepseek-provider, model: model-deepseek, temperature: 0.0, max_tokens: 65536}
+  arbitrary_slot: {provider: selected-provider, model: model-selected, temperature: 0.0, max_tokens: 32000}
 pricing:
   models:
-    qwen-provider/model-qwen: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
-    claude-provider/model-claude: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
-    deepseek-provider/model-deepseek: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
+    selected-provider/model-selected: {input_usd_per_million_tokens: 1, output_usd_per_million_tokens: 1}
 """,
         encoding="utf-8",
     )
     limits = tmp_path / "limits.json"
     # The exact-algorithm prompt and a full repair context require slightly
     # more than the former synthetic 100k fixture window.
-    limits.write_text(json.dumps({"qwen": 110000, "claude": 110000, "deepseek": 110000}), encoding="utf-8")
+    limits.write_text(json.dumps({"arbitrary_slot": 110000}), encoding="utf-8")
     return config, limits
 
 
@@ -73,8 +67,8 @@ def _factory(instances):
 def test_config_preflight_rejects_missing_pricing_and_requires_explicit_limits(tmp_path):
     config, limits = _config_files(tmp_path)
     preflight = preflight_calibration_config(config, limits, require_environment=False)
-    assert set(preflight.context_limits) == {"qwen", "claude", "deepseek"}
-    broken = config.read_text(encoding="utf-8").replace("deepseek-provider/model-deepseek:", "missing/model:")
+    assert set(preflight.context_limits) == {"arbitrary_slot"}
+    broken = config.read_text(encoding="utf-8").replace("selected-provider/model-selected:", "missing/model:")
     config.write_text(broken, encoding="utf-8")
     with pytest.raises(PromptDevelopmentConfigError, match="missing pricing"):
         preflight_calibration_config(config, limits, require_environment=False)
@@ -86,7 +80,7 @@ def test_neutrality_rejects_protocol_and_model_specific_source():
     scan_prompt_neutrality("Use only the supplied delimited artifacts and generic contracts")
 
 
-def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_models(tmp_path):
+def test_init_binds_lineage_and_runs_one_configured_model_slot(tmp_path):
     config, limits = _config_files(tmp_path)
     instances = {}
     coordinator = PromptDevelopmentCoordinator.init(
@@ -105,7 +99,7 @@ def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_mode
     assert result["assessment"]["trial_count"] == 3
     assert result["assessment"]["attempt"] == 1
     assert result["assessment"]["screening_pass"] is False
-    assert set(instances) == {"qwen", "claude", "deepseek"}
+    assert set(instances) == {"arbitrary_slot"}
     assert (coordinator.root / "prompt-development/versions/v0/initial.md").read_bytes() == Path("nepa/agents/prompts/architecture_planner_initial.md").read_bytes()
     summary = write_development_report(
         coordinator.root,
@@ -113,10 +107,10 @@ def test_init_binds_corrected_lineage_and_snapshot_then_runs_three_isolated_mode
         context_limits_path=limits,
         output_dir=tmp_path / "results",
     )
-    assert set(summary["versions"]["v0"]["slots"]) == {"qwen", "claude", "deepseek"}
+    assert set(summary["versions"]["v0"]["slots"]) == {"arbitrary_slot"}
     report_path = tmp_path / "results/development-report.md"
     validate_development_report(summary, report_path.read_text(encoding="utf-8"))
-    for model_id in ("qwen", "claude", "deepseek"):
+    for model_id in ("arbitrary_slot",):
         value = json.loads((coordinator.root / "v0" / model_id / "batch.json").read_text(encoding="utf-8"))
         assert value["trial_count"] == 3
         assert value["semantic_depth"] == 2
@@ -140,14 +134,65 @@ def test_snapshot_mutation_and_selection_block_provider_work(tmp_path):
         coordinator.run_version("v0")
 
 
+def test_two_of_three_selects_immediately_and_waits_for_owner_before_handoff(tmp_path):
+    from test_architecture_validation import _valid_draft
+    valid, _planning, _manifest, _constraints = _valid_draft()
+
+    class TwoOfThreeProvider:
+        native_structured_output = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, request, *, model, native_schema):
+            self.calls += 1
+            if self.calls <= 3:
+                from nepa.llm.client import TransportError
+                raise TransportError("one unavailable sample", provider="selected-provider")
+            return LLMResponse(
+                text=json.dumps(valid), tokens_in=1, tokens_out=1, cost_usd=0, model=model,
+                parameter_support={"temperature": ParameterSupportState.UNKNOWN},
+            )
+
+    instances = {}
+    config, limits = _config_files(tmp_path)
+    coordinator = PromptDevelopmentCoordinator.init(
+        config_path=config,
+        context_limits_path=limits,
+        runs_root=tmp_path / "runs",
+        provider_factory=_factory(instances),
+        require_environment=False,
+    )
+    provider = TwoOfThreeProvider()
+    coordinator.provider_factory = lambda model_id, target, *_args: {target.provider: provider}
+    result = coordinator.run_version("v0")
+    assert result["assessment"]["models"]["arbitrary_slot"]["p2_passes"] == 2
+    assert result["assessment"]["screening_pass"] is True
+    assert (coordinator.root / "prompt-development/selection.json").is_file()
+    assert not (coordinator.root / "prompt-development/handoff.json").exists()
+    assert coordinator.next_action("v0") == {"action": "terminal-selection"}
+    invalid_path = coordinator.root / "prompt-development/invalid-approval.json"
+    invalid_path.write_text(json.dumps({"approved": False, "reviewer": "test-owner"}), encoding="utf-8")
+    invalid_ref = {"path": "prompt-development/invalid-approval.json", "sha256": __import__("hashlib").sha256(invalid_path.read_bytes()).hexdigest()}
+    with pytest.raises(PromptDevelopmentEvidenceError, match="invalid owner approval"):
+        coordinator.publish_handoff(invalid_ref)
+    approval_path = coordinator.root / "prompt-development/owner-approval.json"
+    approval_path.write_text(json.dumps({"approved": True, "reviewer": "test-owner"}), encoding="utf-8")
+    approval_ref = {"path": "prompt-development/owner-approval.json", "sha256": __import__("hashlib").sha256(approval_path.read_bytes()).hexdigest()}
+    handoff_ref = coordinator.publish_handoff(approval_ref)
+    handoff = json.loads((coordinator.root / handoff_ref["path"]).read_text(encoding="utf-8"))
+    assert handoff["consumer"] == "m1-4c"
+    assert handoff["satisfies"]["production_quality_proven"] is False
+
+
 def test_fixed_key_mapping_is_checked_without_reading_values(tmp_path, monkeypatch):
     config, limits = _config_files(tmp_path)
-    monkeypatch.delenv("NEPA_QWEN_API_KEY", raising=False)
-    with pytest.raises(PromptDevelopmentConfigError, match="NEPA_QWEN_API_KEY"):
+    monkeypatch.delenv("NEPA_SELECTED_API_KEY", raising=False)
+    with pytest.raises(PromptDevelopmentConfigError, match="NEPA_SELECTED_API_KEY"):
         preflight_calibration_config(config, limits, require_environment=True)
 
 
-def test_revision_requires_complete_prior_failure_and_binds_one_prompt_diff(tmp_path):
+def test_revision_can_change_both_prompt_stages(tmp_path):
     config, limits = _config_files(tmp_path)
     initial_source = tmp_path / "architecture_planner_initial.md"
     repair_source = tmp_path / "architecture_planner_repair.md"
@@ -162,12 +207,56 @@ def test_revision_requires_complete_prior_failure_and_binds_one_prompt_diff(tmp_
     assert result["assessment"]["screening_pass"] is False
     evidence = {"path": "prompt-development/versions/v0/assessment-n003.json", "sha256": __import__("hashlib").sha256((coordinator.root / "prompt-development/versions/v0/assessment-n003.json").read_bytes()).hexdigest()}
     initial_source.write_bytes(initial_source.read_bytes() + b"\nUse a final generic consistency checklist.\n")
-    revision = coordinator.record_revision("v1", hypothesis="The self-check order is underspecified.", evidence_refs=[evidence], expected_gates=["arch_07"], stopping_conclusion="Stop revising if the next complete N=3 attempt still fails screening.", changed_stage="initial")
+    repair_source.write_bytes(repair_source.read_bytes() + b"\nRecheck all current issues together.\n")
+    revision = coordinator.record_revision("v1", hypothesis="The construction and repair instructions need one coordinated clarification.", evidence_refs=[evidence], expected_gates=["arch_07"], stopping_conclusion="Stop revising if the next complete N=3 attempt still fails screening.")
     assert revision["version"] == "v1"
     assert (coordinator.root / "prompt-development/versions/v1/revision.json").is_file()
+    revision_record = json.loads((coordinator.root / "prompt-development/versions/v1/revision.json").read_text())
+    assert revision_record["changed_stages"] == ["initial", "repair"]
     v1_result = coordinator.run_version("v1")
     assert v1_result["assessment"]["status"] == "complete"
     v1_evidence_path = coordinator.root / "prompt-development/versions/v1/assessment-n003.json"
     v1_evidence = {"path": "prompt-development/versions/v1/assessment-n003.json", "sha256": __import__("hashlib").sha256(v1_evidence_path.read_bytes()).hexdigest()}
-    with pytest.raises(PromptDevelopmentError, match="distinct"):
+    with pytest.raises(PromptDevelopmentError, match="change at least one"):
         coordinator.record_revision("v2", hypothesis="The self-check order is underspecified.", evidence_refs=[v1_evidence], prompt_bytes=initial_source.read_bytes(), stopping_conclusion="Stop revising after this hypothesis is falsified.")
+
+
+def test_v2_failure_publishes_only_an_earlier_version_diagnostic(tmp_path):
+    config, limits = _config_files(tmp_path)
+    initial_source = tmp_path / "architecture_planner_initial.md"
+    repair_source = tmp_path / "architecture_planner_repair.md"
+    initial_source.write_bytes(Path("nepa/agents/prompts/architecture_planner_initial.md").read_bytes())
+    repair_source.write_bytes(Path("nepa/agents/prompts/architecture_planner_repair.md").read_bytes())
+    instances = {}
+    coordinator = PromptDevelopmentCoordinator.init(
+        config_path=config, context_limits_path=limits, runs_root=tmp_path / "runs",
+        provider_factory=_factory(instances), initial_prompt_source_path=initial_source,
+        repair_prompt_source_path=repair_source, require_environment=False,
+    )
+
+    def assessment_ref(version):
+        relative = f"prompt-development/versions/{version}/assessment-n003.json"
+        data = (coordinator.root / relative).read_bytes()
+        return {"path": relative, "sha256": __import__("hashlib").sha256(data).hexdigest()}
+
+    coordinator.run_version("v0")
+    initial_source.write_bytes(initial_source.read_bytes() + b"\nCheck the generic construction order once.\n")
+    coordinator.record_revision(
+        "v1", hypothesis="Clarify the generic construction check.", evidence_refs=[assessment_ref("v0")],
+        stopping_conclusion="Continue once only if the complete batch remains below the baseline.",
+    )
+    coordinator.run_version("v1")
+    repair_source.write_bytes(repair_source.read_bytes() + b"\nCheck every currently allowed issue together.\n")
+    coordinator.record_revision(
+        "v2", hypothesis="Clarify the final allowed-issue check.", evidence_refs=[assessment_ref("v1")],
+        stopping_conclusion="Stop prompt development after this complete batch.",
+    )
+    result = coordinator.run_version("v2")
+    diagnostic = json.loads((coordinator.root / "prompt-development/diagnostic-selection.json").read_text(encoding="utf-8"))
+    assert result["assessment"]["screening_pass"] is False
+    assert diagnostic["status"] == "diagnostic"
+    assert diagnostic["selected_version"] == "v0"
+    assert not (coordinator.root / "prompt-development/selection.json").exists()
+    assert not (coordinator.root / "prompt-development/handoff.json").exists()
+    assert coordinator._declared_initial_trial_count() == 9
+    assert coordinator.next_action("v2") == {"action": "terminal-diagnostic", "handoff": False}

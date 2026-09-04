@@ -1,0 +1,1 @@
+{"schema_version":"4.0","lineage_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","version":"v0","attempt":1,"status":"complete","model_slot":"primary","reports":{"primary":{"path":"v0/primary/calibration_report.json","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}

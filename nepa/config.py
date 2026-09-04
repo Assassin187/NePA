@@ -150,9 +150,7 @@ _DEFAULTS: dict[str, Any] = {
         },
     },
     "calibration_models": {
-        "qwen": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 65536},
-        "claude": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 65536},
-        "deepseek": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.0, "max_tokens": 65536},
+        "architecture_primary": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 65536},
     },
     "tiers": {
         "T1": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 16000},
@@ -226,9 +224,14 @@ def load_config(path: Path | str | None = None, overrides: Mapping[str, object] 
 
     values = copy.deepcopy(_DEFAULTS)
     if path is not None:
-        values = _merge(values, _read_yaml(Path(path)))
+        file_values = _read_yaml(Path(path))
+        values = _merge(values, file_values)
+        if "calibration_models" in file_values:
+            values["calibration_models"] = copy.deepcopy(file_values["calibration_models"])
     if overrides is not None:
         values = _merge(values, overrides)
+        if "calibration_models" in overrides:
+            values["calibration_models"] = copy.deepcopy(overrides["calibration_models"])
     try:
         return ResolvedConfig.model_validate(values)
     except ValidationError as exc:

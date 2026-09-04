@@ -26,6 +26,7 @@ from ..config import ConfigError, ResolvedConfig, config_snapshot_sha256, load_c
 from ..run_store import ArtifactRef, RunStore, RunStoreError
 from ..schemas import architecture_draft_contract, load_schema
 from ..speclib.lint import canonical_json_bytes
+from ..speclib.planning import prepare_architecture_inputs
 from . import s4_architecture as _architecture
 from .s4_architecture import (
     FIXED_API_KEY_ENVS,
@@ -68,25 +69,28 @@ class PromptSelectionTie(PromptDevelopmentError):
 
 
 _SAFE_RELATIVE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
-_VERSION_RE = re.compile(r"^v[0-4]$")
-_DEV_VERSIONS = ("v0", "v1", "v2", "v3", "v4")
+_VERSION_RE = re.compile(r"^v[0-2]$")
+_DEV_VERSIONS = ("v0", "v1", "v2")
+_MODEL_SLOT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _GATES = tuple(f"arch_{index:02d}" for index in range(1, 16))
 _METRIC_NAMES = ("schema_after_format_repair_rate", "p1", "p2", "arch_semantic_first_pass_rate")
 CONFIG_ENV = "NEPA_M1_4A2_CONFIG"
 CONTEXT_LIMITS_ENV = "NEPA_M1_4A2_CONTEXT_LIMITS"
 _SLOT_RETRY_EXCEPTION_PATH = "v2/extensions/n010/slot-retry-001/exception.json"
+_EXECUTION_AMENDMENT_PATH = "prompt-development/execution-amendment-005.json"
 _SCHEMA_NAMES = {
-    "protocol": "calibration-development-protocol-bundle.schema.json",
-    "version": "calibration-prompt-version-bundle.schema.json",
-    "snapshot": "calibration-prompt-snapshot-bundle.schema.json",
-    "revision": "calibration-prompt-revision-bundle.schema.json",
-    "attempt_declaration": "calibration-attempt-declaration-bundle.schema.json",
-    "attempt_outcome": "calibration-attempt-outcome.schema.json",
+    "protocol": "calibration-baseline-protocol.schema.json",
+    "version": "calibration-baseline-version.schema.json",
+    "snapshot": "calibration-baseline-snapshot.schema.json",
+    "revision": "calibration-baseline-revision.schema.json",
+    "attempt_declaration": "calibration-baseline-attempt-declaration.schema.json",
+    "attempt_outcome": "calibration-baseline-attempt-outcome.schema.json",
     "extension": "calibration-development-extension.schema.json",
-    "assessment": "calibration-development-assessment.schema.json",
-    "outcome": "calibration-development-outcome.schema.json",
-    "selection": "calibration-development-selection-bundle.schema.json",
-    "handoff": "calibration-development-handoff-bundle.schema.json",
+    "assessment": "calibration-baseline-assessment.schema.json",
+    "outcome": "calibration-baseline-outcome.schema.json",
+    "selection": "calibration-baseline-selection.schema.json",
+    "handoff": "calibration-baseline-handoff.schema.json",
+    "owner_approval": "calibration-baseline-owner-approval.schema.json",
     "report": "calibration-report.schema.json",
 }
 _LEGACY_SCHEMA_NAMES = {
@@ -100,6 +104,18 @@ _LEGACY_SCHEMA_NAMES = {
     "outcome": "calibration-development-outcome.schema.json",
     "selection": "calibration-development-selection.schema.json",
     "handoff": "calibration-development-handoff.schema.json",
+}
+_BUNDLE_SCHEMA_NAMES = {
+    "protocol": "calibration-development-protocol-bundle.schema.json",
+    "version": "calibration-prompt-version-bundle.schema.json",
+    "snapshot": "calibration-prompt-snapshot-bundle.schema.json",
+    "revision": "calibration-prompt-revision-bundle.schema.json",
+    "attempt_declaration": "calibration-attempt-declaration-bundle.schema.json",
+    "attempt_outcome": "calibration-attempt-outcome.schema.json",
+    "assessment": "calibration-development-assessment.schema.json",
+    "outcome": "calibration-development-outcome.schema.json",
+    "selection": "calibration-development-selection-bundle.schema.json",
+    "handoff": "calibration-development-handoff-bundle.schema.json",
 }
 
 
@@ -143,8 +159,33 @@ def _slot_retry_exception_authorized(root: Path) -> bool:
     )
 
 
+def _execution_amendment_authorized(root: Path) -> bool:
+    """Accept only the user-authorized executor amendment for this lineage."""
+
+    path = root / _EXECUTION_AMENDMENT_PATH
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        lineage = json.loads((root / "lineage.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(value, dict) or not isinstance(lineage, dict):
+        return False
+    current_statistics = _sha(_default_components("patch")["statistics"])
+    return (
+        value.get("schema_version") == "4.0"
+        and value.get("lineage_id") == root.name
+        and value.get("status") == "admitted"
+        and value.get("authorization") == "explicit_user_authorization"
+        and value.get("scope") == "trial-local-retry"
+        and value.get("versions") == ["v1"]
+        and value.get("recorded_statistics_sha256") == lineage.get("components", {}).get("statistics", {}).get("sha256")
+        and value.get("current_statistics_sha256") == current_statistics
+        and value.get("implementation_sha256") == _sha((Path(__file__).resolve().parent / "s4_architecture.py").read_bytes())
+    )
+
+
 def _recompute_lineage_report(root: Path, model_root: str | Path, *, config: ResolvedConfig | None = None) -> dict[str, Any]:
-    if not _slot_retry_exception_authorized(root):
+    if not (_slot_retry_exception_authorized(root) or _execution_amendment_authorized(root)):
         return recompute_calibration_report(model_root, config=config)
     recorded_components = {
         name: _verify_root_ref(root, ref, f"lineage/components/{name}")
@@ -169,7 +210,8 @@ def _publish_json(root: Path, relative: str, value: Any, schema_key: str) -> dic
     relative = _safe_relative(relative)
     store = RunStore(root)
     try:
-        schema_name = _LEGACY_SCHEMA_NAMES.get(schema_key) if isinstance(value, Mapping) and value.get("schema_version") == "2.0" else _SCHEMA_NAMES[schema_key]
+        version = value.get("schema_version") if isinstance(value, Mapping) else None
+        schema_name = (_LEGACY_SCHEMA_NAMES if version == "2.0" else _BUNDLE_SCHEMA_NAMES if version == "3.0" else _SCHEMA_NAMES)[schema_key]
         ref = store.publish_immutable_json(relative, value, schema_name=schema_name)
     except RunStoreError as exc:
         raise PromptDevelopmentEvidenceError(str(exc)) from exc
@@ -194,7 +236,8 @@ def _load_json(root: Path, relative: str, schema_key: str | None = None) -> dict
     if not isinstance(value, dict):
         raise PromptDevelopmentEvidenceError(f"committed record is not an object: {relative}")
     if schema_key is not None:
-        schema_name = _LEGACY_SCHEMA_NAMES.get(schema_key) if value.get("schema_version") == "2.0" else _SCHEMA_NAMES[schema_key]
+        version = value.get("schema_version")
+        schema_name = (_LEGACY_SCHEMA_NAMES if version == "2.0" else _BUNDLE_SCHEMA_NAMES if version == "3.0" else _SCHEMA_NAMES)[schema_key]
         errors = sorted(Draft202012Validator(load_schema(schema_name)).iter_errors(value), key=lambda item: tuple(item.absolute_path))
         if errors:
             raise PromptDevelopmentEvidenceError(f"invalid {relative}: {errors[0].message}")
@@ -300,7 +343,7 @@ class CalibrationPreflight:
                 "max_tokens": self.config.calibration_models[model_id].max_tokens,
                 "context_window_tokens": self.context_limits[model_id],
             }
-            for model_id in MODEL_IDS
+            for model_id in sorted(self.config.calibration_models)
         }
 
 
@@ -324,35 +367,37 @@ def preflight_calibration_config(
         raw_limits = json.loads(limits_file.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PromptDevelopmentConfigError(f"unable to read explicit context limits: {exc}") from exc
-    if not isinstance(raw_limits, dict) or set(raw_limits) != set(MODEL_IDS):
-        raise PromptDevelopmentConfigError("context limits must contain exactly qwen, claude, and deepseek")
+    model_slots = tuple(sorted(config.calibration_models))
+    if len(model_slots) != 1 or _MODEL_SLOT_RE.fullmatch(model_slots[0]) is None:
+        raise PromptDevelopmentConfigError("calibration_models must contain exactly one valid logical model slot")
+    if not isinstance(raw_limits, dict) or set(raw_limits) != set(model_slots):
+        raise PromptDevelopmentConfigError("context limits must contain exactly the configured logical model slot")
     if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in raw_limits.values()):
         raise PromptDevelopmentConfigError("context limits must be positive integers")
-    if set(config.calibration_models) != set(MODEL_IDS):
-        raise PromptDevelopmentConfigError("calibration_models must contain exactly qwen, claude, and deepseek")
-    for model_id in MODEL_IDS:
+    required_envs: list[str] = []
+    for model_id in model_slots:
         model = config.calibration_models[model_id]
         provider = config.providers.get(model.provider)
         if provider is None:
             raise PromptDevelopmentConfigError(f"missing provider for {model_id}")
-        expected_env = FIXED_API_KEY_ENVS[model_id]
-        if provider.api_key_env != expected_env:
-            raise PromptDevelopmentConfigError(f"{model_id} must use api_key_env {expected_env}")
+        if not provider.api_key_env:
+            raise PromptDevelopmentConfigError(f"missing api_key_env for {model_id}")
+        required_envs.append(provider.api_key_env)
         if f"{model.provider}/{model.model}" not in config.pricing.models:
             raise PromptDevelopmentConfigError(f"missing pricing for {model_id}")
-        if model.temperature < 0 or model.max_tokens != 65536:
+        if model.temperature < 0 or model.max_tokens <= 0:
             raise PromptDevelopmentConfigError(f"invalid request parameters for {model_id}")
     if require_environment:
-        missing = [name for name in FIXED_API_KEY_ENVS.values() if not os.environ.get(name)]
+        missing = [name for name in required_envs if not os.environ.get(name)]
         if missing:
             raise PromptDevelopmentConfigError("missing required environment variable: " + ", ".join(missing))
     snapshot = public_config_snapshot(config)
-    context_bytes = canonical_json_bytes({model_id: int(raw_limits[model_id]) for model_id in MODEL_IDS})
+    context_bytes = canonical_json_bytes({model_id: int(raw_limits[model_id]) for model_id in model_slots})
     return CalibrationPreflight(
         config_path=config_file,
         context_limits_path=limits_file,
         config=config,
-        context_limits={model_id: int(raw_limits[model_id]) for model_id in MODEL_IDS},
+        context_limits={model_id: int(raw_limits[model_id]) for model_id in model_slots},
         config_snapshot=snapshot,
         config_sha256=config_snapshot_sha256(snapshot),
         context_bytes=context_bytes,
@@ -372,17 +417,23 @@ def _verify_lineage(root: Path, lineage: Mapping[str, Any], preflight: Calibrati
     if not isinstance(stats_hash, str) or _sha(canonical_json_bytes(statistics)) != stats_hash:
         raise PromptDevelopmentEvidenceError("lineage statistics hash mismatch")
     exception_authorized = _slot_retry_exception_authorized(root)
+    execution_amendment_authorized = _execution_amendment_authorized(root)
     if (
         statistics.get("metric_definition") != METRIC_DEFINITION
         or (
             statistics.get("implementation_sha256")
             != _sha((Path(__file__).resolve().parent / "s4_architecture.py").read_bytes())
-            and not exception_authorized
+            and not (exception_authorized or execution_amendment_authorized)
         )
     ):
         raise PromptDevelopmentEvidenceError("lineage metric-definition implementation drift")
-    if lineage.get("calibration", {}).get("api_key_env") != FIXED_API_KEY_ENVS:
-        raise PromptDevelopmentEvidenceError("lineage fixed API-key mapping drift")
+    model_slots = tuple(sorted(preflight.config.calibration_models))
+    expected_api_keys = {
+        model_id: preflight.config.providers[preflight.config.calibration_models[model_id].provider].api_key_env
+        for model_id in model_slots
+    }
+    if lineage.get("calibration", {}).get("api_key_env") != expected_api_keys:
+        raise PromptDevelopmentEvidenceError("lineage API-key mapping drift")
     expected_controls = {
         model_id: {
             "provider": preflight.config.calibration_models[model_id].provider,
@@ -390,16 +441,16 @@ def _verify_lineage(root: Path, lineage: Mapping[str, Any], preflight: Calibrati
             "max_tokens": preflight.config.calibration_models[model_id].max_tokens,
             "context_window_tokens": preflight.context_limits[model_id],
         }
-        for model_id in MODEL_IDS
+        for model_id in model_slots
     }
     if lineage.get("slot_controls") != expected_controls:
         raise PromptDevelopmentEvidenceError("resolved slot control projection drift")
-    if set(lineage.get("models", {})) != set(MODEL_IDS):
+    if set(lineage.get("models", {})) != set(model_slots):
         raise PromptDevelopmentEvidenceError("lineage model observations are incomplete")
-    expected_provider_names = {preflight.config.calibration_models[model_id].provider for model_id in MODEL_IDS}
-    if set(lineage.get("providers", {})) != expected_provider_names or set(lineage.get("pricing", {})) != set(MODEL_IDS):
+    expected_provider_names = {preflight.config.calibration_models[model_id].provider for model_id in model_slots}
+    if set(lineage.get("providers", {})) != expected_provider_names or set(lineage.get("pricing", {})) != set(model_slots):
         raise PromptDevelopmentEvidenceError("lineage provider or pricing projection drift")
-    for model_id in MODEL_IDS:
+    for model_id in model_slots:
         target = preflight.config.calibration_models[model_id]
         provider = preflight.config.providers.get(target.provider)
         recorded_value = lineage.get("providers", {}).get(target.provider)
@@ -419,7 +470,9 @@ def _verify_lineage(root: Path, lineage: Mapping[str, Any], preflight: Calibrati
     if set(current) != set(lineage.get("components", {})):
         raise PromptDevelopmentEvidenceError("controlled component set drift")
     for name, data in current.items():
-        if lineage["components"][name].get("sha256") != _sha(data) and not (exception_authorized and name == "statistics"):
+        if lineage["components"][name].get("sha256") != _sha(data) and not (
+            (exception_authorized or execution_amendment_authorized) and name == "statistics"
+        ):
             raise PromptDevelopmentEvidenceError(f"controlled component drift: {name}")
 
 
@@ -435,25 +488,29 @@ def _load_protocol(root: Path, preflight: CalibrationPreflight | None = None) ->
     lineage = _load_json(root, "lineage.json")
     if protocol.get("lineage_id") != lineage.get("lineage_id") or protocol.get("lineage_id") != root.name:
         raise PromptDevelopmentEvidenceError("protocol lineage binding drift")
-    if protocol.get("model_ids") != list(MODEL_IDS) or protocol.get("versions") != list(_DEV_VERSIONS):
+    model_slot = protocol.get("model_slot")
+    if not isinstance(model_slot, str) or _MODEL_SLOT_RE.fullmatch(model_slot) is None or protocol.get("versions") != list(_DEV_VERSIONS):
         raise PromptDevelopmentEvidenceError("protocol model or version set drift")
-    if protocol.get("semantic_depth") != 2 or protocol.get("base_trial_count") != 3 or protocol.get("max_revisions") != 4 or protocol.get("initial_trial_ceiling") != 15 or protocol.get("repair_mode") != "patch":
+    if protocol.get("semantic_depth") != 2 or protocol.get("base_trial_count") != 3 or protocol.get("max_revisions") != 2 or protocol.get("initial_trial_ceiling") != 9 or protocol.get("repair_mode") != "patch":
         raise PromptDevelopmentEvidenceError("protocol batch controls drift")
-    if protocol.get("schema_version") == "3.0" and (protocol.get("bundle_unit") != "initial-repair" or protocol.get("stages") != ["initial", "repair"]):
+    if protocol.get("schema_version") != "4.0" or protocol.get("bundle_unit") != "initial-repair" or protocol.get("stages") != ["initial", "repair"]:
         raise PromptDevelopmentEvidenceError("protocol prompt bundle controls drift")
-    if protocol.get("metric_definition") != METRIC_DEFINITION or protocol.get("api_key_env") != FIXED_API_KEY_ENVS:
+    if protocol.get("metric_definition") != METRIC_DEFINITION or not isinstance(protocol.get("api_key_env"), str):
         raise PromptDevelopmentEvidenceError("protocol controlled metric or key mapping drift")
     if protocol.get("screening") != {
-        "p2_threshold": 0.60,
-        "max_truncations": 0,
-        "require_infrastructure_valid": True,
-        "reference_p1_threshold": 0.90,
-        "reference_relation": "strictly_below",
+        "trial_count": 3,
+        "p2_required_passes": 2,
+        "max_effective_repairs": 2,
     }:
         raise PromptDevelopmentEvidenceError("protocol screening contract drift")
     if protocol.get("components") != lineage.get("components"):
         raise PromptDevelopmentEvidenceError("protocol component binding drift")
     if preflight is not None:
+        if tuple(preflight.config.calibration_models) != (model_slot,):
+            raise PromptDevelopmentEvidenceError("protocol model slot and current configuration differ")
+        provider_name = preflight.config.calibration_models[model_slot].provider
+        if protocol.get("api_key_env") != preflight.config.providers[provider_name].api_key_env:
+            raise PromptDevelopmentEvidenceError("protocol API-key environment name drift")
         _verify_lineage(root, lineage, preflight)
         config_value = json.loads(_verify_root_ref(root, protocol["config_ref"], "protocol/config").decode("utf-8"))
         context_value = _verify_root_ref(root, protocol["context_limits_ref"], "protocol/context").decode("utf-8")
@@ -475,7 +532,7 @@ def _frozen_planning_context(root: Path, lineage: Mapping[str, Any]) -> tuple[di
 
 def _version_dir(version: str) -> str:
     if _VERSION_RE.fullmatch(version) is None:
-        raise PromptDevelopmentError("version must be v0, v1, v2, v3, or v4")
+        raise PromptDevelopmentError("version must be v0, v1, or v2")
     return f"prompt-development/versions/{version}"
 
 
@@ -521,11 +578,50 @@ def _load_bundle(root: Path, version: str) -> dict[str, bytes]:
     return bundle
 
 
+def _assessment_path_for_attempt(version: str, attempt: int, count: int = 3) -> str:
+    if count != 3 or attempt < 1:
+        raise PromptDevelopmentEvidenceError("current development assessments require N=3 and a positive attempt")
+    prefix = f"{_version_dir(version)}/"
+    if attempt > 1:
+        prefix += f"attempts/attempt_{attempt:03d}/"
+    return f"{prefix}assessment-n{count:03d}.json"
+
+
+def _assessment_records(root: Path, version: str, count: int) -> list[tuple[int, str, dict[str, Any]]]:
+    """Return all immutable assessment leaves, ordered by attempt."""
+
+    records: list[tuple[int, str, dict[str, Any]]] = []
+    candidates: list[tuple[int, Path]] = [(1, root / _assessment_path_for_attempt(version, 1, count))]
+    attempts_root = root / _version_dir(version) / "attempts"
+    if attempts_root.is_dir():
+        for path in attempts_root.glob("attempt_*/assessment-n003.json"):
+            match = re.fullmatch(r"attempt_(\d{3})", path.parent.name)
+            if match:
+                candidates.append((int(match.group(1)), path))
+    seen_attempts: set[int] = set()
+    for expected_attempt, path in candidates:
+        if not path.is_file():
+            continue
+        relative = str(path.relative_to(root))
+        value = _load_json(root, relative, "assessment")
+        if expected_attempt in seen_attempts or value.get("attempt") != expected_attempt:
+            raise PromptDevelopmentEvidenceError("assessment attempt binding drift")
+        if value.get("lineage_id") != root.name or value.get("version") != version or value.get("trial_count") != count:
+            raise PromptDevelopmentEvidenceError("assessment lineage, version, or trial-count binding drift")
+        seen_attempts.add(expected_attempt)
+        records.append((expected_attempt, relative, value))
+    return sorted(records, key=lambda item: item[0])
+
+
+def _assessment_record(root: Path, version: str, count: int) -> tuple[int, str, dict[str, Any]]:
+    records = _assessment_records(root, version, count)
+    if not records:
+        raise PromptDevelopmentEvidenceError(f"missing assessment for {version}")
+    return records[-1]
+
+
 def _load_assessment(root: Path, version: str, count: int) -> dict[str, Any]:
-    value = _load_json(root, f"{_version_dir(version)}/assessment-n{count:03d}.json", "assessment")
-    if value.get("lineage_id") != root.name or value.get("version") != version or value.get("trial_count") != count:
-        raise PromptDevelopmentEvidenceError("assessment lineage, version, or trial-count binding drift")
-    return value
+    return _assessment_record(root, version, count)[2]
 
 
 def _expected_report_path(version: str, attempt: int, count: int, model_id: str) -> str:
@@ -572,13 +668,9 @@ def _screen_model(report: Mapping[str, Any]) -> dict[str, Any]:
     semantic = metrics.get("arch_semantic_first_pass_rate")
     schema_rate = metrics.get("schema_after_format_repair_rate")
     infrastructure = report.get("status") != "complete"
-    passed = bool(
-        not infrastructure
-        and isinstance(p2, (int, float))
-        and p2 >= 0.60
-        and len(trial_metrics) == 3
-        and int(usage.get("truncated", 0)) == 0
-    )
+    p2_passes = sum(bool(item.get("p2")) for item in trial_metrics)
+    unavailable_trials = sum(item.get("terminal") == "infrastructure-invalid" for item in trial_metrics)
+    passed = len(trial_metrics) == 3 and p2_passes >= 2
     return {
         "p1": p1 if isinstance(p1, (int, float)) else 0.0,
         "p2": p2 if isinstance(p2, (int, float)) else 0.0,
@@ -586,6 +678,8 @@ def _screen_model(report: Mapping[str, Any]) -> dict[str, Any]:
         "arch_semantic_first_pass_rate": semantic if isinstance(semantic, (int, float)) else 0.0,
         "truncations": int(usage.get("truncated", 0)),
         "infrastructure_invalid": infrastructure,
+        "p2_passes": p2_passes,
+        "unavailable_trials": unavailable_trials,
         "repeated_gate_failures": repeated,
         "identity_stable": identity_stable,
         "provider": report.get("model_identity", {}).get("provider"),
@@ -627,10 +721,13 @@ def _assessment_from_reports(
         raise PromptDevelopmentEvidenceError("M1-4a2 development assessments require exactly N=3 per slot")
     expected_trials = [f"trial_{index:03d}" for index in range(1, trial_count + 1)]
     models: dict[str, Any] = {}
-    for model_id in MODEL_IDS:
+    model_ids = tuple(sorted(reports))
+    if len(model_ids) != 1 or set(report_refs) != set(model_ids):
+        raise PromptDevelopmentEvidenceError("assessment requires exactly one configured model report")
+    for model_id in model_ids:
         report = reports[model_id]
         if (
-            report.get("status") != "complete"
+            report.get("status") not in {"complete", "infrastructure-invalid"}
             or report.get("lineage_id") != root.name
             or report.get("model_id") != model_id
             or report.get("trial_count") != trial_count
@@ -653,7 +750,7 @@ def _assessment_from_reports(
         }
         models[model_id] = {
             "report_ref": dict(report_refs[model_id]),
-            **{key: screened[key] for key in ("p1", "p2", "schema_after_format_repair_rate", "arch_semantic_first_pass_rate", "truncations", "infrastructure_invalid", "repeated_gate_failures")},
+            **{key: screened[key] for key in ("p1", "p2", "p2_passes", "unavailable_trials", "schema_after_format_repair_rate", "arch_semantic_first_pass_rate", "truncations", "infrastructure_invalid", "repeated_gate_failures")},
             "screening_pass": screened["screening_pass"],
             "initial_gate_failures": initial_gate_failures,
             "identity_stable": screened["identity_stable"],
@@ -667,16 +764,16 @@ def _assessment_from_reports(
             "tuple": [screened["p2"], screened["p1"], screened["arch_semantic_first_pass_rate"], screened["schema_after_format_repair_rate"], -screened["cost_usd"]],
             "trial_ids": screened["trial_ids"],
         }
-    screening_pass = all(models[model_id]["screening_pass"] for model_id in MODEL_IDS)
+    screening_pass = models[model_ids[0]]["screening_pass"]
     ambiguity = "none"
     if not screening_pass:
-        for model_id in MODEL_IDS:
+        for model_id in model_ids:
             screened = _screen_model(reports[model_id])
             if _leave_one_out_sensitive(reports[model_id], screened["screening_pass"]):
                 ambiguity = "single_sample_sensitive"
                 break
         if ambiguity == "none":
-            for model_id in MODEL_IDS:
+            for model_id in model_ids:
                 metrics = reports[model_id].get("metrics", {})
                 p1_ok = metrics.get("p1") == 1.0
                 semantic_ok = isinstance(metrics.get("arch_semantic_first_pass_rate"), (int, float)) and metrics["arch_semantic_first_pass_rate"] >= 0.8
@@ -684,17 +781,19 @@ def _assessment_from_reports(
                 if p2_ok != semantic_ok or p1_ok != p2_ok:
                     ambiguity = "metric_conflict"
                     break
-    return {"schema_version": "2.0", "lineage_id": root.name, "version": version, "trial_count": trial_count, "attempt": attempt, "status": "complete", "screening_pass": screening_pass, "ambiguity": ambiguity, "models": models}
+    return {"schema_version": "4.0", "lineage_id": root.name, "version": version, "model_slot": model_ids[0], "trial_count": trial_count, "attempt": attempt, "status": "complete", "screening_pass": screening_pass, "ambiguity": ambiguity, "models": models}
 
 
 def _fallback_tuple(assessment: Mapping[str, Any]) -> tuple[float, float, float, float, float]:
-    models = [assessment["models"][model_id] for model_id in MODEL_IDS]
+    models = list(assessment["models"].values())
+    if len(models) != 1:
+        raise PromptDevelopmentEvidenceError("baseline fallback requires exactly one model slot")
     return (
-        min(float(item["p2"]) for item in models),
-        min(float(item["p1"]) for item in models),
-        min(float(item["arch_semantic_first_pass_rate"]) for item in models),
-        min(float(item["schema_after_format_repair_rate"]) for item in models),
-        sum(float(item["tuple"][4]) for item in models),
+        float(models[0]["p2"]),
+        float(models[0]["p1"]),
+        float(models[0]["arch_semantic_first_pass_rate"]),
+        float(models[0]["schema_after_format_repair_rate"]),
+        float(models[0]["tuple"][4]),
     )
 
 
@@ -779,17 +878,15 @@ class PromptDevelopmentCoordinator:
         config_ref = _publish_bytes(root, "prompt-development/config.json", canonical_json_bytes(preflight.config_snapshot))
         context_ref = _publish_bytes(root, "prompt-development/context_limits.json", preflight.context_bytes)
         protocol = {
-            "schema_version": "3.0", "lineage_id": lineage["lineage_id"], "status": "initialized", "model_ids": list(MODEL_IDS), "versions": list(_DEV_VERSIONS),
-            "semantic_depth": 2, "base_trial_count": 3, "max_revisions": 4, "initial_trial_ceiling": 15, "repair_mode": "patch", "config_ref": config_ref, "context_limits_ref": context_ref,
-            "api_key_env": dict(FIXED_API_KEY_ENVS), "metric_definition": METRIC_DEFINITION,
+            "schema_version": "4.0", "lineage_id": lineage["lineage_id"], "status": "initialized", "model_slot": next(iter(preflight.config.calibration_models)), "versions": list(_DEV_VERSIONS),
+            "semantic_depth": 2, "base_trial_count": 3, "max_revisions": 2, "initial_trial_ceiling": 9, "repair_mode": "patch", "config_ref": config_ref, "context_limits_ref": context_ref,
+            "api_key_env": preflight.config.providers[next(iter(preflight.config.calibration_models.values())).provider].api_key_env, "metric_definition": METRIC_DEFINITION,
             "screening": {
-                "p2_threshold": 0.60,
-                "max_truncations": 0,
-                "require_infrastructure_valid": True,
-                "reference_p1_threshold": 0.90,
-                "reference_relation": "strictly_below",
+                "trial_count": 3,
+                "p2_required_passes": 2,
+                "max_effective_repairs": 2,
             },
-            "fallback_order": ["min_model_p2", "min_model_p1", "min_model_arch_semantic_first_pass", "min_model_schema_after_format_repair", "lower_total_cost"],
+            "fallback_order": ["second_repair_passes", "first_repair_passes", "initial_passes", "format_correct", "lower_cost", "earlier_version"],
             "components": {name: dict(ref) for name, ref in lineage["components"].items()},
             "bundle_unit": "initial-repair", "stages": ["initial", "repair"],
         }
@@ -839,12 +936,12 @@ class PromptDevelopmentCoordinator:
             scan_prompt_neutrality(prompt)
         version_dir = _version_dir(version)
         stage_refs = {phase: _publish_bytes(self.root, f"{version_dir}/{phase}.md", bundle[phase]) for phase in ARCHITECTURE_PROMPT_PATHS}
-        snapshot = {"schema_version": "3.0", "lineage_id": lineage["lineage_id"], "version": version, "initial_ref": stage_refs["initial"], "repair_ref": stage_refs["repair"], "byte_encoding": "utf-8-raw-template"}
+        snapshot = {"schema_version": "4.0", "lineage_id": lineage["lineage_id"], "version": version, "initial_ref": stage_refs["initial"], "repair_ref": stage_refs["repair"], "byte_encoding": "utf-8-raw-template"}
         snapshot_ref = _publish_json(self.root, f"{version_dir}/snapshot.json", snapshot, "snapshot")
         # Keep a read-only compatibility view for historical tools; runtime
         # calls and all active bindings use the two stage references above.
         _publish_bytes(self.root, f"{version_dir}/prompt.md", bundle["initial"])
-        version_record = {"schema_version": "3.0", "lineage_id": lineage["lineage_id"], "version": version, "status": "admitted", "protocol_ref": _root_ref(self.root, "prompt-development/protocol.json"), "bundle_ref": snapshot_ref, "semantic_depth": 2, "base_trial_count": 3, "model_ids": list(MODEL_IDS), "repair_mode": "patch"}
+        version_record = {"schema_version": "4.0", "lineage_id": lineage["lineage_id"], "version": version, "status": "admitted", "protocol_ref": _root_ref(self.root, "prompt-development/protocol.json"), "bundle_ref": snapshot_ref, "semantic_depth": 2, "base_trial_count": 3, "model_slot": protocol["model_slot"], "repair_mode": "patch"}
         _publish_json(self.root, f"{version_dir}/version.json", version_record, "version")
         return version_record
 
@@ -881,7 +978,8 @@ class PromptDevelopmentCoordinator:
                         if outcome.get("lineage_id") != self.root.name or outcome.get("version") != version or outcome.get("attempt") != number:
                             raise PromptDevelopmentEvidenceError(f"attempt {number} outcome binding drift")
                         if outcome.get("status") == "complete":
-                            if not (self.root / _version_dir(version) / "assessment-n003.json").is_file():
+                            assessment_path = self.root / _assessment_path_for_attempt(version, number)
+                            if not assessment_path.is_file():
                                 complete_without_assessment.append(number)
         if numbers and sorted(numbers) != list(range(1, max(numbers) + 1)):
             raise PromptDevelopmentEvidenceError("attempt numbering is not monotonic")
@@ -893,7 +991,48 @@ class PromptDevelopmentCoordinator:
             raise PromptDevelopmentEvidenceError("more than one complete attempt is missing its assessment")
         if complete_without_assessment:
             return complete_without_assessment[0]
-        return max(numbers, default=0) + 1
+        if numbers:
+            raise PromptDevelopmentError("a failed prompt-version attempt cannot be rerun; preserve it and start a fresh lineage after fixing the implementation")
+        return 1
+
+    def _next_retry_attempt(self, version: str) -> int:
+        """Allocate the next attempt for an explicitly authorized sample retry."""
+
+        attempts_root = self.root / _version_dir(version) / "attempts"
+        numbers: list[int] = []
+        incomplete_retry: list[int] = []
+        if attempts_root.is_dir():
+            for child in attempts_root.iterdir():
+                match = re.fullmatch(r"attempt_(\d{3})", child.name)
+                if not match:
+                    continue
+                number = int(match.group(1))
+                numbers.append(number)
+                declaration_path = child / "declaration.json"
+                outcome_path = child / "outcome.json"
+                if not declaration_path.is_file():
+                    raise PromptDevelopmentError(f"retry cannot proceed with incomplete attempt {number}")
+                declaration = _load_json(self.root, str(declaration_path.relative_to(self.root)), "attempt_declaration")
+                if declaration.get("lineage_id") != self.root.name or declaration.get("version") != version or declaration.get("attempt") != number:
+                    raise PromptDevelopmentEvidenceError(f"retry attempt {number} binding drift")
+                if not outcome_path.is_file():
+                    if declaration.get("retry", {}).get("authorization") != "explicit_user_authorization":
+                        raise PromptDevelopmentError(f"retry cannot proceed with incomplete attempt {number}")
+                    incomplete_retry.append(number)
+                    continue
+                outcome = _load_json(self.root, str(outcome_path.relative_to(self.root)), "attempt_outcome")
+                if outcome.get("lineage_id") != self.root.name or outcome.get("version") != version or outcome.get("attempt") != number:
+                    raise PromptDevelopmentEvidenceError(f"retry attempt {number} outcome binding drift")
+        if numbers and sorted(numbers) != list(range(1, max(numbers) + 1)):
+            raise PromptDevelopmentEvidenceError("attempt numbering is not monotonic")
+        if len(incomplete_retry) > 1 or (incomplete_retry and incomplete_retry[0] != max(numbers)):
+            raise PromptDevelopmentError("only the latest authorized retry attempt may be resumed")
+        if incomplete_retry:
+            return incomplete_retry[0]
+        next_attempt = max(numbers, default=1) + 1
+        if next_attempt > 3:
+            raise PromptDevelopmentError("the trial-local retry allowance of two additional attempts is exhausted")
+        return next_attempt
 
     def _declared_initial_trial_count(self) -> int:
         """Count only declared depth-zero trials in this lineage."""
@@ -903,17 +1042,23 @@ class PromptDevelopmentCoordinator:
             attempts_root = self.root / _version_dir(version) / "attempts"
             if not attempts_root.is_dir():
                 continue
+            declared_trial_ids: set[str] = set()
             for declaration_path in attempts_root.glob("attempt_*/declaration.json"):
                 declaration = _load_json(self.root, str(declaration_path.relative_to(self.root)), "attempt_declaration")
                 if declaration.get("repair_mode") != "patch" or declaration.get("semantic_depth") != 2 or declaration.get("trial_count") != 3:
                     raise PromptDevelopmentEvidenceError("attempt declaration controls drift")
-                total += int(declaration["trial_count"])
+                trial_ids = tuple(declaration.get("initial_trial_ids", []))
+                if not declared_trial_ids:
+                    declared_trial_ids.update(trial_ids)
+                    total += len(trial_ids)
+                elif set(trial_ids) != declared_trial_ids:
+                    raise PromptDevelopmentEvidenceError("attempt declarations do not preserve the fixed trial identities")
         return total
 
     def _selection_exists(self) -> bool:
         return any(
             (self.root / f"prompt-development/{name}").is_file()
-            for name in ("selection.json", "selection-tie.json")
+            for name in ("selection.json", "diagnostic-selection.json", "selection-tie.json")
         )
 
     def _source_guard(self, admitted: Mapping[str, bytes] | bytes) -> Callable[[], None]:
@@ -926,7 +1071,8 @@ class PromptDevelopmentCoordinator:
     def _check_attempt_bundle(self, version: str, attempt: int, bundle: Mapping[str, bytes]) -> None:
         """Require each model root to carry the exact same two source bytes."""
 
-        for model_id in MODEL_IDS:
+        protocol, _lineage = _load_protocol(self.root)
+        for model_id in (protocol["model_slot"],):
             model_root = self.root / version / (f"attempt_{attempt:03d}/" if attempt > 1 else "") / model_id
             batch_path = model_root / "batch.json"
             try:
@@ -962,8 +1108,8 @@ class PromptDevelopmentCoordinator:
                 raise PromptDevelopmentEvidenceError("revision and prompt-bundle version references do not agree")
         if (self.root / f"{_version_dir(version)}/assessment-n003.json").is_file():
             raise PromptDevelopmentError("a completed prompt version cannot be rerun")
-        if self._declared_initial_trial_count() + 3 > 15:
-            raise PromptDevelopmentError("per-model initial-generation ceiling of 15 would be exceeded")
+        if self._declared_initial_trial_count() + 3 > 9:
+            raise PromptDevelopmentError("baseline initial-generation ceiling of 9 would be exceeded")
         version_record = _load_version(self.root, version)
         bundle = _load_bundle(self.root, version)
         self._check_source_snapshot(version_record, bundle)
@@ -971,11 +1117,12 @@ class PromptDevelopmentCoordinator:
             scan_prompt_neutrality(prompt, forbidden_tokens=_input_neutrality_tokens(planning, constraints, preflight.config))
         attempt = self._next_attempt(version)
         attempt_dir = f"{_version_dir(version)}/attempts/attempt_{attempt:03d}"
+        model_slot = preflight.model_projection.keys().__iter__().__next__()
         declaration = {
-            "schema_version": "3.0", "lineage_id": self.root.name, "version": version,
+            "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
             "attempt": attempt, "status": "declared", "bundle_ref": dict(version_record["bundle_ref"]), "trial_count": 3,
-            "semantic_depth": 2, "repair_mode": "patch", "model_ids": list(MODEL_IDS),
-            "initial_trial_ids": {model_id: [f"trial_{index:03d}" for index in range(1, 4)] for model_id in MODEL_IDS},
+            "semantic_depth": 2, "repair_mode": "patch", "model_slot": model_slot,
+            "initial_trial_ids": [f"trial_{index:03d}" for index in range(1, 4)],
         }
         _publish_json(self.root, f"{attempt_dir}/declaration.json", declaration, "attempt_declaration")
         driver = ArchitectureCalibrationDriver(preflight.config, runs_root=self.root.parents[2], provider_factory=self.provider_factory, prompt_bundle=bundle, prompt_source_guard=self._source_guard(bundle))
@@ -991,43 +1138,161 @@ class PromptDevelopmentCoordinator:
             driver.run(batch)
             self._check_source_snapshot(version_record, bundle)
             self._check_attempt_bundle(version, attempt, bundle)
-            for model_id in MODEL_IDS:
+            for model_id in (model_slot,):
                 model_root = self.root / version / (f"attempt_{attempt:03d}/" if attempt > 1 else "") / model_id
-                report = recompute_calibration_report(model_root, config=preflight.config)
+                report = _recompute_lineage_report(self.root, model_root, config=preflight.config)
                 reports[model_id] = report
                 report_path = model_root / "calibration_report.json"
                 report_refs[model_id] = _report_ref(self.root, str(report_path.relative_to(self.root))) if report_path.is_file() else None
-                if report.get("status") != "complete":
-                    status = "infrastructure-invalid"
             self._check_source_snapshot(version_record, bundle)
-            if status != "complete":
-                raise PromptDevelopmentEvidenceError("one or more model reports are infrastructure-invalid")
             assessment = _assessment_from_reports(self.root, version, attempt, reports, report_refs, 3)
         except (CalibrationError, PromptDevelopmentEvidenceError) as exc:
             failed_refs = dict(report_refs)
-            for model_id in MODEL_IDS:
+            for model_id in (model_slot,):
                 model_root = self.root / version / (f"attempt_{attempt:03d}/" if attempt > 1 else "") / model_id
                 existing = model_root / "calibration_report.json"
                 if existing.is_file():
                     failed_refs[model_id] = _report_ref(self.root, str(existing.relative_to(self.root)))
-            failed_outcome = {"schema_version": "2.0", "lineage_id": self.root.name, "version": version, "attempt": attempt, "status": "infrastructure-invalid", "reports": {name: failed_refs.get(name) for name in MODEL_IDS}}
+            failed_outcome = {"schema_version": "4.0", "lineage_id": self.root.name, "version": version, "attempt": attempt, "status": "infrastructure-invalid", "model_slot": model_slot, "reports": {model_slot: failed_refs.get(model_slot)}}
             _publish_json(self.root, f"{attempt_dir}/outcome.json", failed_outcome, "attempt_outcome")
             raise PromptDevelopmentError(f"prompt development attempt {attempt} failed before complete evidence: {type(exc).__name__}") from exc
-        outcome = {"schema_version": "2.0", "lineage_id": self.root.name, "version": version, "attempt": attempt, "status": status, "reports": report_refs}
+        outcome = {"schema_version": "4.0", "lineage_id": self.root.name, "version": version, "attempt": attempt, "status": status, "model_slot": model_slot, "reports": report_refs}
         outcome_ref = _publish_json(self.root, f"{attempt_dir}/outcome.json", outcome, "attempt_outcome")
         if status != "complete":
             return outcome
         assessment_ref = _publish_json(self.root, f"{_version_dir(version)}/assessment-n003.json", assessment, "assessment")
-        version_outcome = {"schema_version": "2.0", "lineage_id": self.root.name, "version": version, "status": "complete", "assessment_ref": assessment_ref, "conclusion": "passed screening" if assessment["screening_pass"] else "failed screening"}
+        version_outcome = {"schema_version": "4.0", "lineage_id": self.root.name, "version": version, "status": "complete", "assessment_ref": assessment_ref, "conclusion": "baseline selected" if assessment["screening_pass"] else "baseline not reached"}
         _publish_json(self.root, f"{_version_dir(version)}/outcome.json", version_outcome, "outcome")
         if assessment["screening_pass"]:
             self.select(version, assessment=assessment, assessment_ref=assessment_ref, reason="first passing version")
-        elif version == "v4":
-            # The fixed fallback is resolved only after the complete V0-V4
-            # set exists.  A tie is a terminal, explicit outcome, not an
-            # exception that leaves the lineage looking unfinished.
-            self.select(version, assessment=assessment, assessment_ref=assessment_ref, reason="complete fallback comparison")
+        elif version == "v2":
+            self.select(version, assessment=assessment, assessment_ref=assessment_ref, reason="diagnostic comparison after V2")
         return {"outcome": outcome, "assessment": assessment, "outcome_ref": outcome_ref}
+
+    def retry_failed_trials(self, version: str = "v1") -> dict[str, Any]:
+        """Retry only the fixed N=3 infrastructure-failed samples of one attempt.
+
+        A retry gets a fresh immutable attempt directory, while the prior
+        attempt and its assessment remain untouched.  The current protocol
+        only admits a whole-version retry when every sample failed before
+        semantic evaluation; this is the state of the interrupted V1 run.
+        """
+
+        if self._selection_exists():
+            raise PromptDevelopmentError("prompt development is already selected; no later provider I/O is allowed")
+        if version not in _DEV_VERSIONS:
+            raise PromptDevelopmentError("version must be v0, v1, or v2")
+        preflight = self._preflight()
+        _protocol, lineage = _load_protocol(self.root, preflight)
+        planning, constraints = _frozen_planning_context(self.root, lineage)
+        parent_attempt, parent_assessment_path, parent_assessment = _assessment_record(self.root, version, 3)
+        if parent_assessment.get("status") != "complete" or parent_assessment.get("screening_pass"):
+            raise PromptDevelopmentError("sample retry requires a complete failing assessment")
+        model_slot = str(parent_assessment["model_slot"])
+        model_record = parent_assessment.get("models", {}).get(model_slot)
+        if not isinstance(model_record, Mapping):
+            raise PromptDevelopmentEvidenceError("assessment does not contain the configured model slot")
+        report = _read_json_ref(self.root, model_record["report_ref"], f"{version}/{model_slot}/report")
+        expected_trials = [f"trial_{index:03d}" for index in range(1, 4)]
+        trial_metrics = report.get("trial_metrics")
+        if (
+            report.get("lineage_id") != self.root.name
+            or report.get("prompt_version") != version
+            or report.get("model_id") != model_slot
+            or report.get("trial_count") != 3
+            or not isinstance(trial_metrics, list)
+            or [item.get("trial_id") for item in trial_metrics] != expected_trials
+        ):
+            raise PromptDevelopmentEvidenceError("retry source report is not a coherent N=3 assessment report")
+        failed_trials = [item["trial_id"] for item in trial_metrics if item.get("terminal") == "infrastructure-invalid"]
+        if failed_trials != expected_trials:
+            raise PromptDevelopmentError(
+                "sample retry is limited to a complete all-infrastructure-failed attempt; completed samples must not be rerun"
+            )
+        attempt = self._next_retry_attempt(version)
+        version_record = _load_version(self.root, version)
+        bundle = _load_bundle(self.root, version)
+        self._check_source_snapshot(version_record, bundle)
+        for prompt in bundle.values():
+            scan_prompt_neutrality(prompt, forbidden_tokens=_input_neutrality_tokens(planning, constraints, preflight.config))
+        attempt_dir = f"{_version_dir(version)}/attempts/attempt_{attempt:03d}"
+        declaration = {
+            "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
+            "attempt": attempt, "status": "declared", "bundle_ref": dict(version_record["bundle_ref"]), "trial_count": 3,
+            "semantic_depth": 2, "repair_mode": "patch", "model_slot": model_slot,
+            "initial_trial_ids": expected_trials,
+            "retry": {
+                "authorization": "explicit_user_authorization",
+                "reason": "retry V1 infrastructure-failed samples after model service recovery",
+                "parent_assessment_ref": _root_ref(self.root, parent_assessment_path),
+                "trial_ids": failed_trials,
+            },
+        }
+        _publish_json(self.root, f"{attempt_dir}/declaration.json", declaration, "attempt_declaration")
+        driver = ArchitectureCalibrationDriver(
+            preflight.config,
+            runs_root=self.root.parents[2],
+            provider_factory=self.provider_factory,
+            prompt_bundle=bundle,
+            prompt_source_guard=self._source_guard(bundle),
+            lineage_component_bytes={
+                name: _verify_root_ref(self.root, ref, f"lineage/components/{name}")
+                for name, ref in lineage.get("components", {}).items()
+            },
+        )
+        spec_bytes, target_bytes, bundle_bytes = self._frozen_batch_inputs(lineage)
+        batch = CalibrationBatchDeclaration(
+            prompt_version=version, trial_count=3, semantic_repair_depth=2, repair_mode="patch",
+            context_window_tokens=preflight.context_limits,
+            prepared_inputs=prepare_architecture_inputs(spec_bytes, target_bytes, bundle_bytes),
+            attempt=attempt, trial_ids=tuple(failed_trials),
+        )
+        reports: dict[str, dict[str, Any]] = {}
+        report_refs: dict[str, dict[str, str] | None] = {}
+        try:
+            recorded_components = {
+                name: _verify_root_ref(self.root, ref, f"lineage/components/{name}")
+                for name, ref in lineage.get("components", {}).items()
+            }
+            original_components = _architecture._default_components
+            _architecture._default_components = lambda *args, **kwargs: dict(recorded_components)
+            try:
+                driver.run(batch)
+            finally:
+                _architecture._default_components = original_components
+            self._check_source_snapshot(version_record, bundle)
+            self._check_attempt_bundle(version, attempt, bundle)
+            model_root = self.root / version / f"attempt_{attempt:03d}" / model_slot
+            rebuilt_report = _recompute_lineage_report(self.root, model_root, config=preflight.config)
+            reports[model_slot] = rebuilt_report
+            report_path = model_root / "calibration_report.json"
+            if not report_path.is_file():
+                raise PromptDevelopmentEvidenceError("retry did not publish a calibration report")
+            report_refs[model_slot] = _report_ref(self.root, str(report_path.relative_to(self.root)))
+            assessment = _assessment_from_reports(self.root, version, attempt, reports, report_refs, 3)
+        except (CalibrationError, PromptDevelopmentEvidenceError) as exc:
+            failed_ref = None
+            model_root = self.root / version / f"attempt_{attempt:03d}" / model_slot
+            existing = model_root / "calibration_report.json"
+            if existing.is_file():
+                failed_ref = _report_ref(self.root, str(existing.relative_to(self.root)))
+            failed_outcome = {
+                "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
+                "attempt": attempt, "status": "infrastructure-invalid", "model_slot": model_slot,
+                "reports": {model_slot: failed_ref},
+            }
+            _publish_json(self.root, f"{attempt_dir}/outcome.json", failed_outcome, "attempt_outcome")
+            raise PromptDevelopmentError(f"authorized retry failed before complete evidence: {type(exc).__name__}") from exc
+        outcome = {
+            "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
+            "attempt": attempt, "status": "complete", "model_slot": model_slot, "reports": report_refs,
+        }
+        outcome_ref = _publish_json(self.root, f"{attempt_dir}/outcome.json", outcome, "attempt_outcome")
+        assessment_ref = _publish_json(self.root, _assessment_path_for_attempt(version, attempt), assessment, "assessment")
+        recomputed = self.recompute(version, 3, require_source_match=True)
+        if recomputed["screening_pass"]:
+            self.select(version, assessment=recomputed, assessment_ref=assessment_ref, reason="first passing version after authorized infrastructure-failed sample retry")
+        return {"outcome": outcome, "assessment": recomputed, "outcome_ref": outcome_ref, "assessment_ref": assessment_ref}
 
     def record_revision(
         self,
@@ -1045,8 +1310,8 @@ class PromptDevelopmentCoordinator:
     ) -> dict[str, Any]:
         if self._selection_exists():
             raise PromptDevelopmentError("selected prompt cannot be edited")
-        if version not in {"v1", "v2", "v3", "v4"}:
-            raise PromptDevelopmentError("only v1 through v4 may contain revisions")
+        if version not in {"v1", "v2"}:
+            raise PromptDevelopmentError("only v1 and v2 may contain revisions")
         preflight = preflight_calibration_config(
             self.config_path,
             self.context_limits_path,
@@ -1058,22 +1323,13 @@ class PromptDevelopmentCoordinator:
         previous_assessment = _load_assessment(self.root, previous, 3)
         if previous_assessment.get("status") != "complete" or previous_assessment.get("screening_pass"):
             raise PromptDevelopmentError("revision requires complete failing prior-version assessment")
-        if not isinstance(hypothesis, str) or not hypothesis.strip() or " and " in hypothesis.casefold():
-            raise PromptDevelopmentError("revision must contain exactly one focused hypothesis")
+        if not isinstance(hypothesis, str) or not hypothesis.strip():
+            raise PromptDevelopmentError("revision requires a concrete reason")
         stopping = stopping_conclusion.strip() if isinstance(stopping_conclusion, str) else ""
         if not stopping:
             raise PromptDevelopmentError("revision requires a stopping conclusion")
         if not evidence_refs:
             raise PromptDevelopmentError("revision requires exact evidence references")
-        prior_hypotheses: set[str] = set()
-        for number in range(1, int(version[1:])):
-            prior_path = self.root / f"{_version_dir(f'v{number}')}/revision.json"
-            if not prior_path.is_file():
-                raise PromptDevelopmentEvidenceError("revision chain is incomplete")
-            prior = _load_json(self.root, str(prior_path.relative_to(self.root)), "revision")
-            prior_hypotheses.add(str(prior.get("hypothesis", "")).strip())
-        if hypothesis.strip() in prior_hypotheses:
-            raise PromptDevelopmentError("revision hypothesis must be distinct from earlier revisions")
         evidence_paths: set[str] = set()
         for ref in evidence_refs:
             ref_path = str(ref.get("path", ""))
@@ -1120,25 +1376,27 @@ class PromptDevelopmentCoordinator:
         for prompt in proposed.values():
             scan_prompt_neutrality(prompt, forbidden_tokens=_input_neutrality_tokens(planning, constraints, preflight.config))
         changed = [phase for phase in ARCHITECTURE_PROMPT_PATHS if proposed[phase] != old_bundle[phase]]
-        if len(changed) != 1:
-            raise PromptDevelopmentError("revision must change exactly one prompt stage")
+        if not changed:
+            raise PromptDevelopmentError("revision must change at least one prompt stage")
         if changed_stage is not None and changed_stage not in ARCHITECTURE_PROMPT_PATHS:
             raise PromptDevelopmentError("changed_stage must be initial or repair")
-        if changed_stage is not None and changed_stage != changed[0]:
-            raise PromptDevelopmentError("changed_stage does not match the bundle byte diff")
-        selected_stage = changed[0]
-        diff = "".join(difflib.unified_diff(
-            old_bundle[selected_stage].decode("utf-8").splitlines(True),
-            proposed[selected_stage].decode("utf-8").splitlines(True),
-            fromfile=f"{previous}/{selected_stage}", tofile=f"{version}/{selected_stage}",
-        ))
+        if changed_stage is not None and changed != [changed_stage]:
+            raise PromptDevelopmentError("changed_stage may only be used when exactly that one stage changed")
+        diffs = {
+            stage: "".join(difflib.unified_diff(
+                old_bundle[stage].decode("utf-8").splitlines(True),
+                proposed[stage].decode("utf-8").splitlines(True),
+                fromfile=f"{previous}/{stage}", tofile=f"{version}/{stage}",
+            ))
+            for stage in changed
+        }
         new_record = self._publish_version_snapshot(version, proposed, previous_version=previous)
         revision = {
-            "schema_version": "3.0", "lineage_id": self.root.name, "version": version,
+            "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
             "previous_version": previous, "previous_bundle_ref": dict(_load_version(self.root, previous)["bundle_ref"]),
             "new_bundle_ref": dict(new_record["bundle_ref"]), "hypothesis": hypothesis.strip(),
             "evidence_refs": [dict(ref) for ref in evidence_refs], "expected_gates": gates,
-            "expected_metrics": metrics, "changed_stage": selected_stage, "unified_diff": diff,
+            "expected_metrics": metrics, "changed_stages": changed, "unified_diffs": diffs,
             "stopping_conclusion": stopping,
             "protocol_ref": _root_ref(self.root, "prompt-development/protocol.json"),
             "status": "admitted",
@@ -1155,7 +1413,7 @@ class PromptDevelopmentCoordinator:
             if assessment.get("status") != "complete" or not (self.root / "prompt-development/selection.json").is_file():
                 raise PromptDevelopmentEvidenceError("complete recomputation requires a committed complete assessment and selection")
             selection = _load_json(self.root, "prompt-development/selection.json", "selection")
-            assessment_path = f"{_version_dir(version)}/assessment-n003.json"
+            assessment_path = _assessment_record(self.root, version, 3)[1]
             if selection.get("selected_version") != version or selection.get("assessment_ref", {}).get("path") != assessment_path:
                 raise PromptDevelopmentEvidenceError("selection is not bound to the requested final assessment")
             _verify_root_ref(self.root, selection["assessment_ref"], "selection assessment")
@@ -1167,7 +1425,10 @@ class PromptDevelopmentCoordinator:
             self._check_source_snapshot(version_record, _load_bundle(self.root, version))
         rebuilt_reports: dict[str, dict[str, Any]] = {}
         report_refs: dict[str, dict[str, str]] = {}
-        for model_id in MODEL_IDS:
+        model_ids = tuple(sorted(assessment.get("models", {})))
+        if model_ids != (assessment.get("model_slot"),):
+            raise PromptDevelopmentEvidenceError("assessment model slot binding drift")
+        for model_id in model_ids:
             report_ref = assessment["models"][model_id]["report_ref"]
             report = _read_json_ref(self.root, report_ref, f"assessment/{model_id}/report")
             if report.get("lineage_id") != self.root.name or report.get("prompt_version") != version or report.get("trial_count") != count:
@@ -1176,7 +1437,7 @@ class PromptDevelopmentCoordinator:
             expected_report = _expected_report_path(version, int(assessment["attempt"]), 3, model_id)
             if report_ref.get("path") != expected_report:
                 raise PromptDevelopmentEvidenceError("assessment report path is not bound to its coherent N=3 attempt")
-            rebuilt = recompute_calibration_report(model_root, config=preflight.config)
+            rebuilt = _recompute_lineage_report(self.root, model_root, config=preflight.config)
             if rebuilt != report:
                 raise PromptDevelopmentEvidenceError("assessment report is not deterministic evidence")
             rebuilt_reports[model_id] = rebuilt
@@ -1191,59 +1452,45 @@ class PromptDevelopmentCoordinator:
         )
         if rebuilt_assessment != assessment:
             raise PromptDevelopmentEvidenceError("assessment summary is not a deterministic projection of report evidence")
-        tie_path = self.root / "prompt-development/selection-tie.json"
-        if tie_path.is_file():
-            tie = _load_json(self.root, "prompt-development/selection-tie.json", "selection")
+        diagnostic_path = self.root / "prompt-development/diagnostic-selection.json"
+        if diagnostic_path.is_file():
+            tie = _load_json(self.root, "prompt-development/diagnostic-selection.json", "selection")
             expected_tuples: dict[str, list[float]] = {}
             for candidate in _DEV_VERSIONS:
                 candidate_ref = tie.get("assessment_refs", {}).get(candidate)
                 if not isinstance(candidate_ref, Mapping):
-                    raise PromptDevelopmentEvidenceError("selection tie is missing an assessment reference")
-                candidate_assessment = _read_json_ref(self.root, candidate_ref, f"selection tie/{candidate}/assessment")
+                    raise PromptDevelopmentEvidenceError("diagnostic selection is missing an assessment reference")
+                candidate_assessment = _read_json_ref(self.root, candidate_ref, f"diagnostic selection/{candidate}/assessment")
                 expected_tuples[candidate] = list(_fallback_tuple(candidate_assessment))
-            if tie.get("status") != "selection-tie" or tie.get("comparison_tuples") != expected_tuples:
-                raise PromptDevelopmentEvidenceError("selection tie is not a deterministic fallback projection")
+            if tie.get("status") != "diagnostic" or tie.get("comparison_tuples") != expected_tuples:
+                raise PromptDevelopmentEvidenceError("diagnostic selection is not a deterministic fallback projection")
             if require_complete:
-                raise PromptDevelopmentEvidenceError("a selection tie cannot satisfy complete selection recomputation")
+                raise PromptDevelopmentEvidenceError("a diagnostic selection cannot satisfy complete selection recomputation")
         return assessment
 
     def select(self, version: str, *, assessment: Mapping[str, Any] | None = None, assessment_ref: Mapping[str, Any] | None = None, reason: str | None = None) -> dict[str, Any]:
         if self._selection_exists():
-            tie_path = self.root / "prompt-development/selection-tie.json"
-            if tie_path.is_file() and not (self.root / "prompt-development/selection.json").is_file():
-                return _load_json(self.root, "prompt-development/selection-tie.json", "selection")
-            selection = _load_json(self.root, "prompt-development/selection.json", "selection")
-            if selection.get("lineage_id") != self.root.name:
-                raise PromptDevelopmentEvidenceError("selection lineage binding drift")
-            selected_version = selection.get("selected_version")
-            selected_record = _load_version(self.root, selected_version)
-            selected_bundle = _load_bundle(self.root, str(selected_version))
-            if selection.get("bundle_ref") != selected_record.get("bundle_ref"):
-                raise PromptDevelopmentEvidenceError("selection prompt bundle reference drift")
-            assessment_path = selection.get("assessment_ref", {}).get("path")
-            if not isinstance(assessment_path, str) or not assessment_path.endswith("/assessment-n003.json"):
-                raise PromptDevelopmentEvidenceError("selection assessment reference drift")
-            _verify_root_ref(self.root, selection["assessment_ref"], "selection assessment")
-            self.recompute(selected_version, 3)
-            expected_tuples: dict[str, list[float]] = {}
-            for candidate in selection.get("comparison_tuples", {}):
-                candidate_path = self.root / f"{_version_dir(candidate)}/assessment-n003.json"
-                if not candidate_path.is_file():
-                    raise PromptDevelopmentEvidenceError("selection contains an assessment tuple without evidence")
-                candidate_assessment = self.recompute(candidate, 3)
-                expected_tuples[candidate] = list(_fallback_tuple(candidate_assessment))
-            if selection.get("comparison_tuples") != expected_tuples:
-                raise PromptDevelopmentEvidenceError("selection comparison tuples are not recomputable")
-            self._check_source_snapshot(selected_record, selected_bundle)
-            self._publish_development_handoff(selection)
-            return selection
+            if (self.root / "prompt-development/selection.json").is_file():
+                path = "prompt-development/selection.json"
+            elif (self.root / "prompt-development/diagnostic-selection.json").is_file():
+                path = "prompt-development/diagnostic-selection.json"
+            else:
+                path = "prompt-development/selection-tie.json"
+            return _load_json(self.root, path, "selection")
         assessments: dict[str, dict[str, Any]] = {}
+        assessment_paths: dict[str, str] = {}
         for candidate in _DEV_VERSIONS:
-            path = self.root / f"{_version_dir(candidate)}/assessment-n003.json"
-            if path.is_file():
-                assessments[candidate] = _load_json(self.root, str(path.relative_to(self.root)), "assessment")
+            records = _assessment_records(self.root, candidate, 3)
+            if records:
+                _attempt, assessment_path, candidate_assessment = records[-1]
+                assessments[candidate] = candidate_assessment
+                assessment_paths[candidate] = assessment_path
         if assessment is not None:
             assessments[version] = dict(assessment)
+            if assessment_ref is not None and isinstance(assessment_ref.get("path"), str):
+                assessment_paths[version] = str(assessment_ref["path"])
+            else:
+                assessment_paths[version] = _assessment_record(self.root, version, 3)[1]
         if not assessments or version not in assessments:
             raise PromptDevelopmentError("selection requires a committed assessment")
         for candidate, value in list(assessments.items()):
@@ -1253,66 +1500,64 @@ class PromptDevelopmentCoordinator:
             if candidate in assessments and assessments[candidate].get("screening_pass"):
                 chosen = candidate
                 break
+        diagnostic = False
         if chosen is None and all(candidate in assessments and assessments[candidate].get("status") == "complete" for candidate in _DEV_VERSIONS):
             tuples = {candidate: _fallback_tuple(assessments[candidate]) for candidate in assessments}
             best = max(tuples.values(), key=lambda item: item)
             winners = [candidate for candidate, value in tuples.items() if value == best]
-            if len(winners) != 1:
-                tie = {
-                    "schema_version": "3.0", "lineage_id": self.root.name,
-                    "status": "selection-tie", "selected_version": None,
-                    "bundle_ref": None,
-                    "assessment_ref": None,
-                    "reason": "PROMPT_SELECTION_TIE",
-                    "comparison_tuples": tuples,
-                    "assessment_refs": {
-                        candidate: _root_ref(self.root, f"{_version_dir(candidate)}/assessment-n{value['trial_count']:03d}.json")
-                        for candidate, value in assessments.items()
-                    },
-                }
-                _publish_json(self.root, "prompt-development/selection-tie.json", tie, "selection")
-                return tie
-            chosen = winners[0]
-        else:
+            chosen = next(candidate for candidate in _DEV_VERSIONS if candidate in winners)
+            diagnostic = True
+        elif chosen is None:
             return {"status": "not-ready"}
         if chosen is None:
             return {"status": "not-ready"}
         selected_assessment = assessments[chosen]
         version_record = _load_version(self.root, chosen)
         bundle = _load_bundle(self.root, chosen)
-        self._check_source_snapshot(version_record, bundle)
-        assessment_path = f"{_version_dir(chosen)}/assessment-n003.json"
+        if diagnostic:
+            expected_bundle_ref = _root_ref(self.root, f"{_version_dir(chosen)}/snapshot.json")
+            if version_record.get("bundle_ref") != expected_bundle_ref:
+                raise PromptDevelopmentEvidenceError("diagnostic prompt bundle reference drift")
+        else:
+            self._check_source_snapshot(version_record, bundle)
+        assessment_path = assessment_paths.get(chosen) or _assessment_record(self.root, chosen, 3)[1]
         tuples = {candidate: list(_fallback_tuple(value)) for candidate, value in assessments.items()}
-        selection = {"schema_version": "3.0", "lineage_id": self.root.name, "status": "selected", "selected_version": chosen, "bundle_ref": dict(version_record["bundle_ref"]), "assessment_ref": _root_ref(self.root, assessment_path), "reason": reason or ("first passing version" if selected_assessment.get("screening_pass") else "authoritative fallback tuple"), "comparison_tuples": tuples, "assessment_refs": {candidate: _root_ref(self.root, f"{_version_dir(candidate)}/assessment-n{value['trial_count']:03d}.json") for candidate, value in assessments.items()}}
-        _publish_json(self.root, "prompt-development/selection.json", selection, "selection")
-        self._publish_development_handoff(selection)
+        selection = {"schema_version": "4.0", "lineage_id": self.root.name, "status": "diagnostic" if diagnostic else "selected", "selected_version": chosen, "bundle_ref": dict(version_record["bundle_ref"]), "assessment_ref": _root_ref(self.root, assessment_path), "reason": reason or ("first version reaching the 2-of-3 baseline" if selected_assessment.get("screening_pass") else "best diagnostic version after V2; no handoff"), "comparison_tuples": tuples, "assessment_refs": {candidate: _root_ref(self.root, assessment_paths[candidate]) for candidate in assessments}}
+        target = "prompt-development/diagnostic-selection.json" if diagnostic else "prompt-development/selection.json"
+        _publish_json(self.root, target, selection, "selection")
         return selection
 
-    def _publish_development_handoff(self, selection: Mapping[str, Any]) -> dict[str, str]:
+    def publish_handoff(self, approval_ref: Mapping[str, Any]) -> dict[str, str]:
+        selection = _load_json(self.root, "prompt-development/selection.json", "selection")
         if selection.get("status") != "selected":
             raise PromptDevelopmentError("only a selected development prompt can produce a handoff")
+        approval = _read_json_ref(self.root, approval_ref, "owner approval")
+        approval_errors = sorted(
+            Draft202012Validator(load_schema(_SCHEMA_NAMES["owner_approval"])).iter_errors(approval),
+            key=lambda item: tuple(item.absolute_path),
+        )
+        if approval_errors:
+            raise PromptDevelopmentEvidenceError(f"invalid owner approval: {approval_errors[0].message}")
         selected_version = selection.get("selected_version")
         bundle_ref = selection.get("bundle_ref")
         assessment_ref = selection.get("assessment_ref")
         if selected_version not in set(_DEV_VERSIONS) or not isinstance(bundle_ref, Mapping) or not isinstance(assessment_ref, Mapping):
             raise PromptDevelopmentEvidenceError("selected development record is not handoff-complete")
         handoff = {
-            "schema_version": "3.0",
+            "schema_version": "4.0",
             "lineage_id": self.root.name,
-            "consumer": "m1-4a3",
+            "consumer": "m1-4c",
             "selection_ref": _root_ref(self.root, "prompt-development/selection.json"),
             "selected_version": selected_version,
             "bundle_ref": dict(bundle_ref),
             "assessment_ref": dict(assessment_ref),
+            "owner_approval_ref": dict(approval_ref),
             "selection_reason": selection.get("reason"),
             "satisfies": {
-                "m1_4a3_admission": True,
-                "n10_qualification": False,
-                "b1_b4": False,
-                "production_freeze": False,
-                "owner_signature": False,
-                "formal_run": False,
-                "s5_s6": False,
+                "baseline_2_of_3": True,
+                "protocol_neutrality": True,
+                "owner_signature": True,
+                "production_quality_proven": False,
             },
         }
         return _publish_json(self.root, "prompt-development/handoff.json", handoff, "handoff")
@@ -1320,23 +1565,23 @@ class PromptDevelopmentCoordinator:
     def next_action(self, version: str) -> dict[str, Any]:
         if (self.root / "prompt-development/selection.json").is_file():
             return {"action": "terminal-selection"}
-        if (self.root / "prompt-development/selection-tie.json").is_file():
-            return {"action": "terminal-tie"}
+        if (self.root / "prompt-development/diagnostic-selection.json").is_file():
+            return {"action": "terminal-diagnostic", "handoff": False}
         version_dir = self.root / _version_dir(version) / "attempts"
         outcomes = sorted(version_dir.glob("attempt_*/outcome.json")) if version_dir.is_dir() else []
         if not outcomes:
             return {"action": "run", "attempt": 1}
         latest = _load_json(self.root, str(outcomes[-1].relative_to(self.root)), "attempt_outcome")
         if latest["status"] == "infrastructure-invalid":
-            return {"action": "run", "attempt": int(latest["attempt"]) + 1}
-        assessment_path = self.root / _version_dir(version) / "assessment-n003.json"
-        if not assessment_path.is_file():
+            return {"action": "inspect-invalid-attempt"}
+        assessment_records = _assessment_records(self.root, version, 3)
+        if not assessment_records:
             return {"action": "assess", "attempt": latest["attempt"]}
-        assessment = _load_json(self.root, str(assessment_path.relative_to(self.root)), "assessment")
+        _assessment_attempt, _assessment_relative, assessment = assessment_records[-1]
         if assessment.get("screening_pass"):
             return {"action": "terminal-selection", "version": version}
-        if version == "v4":
-            return {"action": "terminal-fallback"}
+        if version == "v2":
+            return {"action": "terminal-diagnostic", "handoff": False}
         return {"action": "record-revision", "version": f"v{int(version[1:]) + 1}", "parent": version}
 
 
@@ -1359,16 +1604,15 @@ def build_development_summary(
     _protocol, lineage = _load_protocol(root, preflight)
     versions: dict[str, Any] = {}
     for version in _DEV_VERSIONS:
-        assessment_path = root / f"{_version_dir(version)}/assessment-n003.json"
-        if not assessment_path.is_file():
-            assessment_path = None
-        if assessment_path is None:
+        assessment_records = _assessment_records(root, version, 3)
+        if not assessment_records:
             continue
         assessment = coordinator.recompute(version, 3)
+        _assessment_attempt, assessment_relative, _assessment_value = assessment_records[-1]
         version_record = _load_version(root, version)
         bundle = _load_json(root, f"{_version_dir(version)}/snapshot.json", "snapshot")
         slots: dict[str, Any] = {}
-        for model_id in MODEL_IDS:
+        for model_id in sorted(assessment["models"]):
             model = assessment["models"][model_id]
             report = _read_json_ref(root, model["report_ref"], f"summary/{version}/{model_id}/report")
             slots[model_id] = {
@@ -1398,7 +1642,7 @@ def build_development_summary(
             "screening_pass": assessment["screening_pass"],
             "ambiguity": assessment.get("ambiguity"),
             "comparison_tuple": list(_fallback_tuple(assessment)),
-            "assessment_ref": _root_ref(root, str(assessment_path.relative_to(root))),
+            "assessment_ref": _root_ref(root, assessment_relative),
             "bundle_ref": dict(version_record["bundle_ref"]),
             "bundle": {
                 "initial_ref": dict(bundle["initial_ref"]),
@@ -1407,17 +1651,33 @@ def build_development_summary(
             "slots": slots,
         }
     selection_path = root / "prompt-development/selection.json"
-    tie_path = root / "prompt-development/selection-tie.json"
+    tie_path = root / "prompt-development/diagnostic-selection.json"
     if selection_path.is_file():
         terminal = _load_json(root, "prompt-development/selection.json", "selection")
     elif tie_path.is_file():
-        terminal = _load_json(root, "prompt-development/selection-tie.json", "selection")
+        terminal = _load_json(root, "prompt-development/diagnostic-selection.json", "selection")
     else:
         terminal = {"status": "not-ready"}
     selected = terminal.get("status") == "selected"
     handoff_ref = _root_ref(root, "prompt-development/handoff.json") if selected and (root / "prompt-development/handoff.json").is_file() else None
+    protocol_exceptions: list[dict[str, Any]] = []
+    for version in _DEV_VERSIONS:
+        attempts_root = root / _version_dir(version) / "attempts"
+        if not attempts_root.is_dir():
+            continue
+        for declaration_path in sorted(attempts_root.glob("attempt_*/declaration.json")):
+            declaration = _load_json(root, str(declaration_path.relative_to(root)), "attempt_declaration")
+            retry = declaration.get("retry")
+            if isinstance(retry, Mapping):
+                protocol_exceptions.append({
+                    "exception": "infrastructure_failed_sample_retry",
+                    "authorization": retry["authorization"],
+                    "model_id": declaration["model_slot"],
+                    "trial_id": ",".join(retry["trial_ids"]),
+                    "ref": _root_ref(root, str(declaration_path.relative_to(root))),
+                })
     return {
-        "schema_version": "2.0",
+        "schema_version": "4.0",
         "change": "m1-4a2-patch-calibration-rerun",
         "lineage_id": root.name,
         "lineage_root": f"runs/_calibration/s4-architecture/{root.name}/prompt-development",
@@ -1427,19 +1687,14 @@ def build_development_summary(
             "schema": dict(lineage["artifacts"]["schema"]),
             "validator": dict(lineage["artifacts"]["validator"]),
         },
-        "model_ids": list(MODEL_IDS),
+        "model_slot": _protocol["model_slot"],
         "versions": versions,
         "terminal": terminal,
         "handoff_ref": handoff_ref,
-        "protocol_exceptions": [],
-        "recovery": {
-            "status": "not_triggered" if selected else "conditional",
-            "provider_calls": 0,
-            "recovery_root_created": False,
-        },
+        "protocol_exceptions": protocol_exceptions,
         "limitations": [
-            "This is M1-4a2 N=3 patch-development screening evidence, not M1-4a3 qualification.",
-            "No B1-B4, production model, call-shape, formal Run, S4, S5, S6, or production-freeze claim is made.",
+            "This is only M1-4a2 N=3 baseline usability evidence.",
+            "Long-term prompt quality is not proven here and must be observed during complete framework runs.",
         ],
     }
 
@@ -1452,7 +1707,7 @@ def render_development_report(summary: Mapping[str, Any]) -> str:
         "",
         f"- Lineage: `{summary['lineage_id']}`",
         f"- Terminal status: `{summary['terminal'].get('status')}`",
-        f"- Recovery: `{summary['recovery']['status']}`",
+        f"- Model slot: `{summary['model_slot']}`",
         "",
     ]
     if summary["terminal"].get("status") == "selected":
@@ -1460,29 +1715,30 @@ def render_development_report(summary: Mapping[str, Any]) -> str:
             f"- Selected version: `{summary['terminal']['selected_version']}`",
             f"- Selection reason: `{summary['terminal']['reason']}`",
             f"- Selected bundle: `{summary['terminal']['bundle_ref']['path']}`",
-            f"- M1-4a3 handoff: `{summary['handoff_ref']['path']}`" if summary.get("handoff_ref") else "- M1-4a3 handoff: `missing`",
+            f"- M1-4c handoff: `{summary['handoff_ref']['path']}`" if summary.get("handoff_ref") else "- M1-4c handoff: `awaiting owner approval`",
             "",
         ])
     for version, record in summary.get("versions", {}).items():
         lines.extend([f"## {version}", "", f"- Trials per slot: `{record['trial_count']}`", f"- Screening pass: `{record['screening_pass']}`", f"- Initial source: `{record['bundle']['initial_ref']['path']}`", f"- Repair source: `{record['bundle']['repair_ref']['path']}`", ""])
         lines.append("| slot | p0 | p1 | p2 | schema-after-format | semantic-first | truncated | cost_usd | model strings |")
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
-        for model_id in MODEL_IDS:
+        for model_id in sorted(record["slots"]):
             slot = record["slots"][model_id]
             identity = slot["model_identity"]
             lines.append(
                 f"| {model_id} | {slot['p0']} | {slot['p1']} | {slot['p2']} | {slot['schema_after_format_repair_rate']} | {slot['arch_semantic_first_pass_rate']} | {slot['usage']['truncated']} | {slot['usage']['cost_usd']} | {json.dumps(identity['model_strings'], ensure_ascii=False, sort_keys=True)} |"
             )
         lines.extend(["", "### Slot diagnostics", ""])
-        for model_id in MODEL_IDS:
+        for model_id in sorted(record["slots"]):
             slot = record["slots"][model_id]
             lines.append(
                 f"- `{model_id}`: infrastructure_invalid=`{slot['infrastructure_invalid']}`, repeated_initial_failures=`{json.dumps(slot['repeated_gate_failures'], sort_keys=True)}`, parameter_support=`{json.dumps(slot['model_identity']['parameter_support'], sort_keys=True)}`"
             )
-        lines.extend(["", "### Gate final pass rates", "", "| gate | qwen | claude | deepseek |", "| --- | ---: | ---: | ---: |"])
+        slot_names = sorted(record["slots"])
+        lines.extend(["", "### Gate final pass rates", "", "| gate | " + " | ".join(slot_names) + " |", "| --- | " + " | ".join("---:" for _ in slot_names) + " |"])
         for gate in _GATES:
-            values = [record["slots"][model_id]["gates"][gate]["rate"] for model_id in MODEL_IDS]
-            lines.append(f"| {gate} | {values[0]} | {values[1]} | {values[2]} |")
+            values = [record["slots"][model_id]["gates"][gate]["rate"] for model_id in slot_names]
+            lines.append(f"| {gate} | " + " | ".join(str(value) for value in values) + " |")
         lines.append("")
     if summary.get("protocol_exceptions"):
         lines.extend(["## Protocol exceptions", ""])
@@ -1516,14 +1772,6 @@ def write_development_report(
     destination = Path(output_dir).resolve()
     RunStore._write_atomic_at(destination / "development-summary.json", canonical_json_bytes(summary))
     RunStore._write_atomic_at(destination / "development-report.md", markdown.encode("utf-8"))
-    if summary["terminal"].get("status") == "selected":
-        recovery_status = {
-            "schema_version": "2.0", "change": summary["change"],
-            "lineage_id": summary["lineage_id"], "status": "not_triggered",
-            "reason": "normal M1-4a2 selection completed; conditional recovery was not entered",
-            "recovery_root_created": False, "provider_calls": 0,
-        }
-        RunStore._write_atomic_at(destination / "recovery-status.json", canonical_json_bytes(recovery_status))
     return summary
 
 
@@ -2434,35 +2682,21 @@ def _build_parser() -> argparse.ArgumentParser:
         if name == "recompute":
             command.add_argument("--require-complete", action="store_true")
             command.add_argument("--require-source-match", action="store_true")
+    retry = sub.add_parser("retry-failed-trials")
+    retry.add_argument("--development-root", required=True)
+    retry.add_argument("--config", default=None)
+    retry.add_argument("--context-limits", default=None)
+    retry.add_argument("--version", default="v1")
     select = sub.add_parser("select")
     select.add_argument("--development-root", required=True)
     select.add_argument("--config", default=None)
     select.add_argument("--context-limits", default=None)
-    select.add_argument("--version", default="v4")
-    recovery_init = sub.add_parser("recovery-init")
-    recovery_init.add_argument("--authorization", required=True)
-    recovery_init.add_argument("--design", required=True)
-    recovery_init.add_argument("--config", required=True)
-    recovery_init.add_argument("--context-limits", required=True)
-    recovery_init.add_argument("--spec", required=True)
-    recovery_init.add_argument("--target", required=True)
-    recovery_init.add_argument("--test-bundle", required=True)
-    recovery_init.add_argument("--predecessor-root", required=True)
-    recovery_init.add_argument("--experiment-root", required=True)
-    recovery_init.add_argument("--seed", required=True)
-    recovery_init.add_argument("--seed-sha256", required=True)
-    recovery_init.add_argument("--runs-root", default="runs")
-    recovery_run = sub.add_parser("recovery-run-version")
-    recovery_run.add_argument("--recovery-root", required=True)
-    recovery_run.add_argument("--version", required=True)
-    recovery_revision = sub.add_parser("recovery-record-revision")
-    recovery_revision.add_argument("--recovery-root", required=True)
-    recovery_revision.add_argument("--version", required=True)
-    recovery_revision.add_argument("--input", required=True)
-    recovery_recompute = sub.add_parser("recovery-recompute")
-    recovery_recompute.add_argument("--recovery-root", required=True)
-    recovery_recompute.add_argument("--require-complete", action="store_true")
-    recovery_recompute.add_argument("--require-source-match", action="store_true")
+    select.add_argument("--version", default="v2")
+    approve = sub.add_parser("approve")
+    approve.add_argument("--development-root", required=True)
+    approve.add_argument("--config", default=None)
+    approve.add_argument("--context-limits", default=None)
+    approve.add_argument("--approval", required=True)
     report = sub.add_parser("report")
     report.add_argument("--development-root", required=True)
     report.add_argument("--config", required=True)
@@ -2473,32 +2707,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    if args.command == "recovery-init":
-        coordinator = PromptRecoveryCoordinator.init(
-            authorization_path=args.authorization, design_path=args.design,
-            config_path=args.config, context_limits_path=args.context_limits,
-            spec_path=args.spec, target_path=args.target, test_bundle_path=args.test_bundle,
-            predecessor_root=args.predecessor_root, experiment_root=args.experiment_root,
-            seed_path=args.seed, seed_sha256=args.seed_sha256, runs_root=args.runs_root,
-            require_environment=True,
-        )
-        value = {"lineage_root": str(coordinator.lineage_root), "recovery_root": str(coordinator.root), "next_action": coordinator.next_action()}
-        print(json.dumps(value, ensure_ascii=False, sort_keys=True))
-        return 0
-    if args.command.startswith("recovery-"):
-        coordinator = PromptRecoveryCoordinator(args.recovery_root, require_environment=True)
-        if args.command == "recovery-run-version":
-            value = coordinator.run_version(args.version)
-        elif args.command == "recovery-record-revision":
-            record = json.loads(Path(args.input).read_text(encoding="utf-8"))
-            if not isinstance(record, dict) or not isinstance(record.get("prompt_path"), str):
-                raise PromptDevelopmentError("recovery revision input requires prompt_path")
-            prompt = Path(record.pop("prompt_path")).read_bytes()
-            value = coordinator.record_revision(args.version, record, prompt)
-        else:
-            value = coordinator.recompute(require_complete=args.require_complete, require_source_match=args.require_source_match)
-        print(json.dumps(value, ensure_ascii=False, sort_keys=True))
-        return 0
     if args.command == "report":
         value = write_development_report(
             args.development_root, config_path=args.config,
@@ -2517,6 +2725,8 @@ def main(argv: list[str] | None = None) -> int:
     coordinator = PromptDevelopmentCoordinator(args.development_root, config_path=config_path, context_limits_path=context_limits_path, require_environment=True)
     if args.command == "run-version":
         value = coordinator.run_version(args.version)
+    elif args.command == "retry-failed-trials":
+        value = coordinator.retry_failed_trials(args.version)
     elif args.command == "record-revision":
         if args.input:
             record = json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -2532,10 +2742,13 @@ def main(argv: list[str] | None = None) -> int:
             prompt_bytes = Path(args.prompt).read_bytes()
         value = coordinator.record_revision(args.version, hypothesis=hypothesis, evidence_refs=evidence_refs, expected_gates=record.get("expected_gates") if args.input else None, expected_metrics=record.get("expected_metrics") if args.input else None, stopping_conclusion=record.get("stopping_conclusion") if args.input else args.stopping_conclusion, prompt_bytes=prompt_bytes)
     elif args.command == "select":
-        value = coordinator.select(
-            args.version,
-            reason="unique fixed fallback winner after authorized single-slot Claude retry exception",
-        )
+        value = coordinator.select(args.version)
+    elif args.command == "approve":
+        approval_value = json.loads(Path(args.approval).read_text(encoding="utf-8"))
+        if not isinstance(approval_value, dict) or approval_value.get("approved") is not True or not isinstance(approval_value.get("reviewer"), str):
+            raise PromptDevelopmentError("approval must be a JSON object with approved=true and a reviewer")
+        approval_ref = _publish_json(coordinator.root, "prompt-development/owner-approval.json", approval_value, "owner_approval")
+        value = coordinator.publish_handoff(approval_ref)
     else:
         value = coordinator.recompute(args.version, 3, require_complete=args.require_complete, require_source_match=args.require_source_match)
     print(json.dumps(value, ensure_ascii=False, sort_keys=True))

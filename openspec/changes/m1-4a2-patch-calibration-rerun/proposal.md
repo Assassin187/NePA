@@ -1,39 +1,32 @@
 ## Why
 
-The previous free-layout M1-4a2 run ended with a fallback-selected prompt that did not meet its quality screen, and its full-draft repair protocol can rewrite architecture regions that already satisfy `ARCH_VALIDATE`. `project_docs/system_design.md` 6.1.0 authorizes a fresh M1-4a2 lineage with smaller prompt-development batches, two locality-constrained patch repairs, a three-model `p2 ≥ 0.60` screen, and one shared ArchitecturePlanner `initial`/`repair` prompt bundle instead of one template serving both phases. The first value-hash-free rerun then exposed two lineage-controlled implementation defects: `arch_15` split the design-legal `{type_id}` placeholder into invalid literal tokens, and a layout-path repair could not carry its exact ownership/work-package reference closure. Those audit-only single-template attempts cannot support prompt-bundle selection, so the defects, the two-stage invocation migration, and a clean post-fix rerun must be completed before M1-4a3 admission can be claimed.
+The active M1-4a2 workflow treats prompt development as a strict three-model qualification exercise. One bad answer or one exhausted infrastructure call invalidates a whole version, while the split prompt lost important construction instructions. This prevents the project from reaching its actual near-term goal: selecting one usable ArchitecturePlanner prompt bundle so the complete framework can be built and its real quality observed there.
 
 ## What Changes
 
-- **BREAKING** Replace the M1-4a2 V0/V1/optional-V2, N=5/N=10 development state machine with V0～V4, fixed N=3 rounds and at most four evidence-backed prompt revisions.
-- Define 15 as the per-model hard ceiling for initial-generation trials across all five versions; semantic patch calls and structured-output format repairs are excluded from that ceiling but remain fully metered.
-- **BREAKING** Replace M1-4a2 semantic full-draft repair with a lineage-bound patch contract. Each trial may apply at most two fresh repairs, each restricted to paths mechanically derived from the current canonical validator failures, atomically applied, and followed by complete Schema and `ARCH_VALIDATE` validation.
-- **BREAKING** Replace the single shared ArchitecturePlanner template with one shared, protocol-neutral `initial`/`repair` prompt bundle: depth zero selects only `architecture_planner_initial.md`, repair depths select only `architecture_planner_repair.md`, and both remain one role with one model route.
-- Treat each V0～V4 prompt version as an inseparable two-template bundle. All three model slots use identical bundle bytes; each admitted revision changes exactly one stage template, leaves the other byte-identical, and consumes one of the existing four total revision opportunities.
-- **BREAKING** Remove model-authored prior-value hashes from that patch contract. Patch operations retain operation-specific presence rules, allowed-path enforcement, conflict/overlap rejection, atomic application and full revalidation; lineage and evidence-reference hashes remain unchanged.
-- Correct `arch_15` token derivation so legal `{message_id}`/`{type_id}` placeholders and exact Spec-derived identifiers are recognized atomically before generic literal tokenization, without expanding the responsibility whitelist or weakening path-neutrality failures.
-- Extend patch locality with a deterministic, exact coupled-reference closure for layout path changes. The model remains limited to the failed layout target; the controller may mechanically project only the corresponding old-to-new path substitutions into matching `modules[].owns_files` and `work_packages[].allowed_files` entries, records those derived changes separately, and rejects ambiguous or broader closure.
-- Screen each prompt version only when Qwen, Claude and DeepSeek independently satisfy `p2 ≥ 0.60` with complete infrastructure-valid N=3 evidence and zero truncations. Retain p0, p1, per-depth gate results and patch locality as diagnostics; rank terminal fallback candidates first by the minimum three-model p2.
-- Create a fresh design-6.1.0 post-fix calibration lineage and experiment preregistration, reset its per-model initial-generation budget to 15 as explicitly owner-authorized, run the bounded live V0～V4 workflow, and generate machine summaries and a human-readable report exclusively from the post-fix leaves using the existing evidence-reference and lineage traceability contracts. All calls and artifacts from the pre-fix or single-template lineages remain separately reported audit provenance and do not consume or enter the reset lineage's denominator, budget, fallback or selection.
-- Do not add a prompt-bundle SHA-256, per-template digest fields, parent-prompt hash prerequisite, composite hash, or any other new defensive hash gate. Continue only the trace and artifact-reference mechanisms already required by the authoritative design.
-- Preserve all archived changes, historical lineages and reports unchanged. Do not run M1-4a2r, M1-4a3, complete S4, S5 or S6 in this change.
+- **BREAKING** Make M1-4a2 the only ArchitecturePlanner baseline-prompt stage; remove M1-4a2r, M1-4a3, cross-model qualification, B1～B4 and their handoff paths.
+- **BREAKING** Run one configuration-selected logical model slot through V0～V2, N=3 per version and at most nine initial generations. The initial configuration resolves to Claude, but no model name is a design or Schema gate.
+- Select the first bundle with at least 2/3 trials passing all architecture gates within at most two effective patch repairs. Owner approval then permits only an M1-4c handoff.
+- Keep ordinary failures, truncation and exhausted transport retries local to one trial; never rerun completed trials or invalidate the whole version.
+- Allow a revision to change either or both stage templates, with evidence and exact diffs recorded.
+- Rebuild both prompts from the strongest historical algorithmic instructions while preserving free-layout and protocol-neutral constraints.
+- Normalize validator paths to stable identifiers before repair rendering, allow one patch to fix multiple currently allowed regions, keep exact controller-authored layout-reference projection, and allow one correction for a rejected patch at each semantic depth.
+- Preserve all historical experiments and legacy evidence contracts as read-only provenance. New evidence uses a fresh design-7.0.0 lineage.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `architecture-prompt-development`: Defines the current bounded three-model M1-4a2 two-stage prompt-bundle development, selection, evidence and M1-4a3-admission contract under design 6.1.0.
+- `architecture-prompt-development`: Defines single-model V0～V2 baseline-prompt development, per-trial failure isolation, selection and M1-4c handoff.
 
 ### Modified Capabilities
 
-- `planning-architecture-infrastructure`: Changes M1-4a2 semantic repair from full ArchitectureDraft replacement to two lineage-bound, locality-constrained patch applications, makes `arch_15` placeholder/derived-identifier tokenization design-consistent, adds exact deterministic path-reference closure, and extends recomputable trial evidence through p2.
-- `agent-invocation-runtime`: Adds phase-specific ArchitecturePlanner prompt selection and the conditional output contract: initial calls use the initial template and return ArchitectureDraft, while M1-4a2 semantic-repair calls use the repair template and return patch operations only.
+- `planning-architecture-infrastructure`: Makes model selection configuration-driven and updates patch locality, correction and per-trial reporting behavior.
+- `agent-invocation-runtime`: Keeps the two-stage ArchitecturePlanner contract while making repair requests self-contained and allowing one rejected-patch correction.
 
 ## Impact
 
-- **Milestone/work item:** M1-4a2 only, governed by `system_design.md` §§0.1, 4.5, 6.4.8～6.4.8.2, 8.3～8.4, 8.8, 9.2, 10.2 D1.0 and revision 6.1.0.
-- **Preconditions:** the M1-4a1 free-layout, fifteen-gate, three-slot production slice is recorded by the archived `m1-architecture-calibration-redo-through-4a2r` change, but its current implementation hashes, tests, configuration and live credentials must be reverified before Provider I/O. This proposal does not treat archived OpenSpec completion as a substitute for those checks.
-- **Code paths:** `nepa/calibration/s4_architecture.py`, `nepa/calibration/s4_prompt_development.py`, `nepa/agents/prompts/architecture_planner_initial.md`, `nepa/agents/prompts/architecture_planner_repair.md`, the ArchitecturePlanner invocation path, calibration/trial Schemas and examples, live calibration configuration and runner, and their focused tests. The existing `architecture_planner.md` ceases to be a runtime prompt.
-- **Artifacts:** a new post-fix lineage under `runs/_calibration/s4-architecture/` and a new experiment directory containing implementation brief, preregistration, explicit budget-reset provenance, machine-derived results and report. The pre-fix value-hash-free and historical value-hash roots remain read-only and cannot enter denominators, fallback or handoff.
-- **Verification:** deterministic fake-provider suites for five-version/N=3 budgeting, two-patch application/locality, p2 screening, early stop, fallback/tie, artifact recomputation and historical-lineage rejection; then full pytest, strict OpenSpec validation, design/protocol-neutrality checks and diff hygiene. Live evidence must be recomputed from leaves before publication.
-- **Owner gates:** this change may publish only an M1-4a3 technical admission handoff or `PROMPT_SELECTION_TIE`. It cannot qualify a production model, trigger M1-4a2r without separate authorization, satisfy M1-4a3 B1～B4, freeze production settings or replace required owner signatures.
-- **Why the scope is inseparable:** the changed version budget, patch output contract, p2 metric and live denominator define one experiment protocol. Updating only the coordinator or only the evidence Schema would permit full-draft or old-threshold trials to enter the new selection, so the minimal safe boundary includes the invocation contract, trial engine, prompt-development controller and one fresh evidence run.
+- **Milestone:** M1-4a2 now closes baseline prompt development and replaces the removed M1-4a2r/M1-4a3 gates. M1-4c consumes the owner-approved bundle.
+- **Code and data:** the architecture calibration driver, prompt-development coordinator, calibration Schemas/examples, prompt templates, configuration and focused tests change together.
+- **Compatibility:** existing three-model and recovery artifacts remain immutable and recomputable under their legacy contracts but cannot enter new selection.
+- **Validation:** deterministic tests cover the single configured slot, local failure handling, V0～V2 selection, patch correction/locality, prompt completeness and historical evidence isolation. No live provider calls are part of implementation validation.
