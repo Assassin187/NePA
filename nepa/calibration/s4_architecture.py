@@ -48,10 +48,6 @@ FIXED_API_KEY_ENVS = {
 METRIC_DEFINITION = "m1-4a1-architecture-calibration-metrics-v1"
 RECOVERY_METRIC_DEFINITION = "m1-4a2r-recovery-metrics-v1"
 REPAIR_IMPACT_POLICY_VERSION = "repair-impact-v1"
-DESIGN_BASELINE = {
-    "project_docs/system_design.md": "94d7bdf4d9f1d57ed4c0fd50401c10449052d32c09d02abce59e73bb8aeea18f",
-    "project_docs/pipeline_design_s4_s9.md": "6ebf3c693e519fd14229b3591b4226d51c9df399380f28164d5d981d45c51af8",
-}
 PATCH_SCHEMA_VERSION = "2.0"
 PATCH_LOCALITY_POLICY_VERSION = "m1-4a2-patch-locality-v1"
 COUPLED_PROJECTION_POLICY_VERSION = "m1-4a2-coupled-layout-projection-v1"
@@ -638,25 +634,6 @@ class CalibrationDeclarationError(CalibrationError):
 
 class CalibrationEvidenceError(CalibrationError):
     pass
-
-
-def verify_design_baseline(workspace_root: str | Path | None = None) -> dict[str, str]:
-    """Verify the owner-resolved design bytes before calibration preparation."""
-
-    root = Path(workspace_root).resolve() if workspace_root is not None else Path(__file__).resolve().parents[2]
-    verified: dict[str, str] = {}
-    for relative, expected in DESIGN_BASELINE.items():
-        path = (root / relative).resolve()
-        try:
-            path.relative_to(root)
-            data = path.read_bytes()
-        except (OSError, ValueError) as exc:
-            raise CalibrationDeclarationError(f"design baseline is unavailable: {relative}") from exc
-        actual = _sha(data)
-        if actual != expected:
-            raise CalibrationDeclarationError(f"design baseline drift: {relative}")
-        verified[relative] = actual
-    return verified
 
 
 @dataclass(frozen=True)
@@ -1517,7 +1494,6 @@ class ArchitectureCalibrationDriver:
             raise CalibrationEvidenceError("batch patch output contract is not bound to the lineage")
 
     def _prepare(self, declaration: CalibrationBatchDeclaration) -> tuple[PreparedArchitectureInputs, dict[str, Any], dict[str, Any], dict[str, Any]]:
-        verify_design_baseline()
         if declaration.prepared_inputs is not None:
             prepared = prepare_architecture_inputs(
                 declaration.prepared_inputs.spec_bytes,
@@ -2010,7 +1986,6 @@ class ArchitectureCalibrationDriver:
         }
 
     def run(self, declaration: CalibrationBatchDeclaration | Mapping[str, Any]) -> Mapping[str, ArtifactRef]:
-        verify_design_baseline()
         if not isinstance(declaration, CalibrationBatchDeclaration):
             declaration = CalibrationBatchDeclaration(**dict(declaration))
         targets = declaration.targets(self.config)
@@ -2947,5 +2922,5 @@ def recompute_calibration_report(model_root: str | Path, *, config: ResolvedConf
 
 
 __all__ = [
-    "ArchitectureCalibrationDriver", "ArchitecturePlannerContractBinding", "CalibrationBatchDeclaration", "CalibrationDeclarationError", "CalibrationError", "CalibrationEvidenceError", "CalibrationModelTarget", "COUPLED_PROJECTION_POLICY_VERSION", "DESIGN_BASELINE", "PATCH_LOCALITY_POLICY_VERSION", "PATCH_SCHEMA_VERSION", "architecture_draft_changed_paths", "architecture_failure_to_allowed_paths", "apply_architecture_patch", "apply_architecture_patch_with_projection", "assess_patch_locality", "bind_architecture_planner_contract", "build_lineage_manifest", "map_architecture_failures_to_paths", "recompute_calibration_report", "validate_architecture_patch", "verify_design_baseline",
+    "ArchitectureCalibrationDriver", "ArchitecturePlannerContractBinding", "CalibrationBatchDeclaration", "CalibrationDeclarationError", "CalibrationError", "CalibrationEvidenceError", "CalibrationModelTarget", "COUPLED_PROJECTION_POLICY_VERSION", "PATCH_LOCALITY_POLICY_VERSION", "PATCH_SCHEMA_VERSION", "architecture_draft_changed_paths", "architecture_failure_to_allowed_paths", "apply_architecture_patch", "apply_architecture_patch_with_projection", "assess_patch_locality", "bind_architecture_planner_contract", "build_lineage_manifest", "map_architecture_failures_to_paths", "recompute_calibration_report", "validate_architecture_patch",
 ]

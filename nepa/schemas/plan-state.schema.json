@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/plan-state.schema.json",
+  "title": "NePA Plan State v1",
+  "type": "object", "additionalProperties": false, "required": ["schema_version", "plan_ref", "tasks"],
+  "properties": {"schema_version": {"const": "1.0"}, "plan_ref": {"$ref": "#/$defs/planRef"}, "tasks": {"type": "array", "items": {"$ref": "#/$defs/taskState"}}},
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "ref": {"type": ["object", "null"], "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "planRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "revision_seq"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "revision_seq": {"type": "integer", "minimum": 0}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["task_evidence_ref"], "properties": {"task_evidence_ref": {"$ref": "#/$defs/ref"}}},
+    "taskState": {"type": "object", "additionalProperties": false, "required": ["id", "status", "attempts", "notes", "commit_sha", "last_error", "acceptance_evidence"], "properties": {"id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]}, "attempts": {"type": "integer", "minimum": 0}, "notes": {"type": "string"}, "commit_sha": {"$ref": "#/$defs/commit"}, "last_error": {"type": ["string", "null"]}, "acceptance_evidence": {"$ref": "#/$defs/evidence"}}}
+  }
+}

@@ -69,6 +69,15 @@ def test_cli_valid_spec_returns_zero_and_structured_json():
     assert json.loads(result.stdout)["valid"] is True
 
 
+def test_cli_plan_requires_explicit_basic_companions():
+    result = _run("lint", "plan", str(ROOT / "nepa/schemas/examples/plan.example.json"))
+
+    assert result.returncode == 20
+    report = json.loads(result.stdout)
+    assert report["valid"] is False
+    assert report["errors"][0]["code"] == "PLAN_COMPANION_MISSING"
+
+
 def test_cli_validation_failure_returns_twenty(tmp_path):
     target = _write_json(tmp_path / "target.json", {
         "roles": ["client", "server"],

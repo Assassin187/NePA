@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/link-report.schema.json",
+  "title": "NePA deterministic link report",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "task_order", "dependency_edges", "coverage_sha256", "delivery_blueprint_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "task_order": {"type": "array", "items": {"type": "string", "pattern": "^T-[0-9]{3}$"}},
+    "dependency_edges": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from", "to", "reason"], "properties": {"from": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "to": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "reason": {"enum": ["local", "contract"]}}}},
+    "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "delivery_blueprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

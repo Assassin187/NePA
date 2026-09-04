@@ -83,7 +83,7 @@
       ],
       "allOf": [
         {"if": {"properties": {"render_rule": {"const": "header"}}}, "then": {"properties": {"contract_id": {"type": "string", "minLength": 1}}}},
-        {"if": {"properties": {"render_rule": {"enum": ["source_stub", "build_file", "doc", "mechanical"]}}}, "then": {"properties": {"contract_id": {"type": "null"}}}},
+        {"if": {"properties": {"render_rule": {"enum": ["build_file", "doc"]}}}, "then": {"properties": {"contract_id": {"type": "null"}}}},
         {"if": {"properties": {"render_rule": {"const": "source_stub"}}}, "then": {"properties": {"class": {"const": "s6_owned"}}}},
         {"if": {"properties": {"render_rule": {"enum": ["header", "build_file", "doc", "mechanical"]}}}, "then": {"properties": {"class": {"const": "s5_frozen"}}}}
       ]

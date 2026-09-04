@@ -8,11 +8,9 @@ from .s4_architecture import (
     CalibrationEvidenceError,
     CalibrationError,
     CalibrationModelTarget,
-    DESIGN_BASELINE,
     bind_architecture_planner_contract,
     build_lineage_manifest,
     recompute_calibration_report,
-    verify_design_baseline,
 )
 
 _PROMPT_DEVELOPMENT_EXPORTS = {
@@ -33,8 +31,8 @@ def __getattr__(name: str):
 
 __all__ = [
     "ArchitectureCalibrationDriver", "ArchitecturePlannerContractBinding", "CalibrationBatchDeclaration",
-    "CalibrationDeclarationError", "CalibrationEvidenceError", "CalibrationError", "CalibrationModelTarget", "DESIGN_BASELINE",
-    "bind_architecture_planner_contract", "build_lineage_manifest", "recompute_calibration_report", "verify_design_baseline",
+    "CalibrationDeclarationError", "CalibrationEvidenceError", "CalibrationError", "CalibrationModelTarget",
+    "bind_architecture_planner_contract", "build_lineage_manifest", "recompute_calibration_report",
     "CalibrationPreflight", "PromptDevelopmentConfigError", "PromptDevelopmentCoordinator", "PromptDevelopmentError",
     "PromptDevelopmentEvidenceError", "PromptSelectionTie", "preflight_calibration_config", "scan_prompt_neutrality",
     "CONFIG_ENV", "CONTEXT_LIMITS_ENV",

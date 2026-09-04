@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/delivery-blueprint.schema.json",
+  "title": "NePA Delivery Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target_profile", "naming", "resource_limits", "deliverables", "build_artifacts", "link_source_sets", "file_rules", "layout_templates", "mechanical_generation_contracts"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "target_profile": {"$ref": "#/$defs/target"},
+    "naming": {"$ref": "#/$defs/naming"},
+    "resource_limits": {"type": "object", "additionalProperties": false, "required": ["max_connections", "max_event_targets", "max_output_item_bytes", "max_output_batch_bytes"], "properties": {"max_connections": {"type": "integer", "minimum": 1}, "max_event_targets": {"type": "integer", "minimum": 1}, "max_output_item_bytes": {"type": "integer", "minimum": 1}, "max_output_batch_bytes": {"type": "integer", "minimum": 1}}},
+    "deliverables": {"type": "array", "items": {"$ref": "#/$defs/deliverable"}},
+    "build_artifacts": {"type": "array", "items": {"$ref": "#/$defs/buildArtifact"}},
+    "link_source_sets": {"type": "array", "items": {"$ref": "#/$defs/linkSourceSet"}},
+    "file_rules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fileRule"}},
+    "layout_templates": {"type": "array", "items": {"$ref": "#/$defs/template"}},
+    "mechanical_generation_contracts": {"type": "array", "items": {"$ref": "#/$defs/mechanicalContract"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["roles", "language"],
+      "properties": {
+        "roles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "language": {"type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {"name": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}}
+      }
+    },
+    "naming": {
+      "type": "object", "additionalProperties": false, "required": ["symbol_prefix", "identifier_style", "patterns"],
+      "properties": {
+        "symbol_prefix": {"type": "string", "minLength": 1},
+        "identifier_style": {"const": "snake_case"},
+        "patterns": {
+          "type": "object", "additionalProperties": false,
+          "required": ["message_struct", "encode_fn", "decode_fn", "type_alias", "error_enum", "packet_type_enum"],
+          "properties": {
+            "message_struct": {"type": "string", "minLength": 1},
+            "encode_fn": {"type": "string", "minLength": 1},
+            "decode_fn": {"type": "string", "minLength": 1},
+            "type_alias": {"type": "string", "minLength": 1},
+            "error_enum": {"type": "string", "minLength": 1},
+            "packet_type_enum": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "deliverable": {
+      "type": "object", "additionalProperties": false, "required": ["id", "title", "kind", "purpose"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "title": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}}
+    },
+    "buildArtifact": {
+      "type": "object", "additionalProperties": false, "required": ["id", "deliverable_id", "link_source_set_id", "path", "build_variant_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "deliverable_id": {"$ref": "#/$defs/id"}, "link_source_set_id": {"$ref": "#/$defs/id"},
+        "path": {"type": "string", "minLength": 1}, "build_variant_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "linkSourceSet": {
+      "type": "object", "additionalProperties": false, "required": ["id", "file_rule_ids"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "file_rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}
+    },
+    "fileRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "producer", "mutability", "path_pattern", "expansion", "purpose", "owner_module", "contract_id", "build_role"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["app", "source", "header", "build", "documentation"]},
+        "producer": {"enum": ["mechanical_spec", "layout_template", "s6_task"]},
+        "mutability": {"enum": ["s5_frozen", "s6_owned"]},
+        "path_pattern": {"type": "string", "minLength": 1},
+        "expansion": {"enum": ["none", "per_message", "per_type"]},
+        "purpose": {"type": "string", "minLength": 1},
+        "owner_module": {"$ref": "#/$defs/id"},
+        "contract_id": {"type": ["string", "null"]},
+        "build_role": {"enum": ["link_source", "entry_point", "none"]},
+        "owner_task_id": {"type": "string", "pattern": "^T-[0-9]{3}$"},
+        "template_path": {"type": "string", "minLength": 1}
+      }
+    },
+    "template": {
+      "type": "object", "additionalProperties": false, "required": ["template_path", "output_rule_ids"],
+      "properties": {"template_path": {"type": "string", "minLength": 1}, "output_rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}
+    },
+    "mechanicalContract": {
+      "type": "object", "additionalProperties": false, "required": ["contract_id", "input_kinds", "template_path", "output_rule_ids"],
+      "properties": {
+        "contract_id": {"$ref": "#/$defs/id"},
+        "input_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["spec_types", "spec_messages", "derived_naming", "language_type_mappings", "resource_limits"]}},
+        "template_path": {"type": "string", "minLength": 1},
+        "output_rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "template_context": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    }
+  }
+}

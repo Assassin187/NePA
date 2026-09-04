@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/plan-event.schema.json",
+  "title": "NePA typed Plan State event",
+  "type": "object", "additionalProperties": false, "required": ["schema_version", "event", "task_id"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "event": {"enum": ["attempt_started", "attempt_succeeded", "attempts_exhausted", "dependency_blocked", "reconciled_commit", "revalidation_passed", "reopened_by_revision", "amended_under_lease"]}, "task_id": {"type": "string", "pattern": "^T-[0-9]{3}$"},
+    "notes": {"type": "string"}, "previous_error": {"type": "string", "minLength": 1}, "error": {"type": "string", "minLength": 1}, "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "evidence_ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}, "revision_seq": {"type": "integer", "minimum": 1}, "classification": {"enum": ["REVALIDATE", "AMEND", "REGENERATE"]}, "controller": {"enum": ["revision", "lease", "reconciliation"]}, "proof": {"type": "object", "additionalProperties": true}
+  }
+}
