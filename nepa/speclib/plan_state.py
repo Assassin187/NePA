@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -89,6 +90,8 @@ def initialize_plan_state(
         plan_ref = seal_ref if isinstance(seal_ref, Mapping) else {"path": "<memory>/plan.json", "sha256": _sha(plan_value)}
     ref = copy.deepcopy(dict(plan_ref))
     ref.setdefault("revision_seq", 0)
+    ref.setdefault("version", _version_from_plan_ref(ref))
+    ref.setdefault("epoch", "E0")
     if ref.get("sha256") != _sha(plan_value):
         raise PlanStateError("Plan State plan_ref does not match the supplied Plan")
     state = {
@@ -128,18 +131,23 @@ def plan_state_snapshot_lint(
     if len(state_ids) != len(set(state_ids)) or set(state_ids) != set(plan_ids):
         errors.append(_issue("STATE_TASK_SET_MISMATCH", "/tasks", "Plan State task ids must equal the Plan task ids exactly"))
     expected_ref = None
+    initial_ref = None
     expected_config_sha = None
     if isinstance(s4_seal, Mapping):
-        expected_ref = s4_seal.get("plan")
+        initial_ref = s4_seal.get("plan")
+        expected_ref = s4_seal.get("active_plan")
         expected_config_sha = s4_seal.get("config_snapshot_sha256")
         output_refs = s4_seal.get("output_refs")
         if isinstance(output_refs, Mapping):
-            expected_ref = expected_ref or output_refs.get("plan")
+            initial_ref = initial_ref or output_refs.get("plan")
+            expected_ref = expected_ref or output_refs.get("active_plan") or output_refs.get("plan")
             expected_config_sha = expected_config_sha or output_refs.get("config_snapshot_sha256")
     if isinstance(expected_ref, Mapping):
         actual_ref = state_value.get("plan_ref", {})
-        if actual_ref.get("path") != expected_ref.get("path") or actual_ref.get("sha256") != expected_ref.get("sha256") or ("revision_seq" in expected_ref and actual_ref.get("revision_seq") != expected_ref.get("revision_seq")):
+        if actual_ref.get("path") != expected_ref.get("path") or actual_ref.get("sha256") != expected_ref.get("sha256") or ("revision_seq" in expected_ref and actual_ref.get("revision_seq") != expected_ref.get("revision_seq")) or ("version" in expected_ref and actual_ref.get("version") != expected_ref.get("version")) or ("epoch" in expected_ref and actual_ref.get("epoch") != expected_ref.get("epoch")):
             errors.append(_issue("STATE_PLAN_REF_INVALID", "/plan_ref", "Plan State plan_ref does not match the S4 seal"))
+    if isinstance(initial_ref, Mapping) and isinstance(initial_ref.get("path"), str) and initial_ref["path"].startswith("plan/versions/") and (initial_ref.get("path") != "plan/versions/plan-1.0.0.json" or initial_ref.get("revision_seq", 0) != 0 or initial_ref.get("version", "1.0.0") != "1.0.0"):
+        errors.append(_issue("STATE_INITIAL_PLAN_REF_INVALID", "/plan_ref", "Plan State must retain the immutable S4 1.0.0 anchor"))
     actual_plan_sha = _sha(plan_value)
     if state_value.get("plan_ref", {}).get("sha256") != actual_plan_sha:
         errors.append(_issue("STATE_PLAN_REF_INVALID", "/plan_ref/sha256", "Plan State plan_ref does not match the supplied Plan"))
@@ -154,6 +162,18 @@ def plan_state_snapshot_lint(
         errors.append(_issue("STATE_CONFIG_INVALID", "/config_snapshot", str(exc)))
         total_limit = 4
     ledger_value = _read(revision_ledger, "revision ledger") if revision_ledger is not None else None
+    if ledger_value is not None:
+        from .plan_revision import PlanRevisionError, validate_revision_ledger
+        try:
+            validate_revision_ledger(ledger_value)
+        except PlanRevisionError as exc:
+            errors.append(_issue("STATE_REVISION_LEDGER_INVALID", "/revision_ledger", str(exc)))
+        current_ref = state_value.get("plan_ref", {})
+        entries = ledger_value.get("entries", []) if isinstance(ledger_value, Mapping) else []
+        if current_ref.get("revision_seq") != len(entries):
+            errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref/revision_seq", "Plan State revision sequence does not equal the complete revision ledger"))
+        if entries and (entries[-1].get("to_version") != current_ref.get("version") or entries[-1].get("epoch_after") != current_ref.get("epoch")):
+            errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref", "Plan State does not bind the terminal revision ledger entry"))
     for index, task in enumerate(state_value.get("tasks", [])):
         base = f"/tasks/{index}"
         status = task.get("status")
@@ -207,10 +227,25 @@ def _pending_revision_proof(task: Mapping[str, Any], ledger: Any) -> bool:
         return False
     task_id = task.get("id")
     notes = task.get("notes", "")
-    return isinstance(notes, str) and "revision_seq" in notes and any(
-        isinstance(item, Mapping) and item.get("event") == "reopened_by_revision" and item.get("task_id") == task_id
-        for item in ledger.get("entries", [])
-    )
+    if not isinstance(notes, str) or "revision" not in notes:
+        return False
+    for entry in ledger.get("entries", []):
+        migration = entry.get("migration", {}) if isinstance(entry, Mapping) else {}
+        for item in migration.get("tasks", []) if isinstance(migration, Mapping) else []:
+            if item.get("new_task_id") == task_id and item.get("classification") == "AMEND" and item.get("old_attempts") == task.get("attempts"):
+                return True
+        if entry.get("event") == "reopened_by_revision" and entry.get("task_id") == task_id:
+            return True
+    return False
+
+
+def _version_from_plan_ref(ref: Mapping[str, Any]) -> str:
+    path = ref.get("path")
+    if isinstance(path, str):
+        match = re.fullmatch(r"plan/versions/plan-(1\.\d+\.\d+)\.json", path)
+        if match:
+            return match.group(1)
+    return "1.0.0"
 
 
 def validate_state_transition(
@@ -324,6 +359,8 @@ def execution_state_lint(
     stage_receipts: Mapping[str, Any] | str | Path,
     *,
     config_snapshot: Mapping[str, Any] | None = None,
+    revision_ledger: Mapping[str, Any] | str | Path | None = None,
+    active_pointer: Mapping[str, Any] | str | Path | None = None,
 ) -> dict[str, Any]:
     """Verify external commit/evidence facts using read-only supplied adapters."""
 
@@ -331,7 +368,37 @@ def execution_state_lint(
     state_value = _read(state, "Plan State")
     receipts = _read(stage_receipts, "stage receipts")
     receipts_s4 = receipts.get("s4") if isinstance(receipts, Mapping) else None
-    errors = plan_state_snapshot_lint(plan_value, state_value, s4_seal=receipts_s4 if isinstance(receipts_s4, Mapping) else None, config_snapshot=config_snapshot).get("errors", [])
+    ledger_value = _read(revision_ledger, "revision ledger") if revision_ledger is not None else None
+    pointer_value = _read(active_pointer, "active pointer") if active_pointer is not None else None
+    snapshot_seal = receipts_s4 if isinstance(receipts_s4, Mapping) else None
+    if isinstance(pointer_value, Mapping) and isinstance(snapshot_seal, Mapping):
+        snapshot_seal = {
+            "plan": snapshot_seal.get("plan"),
+            "active_plan": pointer_value,
+            "config_snapshot_sha256": snapshot_seal.get("config_snapshot_sha256"),
+        }
+    errors = plan_state_snapshot_lint(plan_value, state_value, s4_seal=snapshot_seal, config_snapshot=config_snapshot, revision_ledger=ledger_value).get("errors", [])
+    lineage_by_task: dict[str, Mapping[str, Any]] = {}
+    lineage_rows: list[tuple[int, Mapping[str, Any], Mapping[str, Any]]] = []
+    if ledger_value is not None:
+        try:
+            from .plan_revision import PlanRevisionError, validate_revision_ledger
+            validate_revision_ledger(ledger_value)
+        except PlanRevisionError as exc:
+            errors.append(_issue("EXEC_REVISION_LEDGER_INVALID", "/revision_ledger", str(exc)))
+        else:
+            for entry in ledger_value.get("entries", []):
+                migration = entry.get("migration", {})
+                for row in migration.get("tasks", []) if isinstance(migration, Mapping) else []:
+                    task_id = row.get("new_task_id")
+                    if isinstance(task_id, str):
+                        lineage_by_task[task_id] = {**row, "from_plan_sha256": entry.get("from_plan_ref", {}).get("sha256")}
+                        lineage_rows.append((entry["revision_seq"], row, entry))
+    if ledger_value is not None and isinstance(pointer_value, Mapping):
+        if state_value.get("plan_ref") != pointer_value:
+            errors.append(_issue("EXEC_ACTIVE_POINTER_INVALID", "/plan_ref", "Plan State does not match the supplied active pointer"))
+    elif ledger_value is not None and ledger_value.get("entries"):
+        errors.append(_issue("EXEC_ACTIVE_POINTER_MISSING", "/active_pointer", "revision-bound execution lint requires the current active pointer"))
     task_by_id = {task["id"]: task for task in plan_value.get("tasks", [])}
     workspace_anchor = _stage_workspace_anchor(receipts)
     for state_task in state_value.get("tasks", []):
@@ -339,6 +406,39 @@ def execution_state_lint(
             continue
         task_id = state_task["id"]
         task = task_by_id.get(task_id, {})
+        historical = lineage_by_task.get(task_id)
+        historical_allowed = isinstance(historical, Mapping) and historical.get("classification") in {"INHERIT", "REVALIDATE"} and isinstance(historical.get("old_task_id"), str)
+        expected_task_id = task_id
+        expected_plan_sha = _sha(plan_value)
+        if historical_allowed:
+            current_uid = task.get("task_uid")
+            upper_seq = float("inf")
+            chain_seen: set[tuple[int, str]] = set()
+            while isinstance(current_uid, str):
+                candidates = [
+                    (sequence, row, entry)
+                    for sequence, row, entry in lineage_rows
+                    if row.get("new_task_uid") == current_uid and sequence < upper_seq
+                ]
+                if not candidates:
+                    break
+                sequence, row, entry = max(candidates, key=lambda item: item[0])
+                marker = (sequence, current_uid)
+                if marker in chain_seen or row.get("classification") not in {"INHERIT", "REVALIDATE"} or not isinstance(row.get("old_task_id"), str):
+                    historical_allowed = False
+                    break
+                chain_seen.add(marker)
+                expected_task_id = row["old_task_id"]
+                expected_plan_sha = entry.get("from_plan_ref", {}).get("sha256")
+                old_uid = row.get("old_task_uid")
+                if not isinstance(expected_plan_sha, str) or not isinstance(old_uid, str):
+                    historical_allowed = False
+                    break
+                current_uid = old_uid
+                upper_seq = sequence
+            if not historical_allowed:
+                expected_task_id = task_id
+                expected_plan_sha = _sha(plan_value)
         commit = state_task.get("commit_sha")
         evidence_ref = state_task.get("acceptance_evidence", {}).get("task_evidence_ref")
         commit_info = _commit_info(workspace, commit)
@@ -346,7 +446,7 @@ def execution_state_lint(
             errors.append(_issue("EXEC_COMMIT_MISSING", f"/tasks/{task_id}/commit_sha", "done task commit does not exist in the supplied workspace"))
         else:
             trailers = commit_info.get("trailers", {})
-            expected = {"NePA-Task": task_id, "NePA-Attempt": str(state_task.get("attempts"))}
+            expected = {"NePA-Task": expected_task_id, "NePA-Attempt": str(state_task.get("attempts"))}
             for key, value in expected.items():
                 if trailers.get(key) != value:
                     errors.append(_issue("EXEC_COMMIT_TRAILER_INVALID", f"/tasks/{task_id}/commit_sha", f"commit trailer {key} does not match Plan State"))
@@ -367,10 +467,10 @@ def execution_state_lint(
                 evidence = json.loads(evidence_bytes)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 evidence = None
-            if not isinstance(evidence, Mapping) or evidence.get("task_id") != task_id or evidence.get("attempt") != state_task.get("attempts"):
+            if not isinstance(evidence, Mapping) or evidence.get("task_id") != expected_task_id or evidence.get("attempt") != state_task.get("attempts"):
                 errors.append(_issue("EXEC_EVIDENCE_IDENTITY_INVALID", f"/tasks/{task_id}/acceptance_evidence/task_evidence_ref", "task evidence task/attempt identity does not match"))
             if isinstance(evidence, Mapping):
-                if evidence.get("plan_sha256") != _sha(plan_value):
+                if evidence.get("plan_sha256") != expected_plan_sha:
                     errors.append(_issue("EXEC_EVIDENCE_PLAN_INVALID", f"/tasks/{task_id}/acceptance_evidence/task_evidence_ref", "task evidence does not bind the supplied Plan"))
                 if not isinstance(evidence.get("build_result_refs"), list) or not evidence["build_result_refs"]:
                     errors.append(_issue("EXEC_EVIDENCE_BUILD_MISSING", f"/tasks/{task_id}/acceptance_evidence/task_evidence_ref", "task evidence must contain at least one build result reference"))

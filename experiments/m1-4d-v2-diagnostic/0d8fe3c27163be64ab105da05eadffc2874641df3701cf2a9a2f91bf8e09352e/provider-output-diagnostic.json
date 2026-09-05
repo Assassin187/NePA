@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "status": "diagnostic",
+  "terminal_status": "not-ready",
+  "lineage_id": "0d8fe3c27163be64ab105da05eadffc2874641df3701cf2a9a2f91bf8e09352e",
+  "model_slot": "architecture_primary",
+  "provider": "anthropic",
+  "requested_model": "claude-opus-5",
+  "no_handoff": true,
+  "selection_ref": null,
+  "handoff_ref": null,
+  "reason": "No version has a qualified selection. V0 and V1 have complete failing assessments; V2 produced persisted trial evidence but no complete assessment because two Provider responses contained no complete structured JSON after bounded repair.",
+  "versions": {
+    "v0": {
+      "assessment_ref": {
+        "path": "prompt-development/versions/v0/attempts/attempt_002/assessment-n003.json",
+        "sha256": "85427ba008a7bc5e9ef4c00b5800fa5a47f6e55dbe6336d1c67a655d42d70a49"
+      },
+      "status": "complete",
+      "p2_passes": 1,
+      "trial_count": 3,
+      "screening_pass": false
+    },
+    "v1": {
+      "assessment_ref": {
+        "path": "prompt-development/versions/v1/assessment-n003.json",
+        "sha256": "7954b63270224fcf4d09366fb1f6ee87aedf294cb32ac313a430349d9dbb5876"
+      },
+      "status": "complete",
+      "p2_passes": 0,
+      "trial_count": 3,
+      "screening_pass": false
+    },
+    "v2": {
+      "status": "incomplete-assessment",
+      "assessment_ref": null,
+      "revision_ref": {
+        "path": "prompt-development/versions/v2/revision.json",
+        "sha256": "7f2abd7f5bd8414b0b07c3f85802c271799c33b0943e12fd575ac04d05a69e2f"
+      },
+      "bundle_ref": {
+        "path": "prompt-development/versions/v2/snapshot.json",
+        "sha256": "3edfd4770c8786fbddcb48a4abe8388c24b003a531b1917d9469692150f78901"
+      },
+      "neutrality_ref": {
+        "path": "prompt-development/versions/v2/neutrality.json",
+        "sha256": "a0a7e5e8bf29df68a0acb2ebc1a7e255c8b761614a14a49a67d6e12f43f963f3"
+      },
+      "attempt_declaration_ref": {
+        "path": "prompt-development/versions/v2/attempts/attempt_001/declaration.json",
+        "sha256": "6ae4a1b7b16cc446531044163b623402a3180df4b9873d6fcd3e34bf33d3c8a0"
+      },
+      "trial_evidence": [
+        {
+          "trial_id": "trial_001",
+          "terminal": "semantic-fail",
+          "response_ref": {
+            "path": "v2/architecture_primary/trials/trial_001/response_ref.json",
+            "sha256": "a4aa4e9c440cb9682dc8e1324ba824b76d96844e721084d3d2787c5c35a21ba5"
+          },
+          "validation_ref": {
+            "path": "v2/architecture_primary/trials/trial_001/validation.json",
+            "sha256": "766f4e89d920fec3febe23a9181cabb91f4bef2ebde364c03f2f1cab403f07be"
+          },
+          "invalid_response_ref": {
+            "path": "v2/architecture_primary/trace/outputs/000002.repair1.json",
+            "sha256": "5912e17e421ac81912d190ef947d9d3a2de9b6726561058ecc0f559d0c063858"
+          }
+        },
+        {
+          "trial_id": "trial_002",
+          "terminal": "pass-at-p1",
+          "response_ref": {
+            "path": "v2/architecture_primary/trials/trial_002/response_ref.json",
+            "sha256": "8503d83cb90b84986751bd3307012b1f2676cc28db1bbda412d6652335908d37"
+          },
+          "validation_ref": {
+            "path": "v2/architecture_primary/trials/trial_002/validation.json",
+            "sha256": "4994f0948f050aba759ac38408bb91e25a739c28bd3f9868453f7b9399439488"
+          }
+        },
+        {
+          "trial_id": "trial_003",
+          "terminal": "schema-fail",
+          "response_ref": {
+            "path": "v2/architecture_primary/trials/trial_003/response_ref.json",
+            "sha256": "a397ad300178e9b9096a450541734cbfb66aa405989a0c670efa83e3a222cb70"
+          },
+          "validation_ref": {
+            "path": "v2/architecture_primary/trials/trial_003/validation.json",
+            "sha256": "4994e487c331937bea76b567f060d1bdfa752042432c7e34a0fe3615da77984d"
+          },
+          "invalid_response_ref": {
+            "path": "v2/architecture_primary/trace/outputs/000005.repair1.json",
+            "sha256": "ff5ac7eb13796c8206423efbd3af95ca93397a7f96f7e68243d3c1c37dd3fbdb"
+          }
+        }
+      ]
+    }
+  },
+  "run_error": {
+    "command": "run-version --version v2",
+    "exception": "StructuredOutputError",
+    "message": "structured output contains no complete JSON value",
+    "stage": "recompute_calibration_report",
+    "exit_code": 1
+  },
+  "report_ref": {
+    "path": "experiments/m1-4d-v2-diagnostic/0d8fe3c27163be64ab105da05eadffc2874641df3701cf2a9a2f91bf8e09352e/development-report.md",
+    "sha256": "0d46fd55df172ce2ce1bc16b81f82597e9241b6c57fa679a977411c3c461d767"
+  },
+  "next_step": "Stop this lineage without V3, owner approval, or handoff. Review the persisted Provider structured-output failures and obtain explicit direction before any further calibration attempt."
+}

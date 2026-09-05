@@ -177,12 +177,33 @@ def test_two_of_three_selects_immediately_and_waits_for_owner_before_handoff(tmp
     with pytest.raises(PromptDevelopmentEvidenceError, match="invalid owner approval"):
         coordinator.publish_handoff(invalid_ref)
     approval_path = coordinator.root / "prompt-development/owner-approval.json"
-    approval_path.write_text(json.dumps({"approved": True, "reviewer": "test-owner"}), encoding="utf-8")
+    selection = json.loads((coordinator.root / "prompt-development/selection.json").read_text(encoding="utf-8"))
+    assessment = result["assessment"]
+    model = assessment["models"][assessment["model_slot"]]
+    neutrality_path = coordinator.root / "prompt-development/versions/v0/neutrality.json"
+    approval_path.write_text(json.dumps({
+        "schema_version": "5.0",
+        "approved": True,
+        "reviewer": "test-owner",
+        "lineage_id": coordinator.root.name,
+        "selection_ref": {"path": "prompt-development/selection.json", "sha256": __import__("hashlib").sha256((coordinator.root / "prompt-development/selection.json").read_bytes()).hexdigest()},
+        "bundle_ref": selection["bundle_ref"],
+        "assessment_ref": selection["assessment_ref"],
+        "protocol_neutrality": {"status": "pass", "evidence_ref": {"path": "prompt-development/versions/v0/neutrality.json", "sha256": __import__("hashlib").sha256(neutrality_path.read_bytes()).hexdigest()}},
+        "baseline_2_of_3": {"trial_count": 3, "p2_passes": model["p2_passes"], "screening_pass": True, "recomputed_from": "assessment_ref"},
+    }), encoding="utf-8")
     approval_ref = {"path": "prompt-development/owner-approval.json", "sha256": __import__("hashlib").sha256(approval_path.read_bytes()).hexdigest()}
     handoff_ref = coordinator.publish_handoff(approval_ref)
     handoff = json.loads((coordinator.root / handoff_ref["path"]).read_text(encoding="utf-8"))
     assert handoff["consumer"] == "m1-4c"
     assert handoff["satisfies"]["production_quality_proven"] is False
+    drifted = json.loads(approval_path.read_text(encoding="utf-8"))
+    drifted["assessment_ref"]["sha256"] = "0" * 64
+    drifted_path = coordinator.root / "prompt-development/drifted-owner-approval.json"
+    drifted_path.write_text(json.dumps(drifted), encoding="utf-8")
+    drifted_ref = {"path": "prompt-development/drifted-owner-approval.json", "sha256": __import__("hashlib").sha256(drifted_path.read_bytes()).hexdigest()}
+    with pytest.raises(PromptDevelopmentEvidenceError, match="bind the selected evidence"):
+        coordinator.publish_handoff(drifted_ref)
 
 
 def test_fixed_key_mapping_is_checked_without_reading_values(tmp_path, monkeypatch):

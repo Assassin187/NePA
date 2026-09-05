@@ -2318,9 +2318,22 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
             if attempt.get("infrastructure_invalid"):
                 if candidate_ref is not None or attempt.get("validation_ref") is not None or attempt.get("schema_valid") or attempt.get("semantic_verdict") != "not-evaluable":
                     raise CalibrationEvidenceError(f"infrastructure-invalid initial leaves are inconsistent in {trial_dir.name}")
+                current_candidate = None
+                current_validation = None
+            elif candidate_ref is None:
+                # A structured initial response may be complete JSON that
+                # fails the current Schema, or may remain without a complete
+                # JSON value after the bounded format repair.  Runtime
+                # evidence records both cases as candidate-free and
+                # non-evaluable; recomputation must preserve that terminal
+                # result instead of inventing a candidate.
+                if attempt.get("validation_ref") is not None or attempt.get("schema_valid") or attempt.get("semantic_verdict") != "not-evaluable":
+                    raise CalibrationEvidenceError(f"candidate-free initial leaves are inconsistent in {trial_dir.name}")
+                current_candidate = None
+                current_validation = None
             else:
                 if not isinstance(candidate_ref, Mapping):
-                    raise CalibrationEvidenceError(f"initial attempt has no candidate ref in {trial_dir.name}")
+                    raise CalibrationEvidenceError(f"initial attempt candidate ref is invalid in {trial_dir.name}")
                 current_candidate = json.loads(_verify_ref(store.root, candidate_ref, f"{trial_dir.name}/candidate").decode("utf-8"))
                 _validate_schema_artifact(current_candidate, "architecture-draft.schema.json", f"{trial_dir.name}/candidate")
         rendered = _render_architecture_prompt(
@@ -2338,12 +2351,30 @@ def _read_patch_trial(store: RunStore, trial_dir: Path, batch: Mapping[str, Any]
             raise CalibrationEvidenceError(f"patch provider prompt does not match its contract in {trial_dir.name} at {index}")
         response_value = json.loads(_verify_ref(store.root, response_evidence[-1], f"{trial_dir.name}/final_response").decode("utf-8"))
         parsed_value = None
+        parse_error: StructuredOutputError | None = None
         if not attempt.get("infrastructure_invalid"):
-            parsed_value = extract_first_json_value(str(response_value.get("text", ""))) if response_value.get("parsed") is None else response_value.get("parsed")
-        if depth == 0 and not attempt.get("infrastructure_invalid") and parsed_value != current_candidate:
-            raise CalibrationEvidenceError(f"initial candidate is not derived from provider output in {trial_dir.name}")
+            if response_value.get("parsed") is None:
+                try:
+                    parsed_value = extract_first_json_value(str(response_value.get("text", "")))
+                except StructuredOutputError as exc:
+                    parse_error = exc
+            else:
+                parsed_value = response_value.get("parsed")
+        if parse_error is not None:
+            if attempt.get("candidate_ref") is not None or attempt.get("patch_ref") is not None or attempt.get("schema_valid") or attempt.get("semantic_verdict") != "not-evaluable":
+                raise CalibrationEvidenceError(f"provider output cannot be parsed for a non-candidate-free attempt in {trial_dir.name} at {index}") from parse_error
+        elif depth == 0 and not attempt.get("infrastructure_invalid"):
+            if attempt.get("candidate_ref") is not None and parsed_value != current_candidate:
+                raise CalibrationEvidenceError(f"initial candidate is not derived from provider output in {trial_dir.name}")
+            if attempt.get("candidate_ref") is None:
+                try:
+                    _validate_schema_artifact(parsed_value, "architecture-draft.schema.json", f"{trial_dir.name}/candidate-free initial")
+                except CalibrationEvidenceError:
+                    pass
+                else:
+                    raise CalibrationEvidenceError(f"candidate-free initial output is Schema-valid in {trial_dir.name}")
         if depth > 0 and patch_ref is not None:
-            if parsed_value != json.loads(_verify_ref(store.root, patch_ref, f"{trial_dir.name}/patch_recheck").decode("utf-8")):
+            if parse_error is not None or parsed_value != json.loads(_verify_ref(store.root, patch_ref, f"{trial_dir.name}/patch_recheck").decode("utf-8")):
                 raise CalibrationEvidenceError(f"patch is not derived from provider output in {trial_dir.name} at {index}")
         call_metrics = _call_metrics(store.root, trace, response_evidence)
         summary = _summarize_call_metrics(call_metrics, trace)

@@ -62,8 +62,8 @@ def test_initial_publication_order_and_canonical_ledgers(tmp_path):
     revision = json.loads((store.root / "plan/revision_ledger.json").read_text(encoding="utf-8"))
     assert active == {"version": "1.0.0", "path": "plan/versions/plan-1.0.0.json", "sha256": result.output_refs["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}
     assert revision == {"schema_version": "1.0", "entries": []}
-    assert [item["path"] for item in ledger["entries"]] == sorted(
-        item["path"] for item in ledger["entries"]
+    assert [item["path"] for item in ledger["files"]] == sorted(
+        item["path"] for item in ledger["files"]
     )
     expected = []
     for item in plan["architecture"]["layout"]["files"]:
@@ -74,11 +74,11 @@ def test_initial_publication_order_and_canonical_ledgers(tmp_path):
             placeholder = "{message_id}" if item["expand_over"] == "messages" else "{type_id}"
             paths = [item["path_pattern"].replace(placeholder, value) for value in domain]
         expected.extend(paths)
-    assert {item["path"] for item in ledger["entries"]} == set(expected)
+    assert {item["path"] for item in ledger["files"]} == set(expected)
     serialized = json.dumps(plan)
-    assert "task_uid" not in serialized
-    assert "obligation_digest" not in serialized
-    assert "guidance_digest" not in serialized
+    assert "task_uid" in serialized
+    assert "obligation_digest" in serialized
+    assert "guidance_digest" in serialized
 
 
 @pytest.mark.parametrize("point", ["plan_published", "file_ledger_published", "revision_ledger_published", "active_pointer_published", "semantic_reread"])

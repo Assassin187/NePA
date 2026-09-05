@@ -95,7 +95,7 @@ def test_checkpoint_parent_hash_conflict_invalidates_descendant(tmp_path):
     assert child["path"].startswith("plan/_s4/checkpoints/")
 
 
-def test_s4_publication_crash_reuses_the_longest_valid_prefix(tmp_path):
+def test_s4_publication_crash_reuses_the_longest_valid_prefix(tmp_path, current_contract_handoff):
     from nepa.stages.s4_planning import S4Controller
 
     store = RunStore.initialize_spec_run(
@@ -134,9 +134,9 @@ def test_s4_publication_crash_reuses_the_longest_valid_prefix(tmp_path):
             raise CrashInjected()
 
     with pytest.raises(CrashInjected):
-        Orchestrator({"s4": S4Controller(first, fault_hook=crash)}).run_spec(store)
+        Orchestrator({"s4": S4Controller(first, handoff_root=current_contract_handoff["root"], handoff_lineage_id=current_contract_handoff["lineage_id"], fault_hook=crash)}).run_spec(store)
     published_plan = (store.root / "plan/versions/plan-1.0.0.json").read_bytes()
     resumed = Scripted()
-    assert Orchestrator({"s4": S4Controller(resumed)}).resume(RunStore(store.root)) == 0
+    assert Orchestrator({"s4": S4Controller(resumed, handoff_root=current_contract_handoff["root"], handoff_lineage_id=current_contract_handoff["lineage_id"])}).resume(RunStore(store.root)) == 0
     assert resumed.calls == []
     assert (store.root / "plan/versions/plan-1.0.0.json").read_bytes() == published_plan

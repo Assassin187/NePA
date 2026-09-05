@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/calibration-baseline-neutrality.schema.json",
+  "title": "M1-4a2 prompt neutrality evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lineage_id",
+    "status",
+    "policy",
+    "protocol_ref",
+    "prompt_refs",
+    "input_refs"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "lineage_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"const": "pass"},
+    "policy": {"const": "m1-4a2-prompt-neutrality-v1"},
+    "protocol_ref": {"$ref": "#/$defs/ref"},
+    "prompt_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initial", "repair"],
+      "properties": {
+        "initial": {"$ref": "#/$defs/ref"},
+        "repair": {"$ref": "#/$defs/ref"}
+      }
+    },
+    "input_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planning_index", "delivery_constraints", "config", "context_limits"],
+      "properties": {
+        "planning_index": {"$ref": "#/$defs/ref"},
+        "delivery_constraints": {"$ref": "#/$defs/ref"},
+        "config": {"$ref": "#/$defs/ref"},
+        "context_limits": {"$ref": "#/$defs/ref"}
+      }
+    }
+  },
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

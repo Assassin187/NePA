@@ -119,15 +119,25 @@
     "contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "purpose", "owner", "interface_files", "ready_gate", "provider", "consumers"],
+      "required": ["id", "purpose", "owner", "interface_files", "exports", "ready_gate", "provider", "consumers"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "purpose": {"type": "string", "minLength": 1},
         "owner": {"type": "string", "minLength": 1},
         "interface_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "exports": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/export"}},
         "ready_gate": {"enum": ["s5", "task"]},
         "provider": {"type": "string", "minLength": 1},
         "consumers": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+      }
+    },
+    "export": {
+      "type": "object", "additionalProperties": false,
+      "required": ["interface_file", "symbol", "signature"],
+      "properties": {
+        "interface_file": {"type": "string", "minLength": 1},
+        "symbol": {"type": "string", "minLength": 1},
+        "signature": {"type": "string", "minLength": 1}
       }
     },
     "module": {

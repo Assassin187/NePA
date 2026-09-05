@@ -7,7 +7,7 @@
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
     "ref": {"type": ["object", "null"], "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "planRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "revision_seq"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "revision_seq": {"type": "integer", "minimum": 0}}},
+    "planRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "version", "revision_seq", "epoch"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "revision_seq": {"type": "integer", "minimum": 0}, "epoch": {"type": "string", "pattern": "^E[0-9]+$"}}},
     "evidence": {"type": "object", "additionalProperties": false, "required": ["task_evidence_ref"], "properties": {"task_evidence_ref": {"$ref": "#/$defs/ref"}}},
     "taskState": {"type": "object", "additionalProperties": false, "required": ["id", "status", "attempts", "notes", "commit_sha", "last_error", "acceptance_evidence"], "properties": {"id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]}, "attempts": {"type": "integer", "minimum": 0}, "notes": {"type": "string"}, "commit_sha": {"$ref": "#/$defs/commit"}, "last_error": {"type": ["string", "null"]}, "acceptance_evidence": {"$ref": "#/$defs/evidence"}}}
   }

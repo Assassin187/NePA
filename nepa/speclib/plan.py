@@ -400,6 +400,72 @@ def _input_refs(input_refs: Mapping[str, Any] | None, spec: Any, target: Any, ma
     return {"spec": _ref("spec", spec), "target_profile": _ref("target_profile", target), "test_bundle": _ref("test_bundle", manifest)}
 
 
+def _canonical_sorted(values: Any) -> list[Any]:
+    return sorted((copy.deepcopy(value) for value in (values or [])), key=canonical_json_bytes)
+
+
+def interface_signature_digest(contract: Mapping[str, Any]) -> str:
+    exports = [
+        {"interface_file": item["interface_file"], "symbol": item["symbol"], "signature": item["signature"]}
+        for item in contract.get("exports", [])
+        if isinstance(item, Mapping)
+    ]
+    exports.sort(key=lambda item: (_utf8(item["interface_file"]), _utf8(item["symbol"]), _utf8(item["signature"])))
+    return hashlib.sha256(canonical_json_bytes(exports)).hexdigest()
+
+
+def derive_task_metadata(
+    task: Mapping[str, Any],
+    *,
+    work_package_id: str | None = None,
+    local_task_id: str | None = None,
+    contracts: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, str]:
+    """Derive the controller-owned identity and semantic digests for one task."""
+
+    package_id = work_package_id if work_package_id is not None else task.get("work_package")
+    local_id = local_task_id if local_task_id is not None else task.get("local_id")
+    if not isinstance(package_id, str):
+        raise PlanError("task metadata requires a work package identity", code="PLAN_METADATA_INPUT_INVALID")
+    contract_map = contracts or {}
+    consumed_signatures = sorted(
+        (interface_signature_digest(contract_map[contract_id]) for contract_id in task.get("consumes_contracts", []) if contract_id in contract_map),
+        key=_utf8,
+    )
+    obligation = {
+        "requirement_responsibilities": _canonical_sorted(task.get("requirement_responsibilities")),
+        "deliverable_files": _sorted(task.get("deliverable_files", [])),
+        "provides_contracts": _sorted(task.get("provides_contracts", [])),
+        "consumes_contracts": _sorted(task.get("consumes_contracts", [])),
+        "interface_signature_digests": consumed_signatures,
+        "acceptance": {
+            "build_variant_ids": _sorted(task.get("acceptance", {}).get("build_variant_ids", [])),
+            "tests": _sorted(task.get("acceptance", {}).get("tests", [])),
+        },
+    }
+    guidance = {
+        "title": task.get("title"),
+        "goal": task.get("goal"),
+        "instructions": task.get("instructions"),
+        "kind": task.get("kind"),
+        "context_refs": _canonical_sorted(task.get("context_refs")),
+    }
+    result = {
+        "obligation_digest": hashlib.sha256(canonical_json_bytes(obligation)).hexdigest(),
+        "guidance_digest": hashlib.sha256(canonical_json_bytes(guidance)).hexdigest(),
+    }
+    if isinstance(local_id, str):
+        result["task_uid"] = hashlib.sha256(canonical_json_bytes([package_id, local_id])).hexdigest()[:16]
+    return result
+
+
+def blueprint_task_semantic_projection(tasks: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Project tasks to the fields that can affect Delivery Blueprint semantics."""
+
+    derived = {"task_uid", "obligation_digest", "guidance_digest"}
+    return [{key: copy.deepcopy(value) for key, value in task.items() if key not in derived} for task in tasks]
+
+
 def link_plan(
     architecture_or_draft: Mapping[str, Any],
     work_packages: list[Mapping[str, Any]] | Mapping[str, Any] | None = None,
@@ -465,8 +531,6 @@ def link_plan(
             "acceptance": {"build_variant_ids": _sorted(local["acceptance"]["build_variant_ids"]), "tests": []},
         }
         final_tasks.append(final)
-    # No semantic uid or migration digest is computed in this milestone.
-
     final_architecture = copy.deepcopy(architecture)
     final_architecture.pop("work_packages", None)
     for contract in final_architecture.get("contracts", []):
@@ -493,13 +557,23 @@ def link_plan(
         final_packages.append(value)
     final_packages.sort(key=lambda item: _utf8(item["id"]))
 
+    contracts_by_id = {contract["id"]: contract for contract in final_architecture.get("contracts", [])}
+    seen_uids: dict[str, tuple[str, str]] = {}
+    for key, task in zip(ordered, final_tasks):
+        metadata = derive_task_metadata(task, work_package_id=key[0], local_task_id=key[1], contracts=contracts_by_id)
+        previous = seen_uids.get(metadata["task_uid"])
+        if previous is not None:
+            raise PlanError(f"task uid collision between {previous!r} and {key!r}", code="PLAN_TASK_UID_COLLISION")
+        seen_uids[metadata["task_uid"]] = key
+        task.update(metadata)
+
     if spec is None:
         raise PlanError("Spec is required to build coverage", code="PLAN_SPEC_MISSING")
     manifest_value = manifest if manifest is not None else test_manifest
     if manifest_value is None:
         raise PlanError("Test Manifest is required to build coverage", code="PLAN_MANIFEST_MISSING")
     coverage = build_coverage(spec, manifest_value, package_map, final_tasks, final_key_by_id, edges, config_snapshot)
-    blueprint = compile_delivery_blueprint(constraints, final_architecture, final_packages, final_tasks)
+    blueprint = compile_delivery_blueprint(constraints, final_architecture, final_packages, blueprint_task_semantic_projection(final_tasks))
     blueprint = canonical_delivery_blueprint(blueprint)
     blueprint_sha256 = hashlib.sha256(canonical_json_bytes(blueprint)).hexdigest()
     target = constraints.get("target_profile", {})
@@ -643,6 +717,7 @@ def _lint_basic_relations(plan: Mapping[str, Any], spec: Mapping[str, Any], mani
     modules = {item.get("id") for item in plan.get("architecture", {}).get("modules", []) if isinstance(item, Mapping)}
     contracts = [item for item in plan.get("architecture", {}).get("contracts", []) if isinstance(item, Mapping)]
     contract_ids = {item.get("id") for item in contracts}
+    contracts_by_id = {item["id"]: item for item in contracts if isinstance(item.get("id"), str)}
     if len(package_ids) != len(plan.get("work_packages", [])) or len(task_ids) != len(plan.get("tasks", [])):
         errors.append(_lint_issue("S4-G2", "PLAN_ID_DUPLICATE", "/", "work package and task ids must be unique"))
     package_map = {item.get("id"): item for item in package_list}
@@ -706,6 +781,13 @@ def _lint_basic_relations(plan: Mapping[str, Any], spec: Mapping[str, Any], mani
     incoming: dict[str, set[str]] = defaultdict(set)
     for index, task in enumerate(task_list):
         base = f"/tasks/{index}"
+        try:
+            metadata = derive_task_metadata(task, contracts=contracts_by_id)
+            for field in ("obligation_digest", "guidance_digest"):
+                if task.get(field) != metadata[field]:
+                    errors.append(_lint_issue("S4-G4", "PLAN_TASK_METADATA_INVALID", f"{base}/{field}", f"{field} does not match deterministic task semantics"))
+        except PlanError:
+            errors.append(_lint_issue("S4-G4", "PLAN_TASK_METADATA_INVALID", base, "task metadata cannot be recomputed from the final task"))
         if task.get("work_package") not in package_ids:
             errors.append(_lint_issue("S4-G4", "PLAN_WORK_PACKAGE_UNKNOWN", f"{base}/work_package", "task work package does not exist"))
         package = package_map.get(task.get("work_package"), {})
@@ -829,7 +911,7 @@ def _lint_full(plan: Mapping[str, Any], spec: Mapping[str, Any], manifest: Mappi
     if dict(target) != dict(constraints.get("target_profile", target)):
         errors.append(_lint_issue("S4-G1", "PLAN_TARGET_DRIFT", "/target_profile", "Target Profile differs from Delivery Constraints"))
     try:
-        expected = compile_delivery_blueprint(constraints, plan["architecture"], plan["work_packages"], plan["tasks"])
+        expected = compile_delivery_blueprint(constraints, plan["architecture"], plan["work_packages"], blueprint_task_semantic_projection(plan["tasks"]))
         if canonical_delivery_blueprint(expected) != canonical_delivery_blueprint(blueprint):
             errors.append(_lint_issue("S4-G1", "PLAN_BLUEPRINT_DRIFT", "/blueprint", "Blueprint is not the faithful layout projection"))
         expected_hash = hashlib.sha256(canonical_json_bytes(expected)).hexdigest()
@@ -894,5 +976,5 @@ def _full_contract_ancestry(plan: Mapping[str, Any]) -> list[dict[str, str]]:
 
 
 __all__ = [
-    "PlanError", "build_coverage", "build_plan_draft_ir", "compile_linked_plan", "compile_plan", "link_plan", "link_plan_draft", "normalize_plan_draft", "normalize_plan_draft_ir", "plan_lint",
+    "PlanError", "blueprint_task_semantic_projection", "build_coverage", "build_plan_draft_ir", "compile_linked_plan", "compile_plan", "derive_task_metadata", "interface_signature_digest", "link_plan", "link_plan_draft", "normalize_plan_draft", "normalize_plan_draft_ir", "plan_lint",
 ]

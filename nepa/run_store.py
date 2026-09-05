@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePath
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from .config import ConfigSnapshotDrift, ResolvedConfig, verify_config_snapshot
 from .speclib.lint import _schema_errors, canonical_json_bytes, lint_spec, lint_target, lint_test_bundle
@@ -253,6 +253,356 @@ class RunStore:
         path = self._confined(relative_path)
         self._write_atomic_at(path, data)
         return ArtifactRef(relative_path, sha256_bytes(data))
+
+    @staticmethod
+    def _canonical_value_hash(value: object) -> str:
+        try:
+            return sha256_bytes(canonical_json_bytes(value))
+        except (TypeError, ValueError) as exc:
+            raise RunValidationError(f"JSON artifact is not canonical: {exc}") from exc
+
+    def _read_json_artifact(self, relative_path: str, *, schema_name: str | None = None) -> dict[str, Any]:
+        try:
+            value = json.loads(self._confined(relative_path).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RunValidationError(f"unable to load {relative_path}: {exc}") from exc
+        if not isinstance(value, dict):
+            raise RunValidationError(f"{relative_path} must contain a JSON object")
+        if schema_name is not None:
+            errors = _schema_errors(value, schema_name)
+            if errors:
+                raise RunValidationError(f"invalid {schema_name}: " + "; ".join(item["message"] for item in errors))
+        return value
+
+    def _json_artifact_hash(self, relative_path: str) -> str:
+        try:
+            return sha256_bytes(self._confined(relative_path).read_bytes())
+        except OSError as exc:
+            raise RunValidationError(f"missing artifact {relative_path}: {exc}") from exc
+
+    def _revision_wal_path(self, revision_seq: int) -> str:
+        if not isinstance(revision_seq, int) or revision_seq < 1:
+            raise RunValidationError("revision sequence must be a positive integer")
+        return f"_s4r/rev_{revision_seq:03d}/activation.json"
+
+    @staticmethod
+    def _call_activation_hook(hook: Callable[[str], None] | None, point: str) -> None:
+        if hook is not None:
+            hook(point)
+
+    def _run_with_active_pointer(self, pointer: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Prepare the sole Run v3 mutation made by revision activation."""
+
+        run = self.load_run()
+        stages = run.get("stages")
+        s4 = stages.get("s4") if isinstance(stages, Mapping) else None
+        refs = s4.get("output_refs") if isinstance(s4, Mapping) else None
+        if not isinstance(refs, Mapping) or "plan" not in refs or "active_plan" not in refs:
+            raise RunValidationError("Run S4 output_refs do not contain the independent Plan and active-pointer anchors")
+        if refs["plan"] != {
+            "path": "plan/versions/plan-1.0.0.json",
+            "sha256": refs["plan"].get("sha256") if isinstance(refs["plan"], Mapping) else None,
+        }:
+            raise RunValidationError("Run S4 output_refs.plan is not the immutable 1.0.0 anchor")
+        updated = json.loads(canonical_json_bytes(run).decode("utf-8"))
+        updated["stages"]["s4"]["output_refs"]["active_plan"] = {
+            "path": "plan/active_plan.json",
+            "sha256": self._canonical_value_hash(pointer),
+        }
+        return run, updated
+
+    def _normalize_activation_inputs(
+        self,
+        candidate_plan: Mapping[str, Any] | None,
+        migration_report: Mapping[str, Any] | None,
+        projected_state: Mapping[str, Any] | None,
+        projected_file_ledger: Mapping[str, Any] | None,
+        revision_entry: Mapping[str, Any] | None,
+        expected_active_pointer: Mapping[str, Any] | None,
+        bundle: Mapping[str, Any] | None,
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
+        values: Mapping[str, Any] = bundle or {}
+        if bundle is None and isinstance(candidate_plan, Mapping) and "candidate_plan" in candidate_plan:
+            values = candidate_plan
+        if values:
+            candidate_plan = values.get("candidate_plan", candidate_plan)
+            migration_report = values.get("migration_report", values.get("report", migration_report))
+            projected_state = values.get("new_state", values.get("state", projected_state))
+            projected_file_ledger = values.get("new_file_ledger", values.get("file_ledger", projected_file_ledger))
+            revision_entry = values.get("revision_entry", revision_entry)
+            expected_active_pointer = values.get("old_pointer", values.get("expected_active_pointer", expected_active_pointer))
+        if not all(isinstance(value, Mapping) for value in (candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer)):
+            raise RunValidationError("activation requires a complete candidate bundle and expected active pointer")
+        return candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer  # type: ignore[return-value]
+
+    def activate_revision(
+        self,
+        candidate_plan: Mapping[str, Any] | None = None,
+        migration_report: Mapping[str, Any] | None = None,
+        projected_state: Mapping[str, Any] | None = None,
+        projected_file_ledger: Mapping[str, Any] | None = None,
+        revision_entry: Mapping[str, Any] | None = None,
+        expected_active_pointer: Mapping[str, Any] | None = None,
+        *,
+        level: str | None = None,
+        new_pointer: Mapping[str, Any] | None = None,
+        revalidation_proofs: Mapping[str, Any] | None = None,
+        expected_hashes: Mapping[str, str] | None = None,
+        activated_at_commit: str | None = None,
+        fault_hook: Callable[[str], None] | None = None,
+        bundle: Mapping[str, Any] | None = None,
+        lineage: Any = None,
+    ) -> dict[str, Any]:
+        """Activate one fully validated revision through the locked commit order.
+
+        The method deliberately accepts values rather than generating a revision
+        candidate.  Candidate generation and trigger policy belong to later
+        milestones; this API only binds an already validated bundle to the run.
+        """
+
+        from .speclib.plan_revision import (
+            PlanRevisionError,
+            append_revision_entry,
+            classify_migration,
+            successor_pointer,
+            validate_file_ledger,
+            validate_revision_ledger,
+        )
+
+        with self.controller_lock():
+            if lineage is None and isinstance(bundle, Mapping):
+                lineage = bundle.get("lineage")
+            candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer = self._normalize_activation_inputs(
+                candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer, bundle,
+            )
+            try:
+                old_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
+                old_plan = self._read_json_artifact(old_pointer["path"], schema_name="plan.schema.json")
+                old_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+                old_file_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+                old_revision_ledger = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+                candidate = json.loads(canonical_json_bytes(candidate_plan).decode("utf-8"))
+                report = json.loads(canonical_json_bytes(migration_report).decode("utf-8"))
+                state = json.loads(canonical_json_bytes(projected_state).decode("utf-8"))
+                file_ledger = json.loads(canonical_json_bytes(projected_file_ledger).decode("utf-8"))
+                entry = json.loads(canonical_json_bytes(revision_entry).decode("utf-8"))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RunValidationError(f"activation input is malformed: {exc}") from exc
+            if old_pointer != dict(expected_active_pointer):
+                raise RunValidationError("active pointer changed since activation precondition was read")
+            if self._json_artifact_hash(old_pointer["path"]) != old_pointer["sha256"]:
+                raise RunValidationError("active pointer does not hash-bind the current immutable Plan")
+            for label, relative in (("state", "plan/plan_state.json"), ("file_ledger", "plan/file_ledger.json"), ("revision_ledger", "plan/revision_ledger.json"), ("pointer", "plan/active_plan.json")):
+                expected = (expected_hashes or {}).get(label)
+                if expected is not None and self._json_artifact_hash(relative) != expected:
+                    raise RunValidationError(f"activation precondition hash drifted for {label}")
+            expected_plan_hash = (expected_hashes or {}).get("plan")
+            if expected_plan_hash is not None and old_pointer["sha256"] != expected_plan_hash:
+                raise RunValidationError("activation precondition hash drifted for plan")
+            try:
+                _schema_errors(candidate, "plan.schema.json")
+                if _schema_errors(candidate, "plan.schema.json"):
+                    raise RunValidationError("candidate Plan failed Schema validation")
+                if _schema_errors(report, "migration-report.schema.json"):
+                    raise RunValidationError("migration report failed Schema validation")
+                if _schema_errors(state, "plan-state.schema.json"):
+                    raise RunValidationError("projected Plan State failed Schema validation")
+                validate_file_ledger(file_ledger)
+                validate_revision_ledger(old_revision_ledger)
+            except PlanRevisionError as exc:
+                raise RunValidationError(str(exc)) from exc
+            if level is None:
+                level = entry.get("level")
+            if level not in {"F2", "F3"}:
+                raise RunValidationError("activation only accepts an explicit F2 or F3 revision level")
+            if entry.get("level") != level:
+                raise RunValidationError("revision entry level does not match the activation level")
+            if entry.get("gates") != {f"RG-{index}": "pass" for index in range(1, 6)}:
+                raise RunValidationError("activation requires every revision gate to pass")
+            candidate_hash = self._canonical_value_hash(candidate)
+            candidate_ref = {"path": f"plan/versions/plan-{candidate_hash}.json", "sha256": candidate_hash}
+            if new_pointer is None:
+                try:
+                    new_pointer = successor_pointer(old_pointer, candidate_ref, level)
+                except PlanRevisionError as exc:
+                    raise RunValidationError(str(exc)) from exc
+            else:
+                new_pointer = json.loads(canonical_json_bytes(new_pointer).decode("utf-8"))
+            if new_pointer.get("sha256") != candidate_hash or new_pointer.get("path") != f"plan/versions/plan-{new_pointer.get('version')}.json":
+                raise RunValidationError("candidate Plan hash or immutable version path does not match the new pointer")
+            try:
+                from .speclib.plan_revision import validate_plan_successor
+                validate_plan_successor(old_pointer, new_pointer, level)
+            except PlanRevisionError as exc:
+                raise RunValidationError(str(exc)) from exc
+            expected_candidate_path = new_pointer["path"]
+            existing_candidate = self._confined(expected_candidate_path)
+            if existing_candidate.exists() and self._json_artifact_hash(expected_candidate_path) != candidate_hash:
+                raise ArtifactConflict(f"immutable activated version differs at {expected_candidate_path}")
+            try:
+                expected_report = classify_migration(
+                    old_plan, candidate, old_state, old_file_ledger,
+                    lineage,
+                    from_version=old_pointer["version"], to_version=new_pointer["version"],
+                )
+            except PlanRevisionError as exc:
+                raise RunValidationError(str(exc)) from exc
+            if report != expected_report:
+                raise RunValidationError("migration report is not the deterministic complete classification")
+            if state.get("plan_ref") != new_pointer:
+                raise RunValidationError("projected Plan State does not bind the new active pointer")
+            _run_before, run_after = self._run_with_active_pointer(new_pointer)
+            try:
+                from .speclib.plan_revision import project_file_ledger, project_plan_state
+                expected_state = project_plan_state(
+                    old_state, candidate, report, new_pointer,
+                    revalidation_proofs=revalidation_proofs,
+                    config_snapshot=_run_before["config_snapshot"],
+                )
+                expected_file_ledger = project_file_ledger(
+                    old_file_ledger, candidate, report, epoch=new_pointer["epoch"],
+                    new_paths={row["path"] for row in file_ledger["files"]},
+                )
+            except PlanRevisionError as exc:
+                raise RunValidationError(str(exc)) from exc
+            if state != expected_state:
+                raise RunValidationError("projected Plan State is not the deterministic migration projection")
+            if file_ledger != expected_file_ledger:
+                raise RunValidationError("projected file ledger is not the deterministic migration projection")
+            entry.setdefault("revision_seq", new_pointer["revision_seq"])
+            if entry.get("prev_entry_sha256") == "0" * 64 and old_revision_ledger["entries"]:
+                entry["prev_entry_sha256"] = self._canonical_value_hash(old_revision_ledger["entries"][-1])
+            if entry.get("from_plan_ref") != {"path": old_pointer["path"], "sha256": old_pointer["sha256"]} or entry.get("to_plan_ref") != {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}:
+                raise RunValidationError("revision entry Plan refs do not bind the activation pointers")
+            if activated_at_commit is not None and entry.get("activated_at_commit") != activated_at_commit:
+                raise RunValidationError("revision entry activation commit does not match the supplied activation commit")
+            if entry.get("migration") != {key: report[key] for key in ("counts", "tasks", "files")} or entry.get("preservation_rate") != report["preservation_rate"]:
+                raise RunValidationError("revision entry migration does not bind the complete migration report")
+            try:
+                new_revision_ledger = append_revision_entry(old_revision_ledger, entry)
+            except PlanRevisionError as exc:
+                raise RunValidationError(str(exc)) from exc
+            if new_revision_ledger["entries"][-1].get("epoch_after") != new_pointer["epoch"]:
+                raise RunValidationError("revision entry epoch does not bind the new pointer")
+            wal = {
+                "schema_version": "1.0", "revision_seq": new_pointer["revision_seq"],
+                "old_pointer": old_pointer, "new_pointer": new_pointer,
+                "old_state": old_state, "new_state": state,
+                "old_file_ledger": old_file_ledger, "new_file_ledger": file_ledger,
+                "old_revision_ledger": old_revision_ledger, "new_revision_ledger": new_revision_ledger,
+                "candidate_plan": candidate,
+                "old_hashes": {
+                    "pointer": self._canonical_value_hash(old_pointer), "state": self._canonical_value_hash(old_state),
+                    "file_ledger": self._canonical_value_hash(old_file_ledger), "revision_ledger": self._canonical_value_hash(old_revision_ledger),
+                    "plan": self._canonical_value_hash(old_plan),
+                },
+                "new_hashes": {
+                    "pointer": self._canonical_value_hash(new_pointer), "state": self._canonical_value_hash(state),
+                    "file_ledger": self._canonical_value_hash(file_ledger), "revision_ledger": self._canonical_value_hash(new_revision_ledger),
+                    "plan": candidate_hash,
+                },
+            }
+            wal_path = self._revision_wal_path(new_pointer["revision_seq"])
+            self.publish_immutable_json(wal_path, wal, schema_name="plan-activation.schema.json")
+            self._call_activation_hook(fault_hook, "wal_written")
+            self.publish_immutable_json(new_pointer["path"], candidate, schema_name="plan.schema.json")
+            self._call_activation_hook(fault_hook, "version_published")
+            self.replace_json("plan/plan_state.json", state, schema_name="plan-state.schema.json")
+            self._call_activation_hook(fault_hook, "state_replaced")
+            self.replace_json("plan/file_ledger.json", file_ledger, schema_name="file-ledger.schema.json")
+            self._call_activation_hook(fault_hook, "file_ledger_replaced")
+            self.replace_json("plan/revision_ledger.json", new_revision_ledger, schema_name="revision-ledger.schema.json")
+            self._call_activation_hook(fault_hook, "revision_ledger_replaced")
+            active_ref = self.replace_json("plan/active_plan.json", new_pointer, schema_name="active-plan.schema.json")
+            self._call_activation_hook(fault_hook, "active_pointer_replaced")
+            self.replace_run(run_after)
+            self._call_activation_hook(fault_hook, "run_reference_updated")
+            return {"revision_seq": new_pointer["revision_seq"], "active_pointer": new_pointer, "active_plan_ref": active_ref.as_dict(), "wal_ref": {"path": wal_path, "sha256": self._json_artifact_hash(wal_path)}, "committed": True}
+
+    def recover_revision(self, revision_seq: int | None = None) -> dict[str, Any]:
+        """Reconcile one interrupted activation using its immutable WAL."""
+
+        from .speclib.plan_revision import PlanRevisionError, validate_plan_successor, validate_revision_ledger
+
+        with self.controller_lock():
+            if revision_seq is None:
+                candidates = sorted(self._confined("_s4r").glob("rev_*/activation.json")) if self._confined("_s4r").is_dir() else []
+                if len(candidates) != 1:
+                    raise RunValidationError("recovery requires exactly one identifiable activation WAL")
+                match = re.fullmatch(r"rev_(\d{3})", candidates[0].parent.name)
+                if match is None:
+                    raise RunValidationError("activation WAL directory is not a revision directory")
+                revision_seq = int(match.group(1))
+            wal_path = self._revision_wal_path(revision_seq)
+            wal = self._read_json_artifact(wal_path, schema_name="plan-activation.schema.json")
+            if wal["revision_seq"] != revision_seq:
+                raise RunValidationError("activation WAL revision sequence drift")
+            old_pointer, new_pointer = wal["old_pointer"], wal["new_pointer"]
+            old_state, new_state = wal["old_state"], wal["new_state"]
+            old_file, new_file = wal["old_file_ledger"], wal["new_file_ledger"]
+            old_revision, new_revision = wal["old_revision_ledger"], wal["new_revision_ledger"]
+            for label, value in (("old_pointer", old_pointer), ("new_pointer", new_pointer), ("old_state", old_state), ("new_state", new_state), ("old_file_ledger", old_file), ("new_file_ledger", new_file), ("old_revision_ledger", old_revision), ("new_revision_ledger", new_revision), ("candidate_plan", wal["candidate_plan"])):
+                if not isinstance(value, Mapping):
+                    raise RunValidationError(f"activation WAL {label} is not an object")
+            for side, values in (("old", {"pointer": old_pointer, "state": old_state, "file_ledger": old_file, "revision_ledger": old_revision}), ("new", {"pointer": new_pointer, "state": new_state, "file_ledger": new_file, "revision_ledger": new_revision})):
+                for name, value in values.items():
+                    if wal[f"{side}_hashes"][name] != self._canonical_value_hash(value):
+                        raise RunValidationError(f"activation WAL {side} {name} hash binding is invalid")
+            if wal["old_hashes"]["plan"] != self._canonical_value_hash(self._read_json_artifact(old_pointer["path"], schema_name="plan.schema.json")):
+                raise RunValidationError("activation WAL old Plan hash binding is invalid")
+            if wal["new_hashes"]["plan"] != self._canonical_value_hash(wal["candidate_plan"]):
+                raise RunValidationError("activation WAL candidate Plan hash binding is invalid")
+            try:
+                validate_revision_ledger(old_revision)
+                validate_revision_ledger(new_revision)
+                validate_plan_successor(old_pointer, new_pointer, new_revision["entries"][-1]["level"])
+            except (PlanRevisionError, IndexError, KeyError) as exc:
+                raise RunValidationError(str(exc)) from exc
+            current_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
+            current_revision = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+            if current_pointer == old_pointer and current_revision == old_revision:
+                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+                if current_state not in (old_state, new_state) or current_file not in (old_file, new_file):
+                    raise RunValidationError("pre-commit recovery found conflicting mutable artifact bytes")
+                if current_state != old_state:
+                    self.replace_json("plan/plan_state.json", old_state, schema_name="plan-state.schema.json")
+                if current_file != old_file:
+                    self.replace_json("plan/file_ledger.json", old_file, schema_name="file-ledger.schema.json")
+                candidate_path = f"_s4r/rev_{revision_seq:03d}/candidate_plan.json"
+                self.publish_immutable_json(candidate_path, wal["candidate_plan"], schema_name="plan.schema.json")
+                return {"status": "precommit-restored", "revision_seq": revision_seq, "active_pointer": old_pointer}
+            if current_pointer == old_pointer and current_revision == new_revision:
+                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+                if current_state not in (old_state, new_state) or current_file not in (old_file, new_file):
+                    raise RunValidationError("ledger-new recovery found conflicting mutable artifact bytes")
+                self.publish_immutable_json(new_pointer["path"], wal["candidate_plan"], schema_name="plan.schema.json")
+                if current_state != new_state:
+                    self.replace_json("plan/plan_state.json", new_state, schema_name="plan-state.schema.json")
+                if current_file != new_file:
+                    self.replace_json("plan/file_ledger.json", new_file, schema_name="file-ledger.schema.json")
+                self.replace_json("plan/active_plan.json", new_pointer, schema_name="active-plan.schema.json")
+                _run_before, run_after = self._run_with_active_pointer(new_pointer)
+                self.replace_run(run_after)
+                return {"status": "commit-completed", "revision_seq": revision_seq, "active_pointer": new_pointer}
+            if current_pointer == new_pointer:
+                if current_revision != new_revision:
+                    raise RunValidationError("active pointer advanced while revision ledger disagrees with WAL")
+                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+                if current_state != new_state or current_file != new_file:
+                    raise RunValidationError("committed pointer has incomplete or conflicting new artifacts")
+                self._read_json_artifact(new_pointer["path"], schema_name="plan.schema.json")
+                _run_before, run_after = self._run_with_active_pointer(new_pointer)
+                if _run_before != run_after:
+                    self.replace_run(run_after)
+                return {"status": "postcommit-verified", "revision_seq": revision_seq, "active_pointer": new_pointer}
+            raise RunValidationError("active pointer and revision ledger do not match any WAL recovery branch")
+
+    # Descriptive aliases keep the public controller vocabulary explicit.
+    activate_plan_revision = activate_revision
+    recover_plan_revision = recover_revision
 
     def read_verified_bytes(self, relative_path: str, expected_sha256: str | None = None) -> bytes:
         """Read a confined immutable artifact and optionally verify its raw-byte hash."""

@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "decisions": [],
   "assumptions": ["The application entry work package owns the declared entry point."],
-  "contracts": [{"id": "interface-contract", "purpose": "internal interface", "owner": "s5", "interface_files": ["include/mqtt/interface.h"], "ready_gate": "s5", "provider": "s5", "consumers": ["codec", "entry"]}],
+  "contracts": [{"id": "interface-contract", "purpose": "internal interface", "owner": "s5", "interface_files": ["include/mqtt/interface.h"], "exports": [{"interface_file": "include/mqtt/interface.h", "symbol": "mqtt_result_t", "signature": "typedef int mqtt_result_t;"}], "ready_gate": "s5", "provider": "s5", "consumers": ["codec", "entry"]}],
   "modules": [
     {"id": "codec", "name": "Codec", "purpose": "codec", "responsibilities": ["encode"], "non_goals": ["no io"], "owns_files": ["src/codec/codec.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"]},
     {"id": "entry", "name": "Entry", "purpose": "entry", "responsibilities": ["application entry"], "non_goals": ["no transport"], "owns_files": ["apps/app_main.c"], "provides_contracts": [], "consumes_contracts": ["interface-contract"]}

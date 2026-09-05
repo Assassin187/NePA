@@ -141,6 +141,27 @@ def _contracts_by_id(draft: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {item["id"]: item for item in draft.get("contracts", []) if isinstance(item, Mapping) and isinstance(item.get("id"), str)}
 
 
+def _mechanical_export_symbols(constraints: Mapping[str, Any]) -> set[str]:
+    """Return exactly the symbols production delivery naming can derive."""
+
+    naming = constraints.get("naming", {})
+    patterns = naming.get("patterns", {})
+    symbols: set[str] = set()
+    for field, domain in (("message_id", naming.get("message_ids", {})), ("type_id", naming.get("type_ids", {}))):
+        values = domain.values() if isinstance(domain, Mapping) else ()
+        for identifier in values:
+            for pattern in patterns.values():
+                if isinstance(pattern, str) and "{" + field + "}" in pattern:
+                    symbols.add(pattern.replace("{" + field + "}", str(identifier)))
+    for pattern in patterns.values():
+        if isinstance(pattern, str) and "{" not in pattern:
+            symbols.add(pattern)
+    server_abi = constraints.get("server_abi", {})
+    if isinstance(server_abi, Mapping):
+        symbols.update(str(value) for value in server_abi.values() if isinstance(value, str))
+    return symbols
+
+
 def _modules_by_id(draft: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {item["id"]: item for item in draft.get("modules", []) if isinstance(item, Mapping) and isinstance(item.get("id"), str)}
 
@@ -227,10 +248,27 @@ def _validate_gate_03(draft: Mapping[str, Any], constraints: Mapping[str, Any]) 
     issues: list[dict[str, Any]] = []
     modules = _modules_by_id(draft)
     slots = _slot_map(draft, constraints)
+    derived_symbols = _mechanical_export_symbols(constraints)
     for index, contract in enumerate(draft.get("contracts", [])):
         gate = contract.get("ready_gate")
         owner = contract.get("owner")
         files = contract.get("interface_files", [])
+        seen_exports: set[tuple[str, str]] = set()
+        for export_index, export in enumerate(contract.get("exports", [])):
+            base = f"/contracts/{index}/exports/{export_index}"
+            interface_file = export.get("interface_file")
+            symbol = export.get("symbol")
+            signature = export.get("signature")
+            pair = (interface_file, symbol)
+            if interface_file not in files or slots.get(interface_file) is None:
+                issues.append(_issue("arch_03", "ARCH_EXPORT_FILE_INVALID", f"{base}/interface_file", "export interface_file must belong to its contract"))
+            if pair in seen_exports:
+                issues.append(_issue("arch_03", "ARCH_EXPORT_DUPLICATE", base, "(interface_file, symbol) must be unique within a contract"))
+            seen_exports.add(pair)
+            if symbol not in derived_symbols:
+                issues.append(_issue("arch_03", "ARCH_EXPORT_SYMBOL_INVALID", f"{base}/symbol", "export symbol is not mechanically attributable to frozen delivery naming"))
+            if not isinstance(signature, str) or not signature.strip() or "{" in signature or "}" in signature:
+                issues.append(_issue("arch_03", "ARCH_EXPORT_SIGNATURE_INVALID", f"{base}/signature", "export signature must be a non-empty implementation-free declaration"))
         if gate == "s5":
             if owner != "s5" or contract.get("provider") != "s5":
                 issues.append(_issue("arch_03", "ARCH_CONTRACT_GATE_INVALID", f"/contracts/{index}", "an s5-ready contract must be owned and provided by s5"))

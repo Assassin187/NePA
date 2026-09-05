@@ -117,6 +117,38 @@ class _RetryingProvider:
         )
 
 
+class _PatchInitialSchemaFailureProvider:
+    native_structured_output = False
+
+    def complete(self, request, *, model, native_schema):
+        return LLMResponse(
+            text="{}", tokens_in=2, tokens_out=2, cost_usd=0.01, model=model,
+            provider_metadata={"finish_reason": "stop"},
+            parameter_support={"temperature": ParameterSupportState.UNKNOWN},
+        )
+
+
+class _PatchRepairNoJsonProvider:
+    native_structured_output = False
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, request, *, model, native_schema):
+        self.calls += 1
+        if self.calls == 1:
+            draft = json.loads(pathlib.Path("nepa/schemas/examples/architecture-draft.example.json").read_text(encoding="utf-8"))
+            draft["modules"][0]["provides_contracts"] = ["unknown-contract"]
+            text = json.dumps(draft)
+        else:
+            text = "not-json"
+        return LLMResponse(
+            text=text, tokens_in=3, tokens_out=4, cost_usd=0.02, model=model,
+            provider_metadata={"finish_reason": "stop"},
+            parameter_support={"temperature": ParameterSupportState.UNKNOWN},
+        )
+
+
 class _SessionProvider(_Provider):
     def __init__(self, session):
         self.session = session
@@ -228,6 +260,51 @@ def test_stream_decoding_failure_is_committed_as_infrastructure_invalid(tmp_path
     assert validation["terminal"] == "infrastructure-invalid"
     assert validation["attempts"][0]["infrastructure_invalid"] is True
     assert json.loads((root / "calibration_report.json").read_text())["status"] == "infrastructure-invalid"
+
+
+def test_patch_recompute_accepts_candidate_free_initial_schema_failure(tmp_path):
+    ArchitectureCalibrationDriver(
+        _fixture_config(),
+        runs_root=tmp_path,
+        provider_factory=lambda *args: {"fixture": _PatchInitialSchemaFailureProvider()},
+    ).run(
+        _declaration(
+            semantic_repair_depth=2,
+            repair_mode="patch",
+            context_window_tokens={name: 128000 for name in ("qwen", "claude", "deepseek")},
+        )
+    )
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
+    validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
+    assert validation["terminal"] == "schema-fail"
+    assert validation["attempts"][0]["candidate_ref"] is None
+    report = recompute_calibration_report(root)
+    assert report["status"] == "complete"
+    assert report["metrics"]["p2"] == 0.0
+    assert report["trial_metrics"][0]["terminal"] == "schema-fail"
+
+
+def test_patch_recompute_accepts_repair_without_complete_json(tmp_path):
+    ArchitectureCalibrationDriver(
+        _fixture_config(),
+        runs_root=tmp_path,
+        provider_factory=lambda *args: {"fixture": _PatchRepairNoJsonProvider()},
+    ).run(
+        _declaration(
+            semantic_repair_depth=2,
+            repair_mode="patch",
+            context_window_tokens={name: 128000 for name in ("qwen", "claude", "deepseek")},
+        )
+    )
+    root = next(tmp_path.glob("_calibration/s4-architecture/*/v0/qwen"))
+    validation = json.loads((root / "trials/trial_001/validation.json").read_text(encoding="utf-8"))
+    assert [attempt["depth"] for attempt in validation["attempts"]] == [0, 1]
+    assert validation["attempts"][1]["candidate_ref"] is None
+    assert validation["attempts"][1]["semantic_verdict"] == "not-evaluable"
+    report = recompute_calibration_report(root)
+    assert report["status"] == "complete"
+    assert report["metrics"]["p2"] == 0.0
+    assert report["trial_metrics"][0]["terminal"] == "semantic-fail"
 
 
 def test_one_unavailable_trial_does_not_rerun_or_block_the_other_trials(tmp_path):

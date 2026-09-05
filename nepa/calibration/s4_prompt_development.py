@@ -91,6 +91,7 @@ _SCHEMA_NAMES = {
     "selection": "calibration-baseline-selection.schema.json",
     "handoff": "calibration-baseline-handoff.schema.json",
     "owner_approval": "calibration-baseline-owner-approval.schema.json",
+    "neutrality": "calibration-baseline-neutrality.schema.json",
     "report": "calibration-report.schema.json",
 }
 _LEGACY_SCHEMA_NAMES = {
@@ -466,6 +467,14 @@ def _verify_lineage(root: Path, lineage: Mapping[str, Any], preflight: Calibrati
     for group in ("inputs", "artifacts", "components"):
         for name, ref in lineage.get(group, {}).items():
             _verify_root_ref(root, ref, f"lineage/{group}/{name}")
+    try:
+        schema_bytes = _verify_root_ref(root, lineage["artifacts"]["schema"], "lineage/ArchitectureDraft Schema")
+        schema = json.loads(schema_bytes.decode("utf-8"))
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PromptDevelopmentEvidenceError("lineage ArchitectureDraft Schema evidence is unreadable") from exc
+    contract = schema.get("$defs", {}).get("contract", {}) if isinstance(schema, Mapping) else {}
+    if "exports" not in contract.get("required", []) or "exports" not in contract.get("properties", {}):
+        raise PromptDevelopmentEvidenceError("lineage does not bind the design-7.2.0 export-bearing ArchitectureDraft contract")
     current = _default_components(lineage.get("repair_mode", "full_draft"))
     if set(current) != set(lineage.get("components", {})):
         raise PromptDevelopmentEvidenceError("controlled component set drift")
@@ -893,6 +902,10 @@ class PromptDevelopmentCoordinator:
         _publish_json(root, "prompt-development/protocol.json", protocol, "protocol")
         coordinator = cls(root, config_path=config_path, context_limits_path=context_limits_path, provider_factory=provider_factory, prompt_source_path=prompt_source_path, initial_prompt_source_path=initial_prompt_source_path, repair_prompt_source_path=repair_prompt_source_path, require_environment=require_environment, spec_path=spec_path, target_path=target_path or preflight.config.assets.target_profile, test_bundle_path=test_bundle_path or preflight.config.assets.test_bundle)
         coordinator._publish_version_snapshot("v0", bundle, previous_version=None)
+        coordinator._publish_neutrality_evidence(
+            "v0", preflight=preflight, protocol=protocol, lineage=lineage,
+            planning=planning, constraints=constraints,
+        )
         return coordinator
 
     def _frozen_batch_inputs(self, lineage: Mapping[str, Any]) -> tuple[bytes, bytes, bytes]:
@@ -944,6 +957,46 @@ class PromptDevelopmentCoordinator:
         version_record = {"schema_version": "4.0", "lineage_id": lineage["lineage_id"], "version": version, "status": "admitted", "protocol_ref": _root_ref(self.root, "prompt-development/protocol.json"), "bundle_ref": snapshot_ref, "semantic_depth": 2, "base_trial_count": 3, "model_slot": protocol["model_slot"], "repair_mode": "patch"}
         _publish_json(self.root, f"{version_dir}/version.json", version_record, "version")
         return version_record
+
+    def _publish_neutrality_evidence(
+        self,
+        version: str,
+        *,
+        preflight: CalibrationPreflight | None = None,
+        protocol: Mapping[str, Any] | None = None,
+        lineage: Mapping[str, Any] | None = None,
+        planning: Mapping[str, Any] | None = None,
+        constraints: Mapping[str, Any] | None = None,
+    ) -> dict[str, str]:
+        if preflight is None:
+            preflight = self._preflight()
+        if protocol is None or lineage is None:
+            protocol, lineage = _load_protocol(self.root, preflight)
+        if planning is None or constraints is None:
+            planning, constraints = _frozen_planning_context(self.root, lineage)
+        version_record = _load_version(self.root, version)
+        snapshot = _load_json(self.root, f"{_version_dir(version)}/snapshot.json", "snapshot")
+        bundle = _load_bundle(self.root, version)
+        for prompt in bundle.values():
+            scan_prompt_neutrality(prompt, forbidden_tokens=_input_neutrality_tokens(planning, constraints, preflight.config))
+        value = {
+            "schema_version": "1.0",
+            "lineage_id": self.root.name,
+            "status": "pass",
+            "policy": "m1-4a2-prompt-neutrality-v1",
+            "protocol_ref": _root_ref(self.root, "prompt-development/protocol.json"),
+            "prompt_refs": {
+                "initial": dict(snapshot["initial_ref"]),
+                "repair": dict(snapshot["repair_ref"]),
+            },
+            "input_refs": {
+                "planning_index": dict(lineage["artifacts"]["planning_index"]),
+                "delivery_constraints": dict(lineage["artifacts"]["delivery_constraints"]),
+                "config": dict(protocol["config_ref"]),
+                "context_limits": dict(protocol["context_limits_ref"]),
+            },
+        }
+        return _publish_json(self.root, f"{_version_dir(version)}/neutrality.json", value, "neutrality")
 
     def _check_source_snapshot(self, version_record: Mapping[str, Any], bundle: Mapping[str, bytes] | bytes) -> None:
         expected = _load_bundle(self.root, str(version_record["version"]))
@@ -1391,6 +1444,7 @@ class PromptDevelopmentCoordinator:
             for stage in changed
         }
         new_record = self._publish_version_snapshot(version, proposed, previous_version=previous)
+        self._publish_neutrality_evidence(version, preflight=preflight, protocol=_protocol, lineage=lineage, planning=planning, constraints=constraints)
         revision = {
             "schema_version": "4.0", "lineage_id": self.root.name, "version": version,
             "previous_version": previous, "previous_bundle_ref": dict(_load_version(self.root, previous)["bundle_ref"]),
@@ -1528,6 +1582,9 @@ class PromptDevelopmentCoordinator:
         return selection
 
     def publish_handoff(self, approval_ref: Mapping[str, Any]) -> dict[str, str]:
+        preflight = self._preflight()
+        protocol, lineage = _load_protocol(self.root, preflight)
+        planning, constraints = _frozen_planning_context(self.root, lineage)
         selection = _load_json(self.root, "prompt-development/selection.json", "selection")
         if selection.get("status") != "selected":
             raise PromptDevelopmentError("only a selected development prompt can produce a handoff")
@@ -1543,6 +1600,61 @@ class PromptDevelopmentCoordinator:
         assessment_ref = selection.get("assessment_ref")
         if selected_version not in set(_DEV_VERSIONS) or not isinstance(bundle_ref, Mapping) or not isinstance(assessment_ref, Mapping):
             raise PromptDevelopmentEvidenceError("selected development record is not handoff-complete")
+        selection_ref = _root_ref(self.root, "prompt-development/selection.json")
+        version_record = _load_version(self.root, selected_version)
+        if dict(bundle_ref) != version_record.get("bundle_ref"):
+            raise PromptDevelopmentEvidenceError("selected prompt bundle reference drift")
+        assessment = self.recompute(selected_version, 3, require_complete=True, require_source_match=True)
+        model_record = assessment["models"].get(assessment["model_slot"])
+        if not isinstance(model_record, Mapping) or assessment.get("screening_pass") is not True or assessment.get("trial_count") != 3 or int(model_record.get("p2_passes", -1)) < 2:
+            raise PromptDevelopmentEvidenceError("selected assessment does not prove a recomputable 2-of-3 result")
+        assessment_path = _assessment_record(self.root, selected_version, 3)[1]
+        if dict(assessment_ref) != _root_ref(self.root, assessment_path):
+            raise PromptDevelopmentEvidenceError("selected assessment reference drift")
+        snapshot = _load_json(self.root, f"{_version_dir(selected_version)}/snapshot.json", "snapshot")
+        neutrality_path = f"{_version_dir(selected_version)}/neutrality.json"
+        neutrality_ref = _root_ref(self.root, neutrality_path)
+        neutrality = _load_json(self.root, neutrality_path, "neutrality")
+        expected_neutrality = {
+            "lineage_id": self.root.name,
+            "status": "pass",
+            "protocol": _root_ref(self.root, "prompt-development/protocol.json"),
+            "prompt_refs": {"initial": dict(snapshot["initial_ref"]), "repair": dict(snapshot["repair_ref"])},
+            "input_refs": {
+                "planning_index": dict(lineage["artifacts"]["planning_index"]),
+                "delivery_constraints": dict(lineage["artifacts"]["delivery_constraints"]),
+                "config": dict(protocol["config_ref"]),
+                "context_limits": dict(protocol["context_limits_ref"]),
+            },
+        }
+        if (
+            neutrality.get("lineage_id") != expected_neutrality["lineage_id"]
+            or neutrality.get("status") != expected_neutrality["status"]
+            or neutrality.get("protocol_ref") != expected_neutrality["protocol"]
+            or neutrality.get("prompt_refs") != expected_neutrality["prompt_refs"]
+            or neutrality.get("input_refs") != expected_neutrality["input_refs"]
+        ):
+            raise PromptDevelopmentEvidenceError("protocol-neutrality evidence binding drift")
+        bundle = _load_bundle(self.root, selected_version)
+        for prompt in bundle.values():
+            scan_prompt_neutrality(prompt, forbidden_tokens=_input_neutrality_tokens(planning, constraints, preflight.config))
+        approval_neutrality = approval.get("protocol_neutrality")
+        approval_baseline = approval.get("baseline_2_of_3")
+        if (
+            approval.get("lineage_id") != self.root.name
+            or approval.get("selection_ref") != selection_ref
+            or approval.get("bundle_ref") != bundle_ref
+            or approval.get("assessment_ref") != assessment_ref
+            or not isinstance(approval_neutrality, Mapping)
+            or approval_neutrality.get("status") != "pass"
+            or approval_neutrality.get("evidence_ref") != neutrality_ref
+            or not isinstance(approval_baseline, Mapping)
+            or approval_baseline.get("trial_count") != 3
+            or approval_baseline.get("p2_passes") != model_record.get("p2_passes")
+            or approval_baseline.get("screening_pass") is not True
+            or approval_baseline.get("recomputed_from") != "assessment_ref"
+        ):
+            raise PromptDevelopmentEvidenceError("owner approval does not bind the selected evidence and recomputable 2-of-3 result")
         handoff = {
             "schema_version": "4.0",
             "lineage_id": self.root.name,
@@ -1644,6 +1756,7 @@ def build_development_summary(
             "comparison_tuple": list(_fallback_tuple(assessment)),
             "assessment_ref": _root_ref(root, assessment_relative),
             "bundle_ref": dict(version_record["bundle_ref"]),
+            "neutrality_ref": _root_ref(root, f"{_version_dir(version)}/neutrality.json"),
             "bundle": {
                 "initial_ref": dict(bundle["initial_ref"]),
                 "repair_ref": dict(bundle["repair_ref"]),
@@ -1719,7 +1832,7 @@ def render_development_report(summary: Mapping[str, Any]) -> str:
             "",
         ])
     for version, record in summary.get("versions", {}).items():
-        lines.extend([f"## {version}", "", f"- Trials per slot: `{record['trial_count']}`", f"- Screening pass: `{record['screening_pass']}`", f"- Initial source: `{record['bundle']['initial_ref']['path']}`", f"- Repair source: `{record['bundle']['repair_ref']['path']}`", ""])
+        lines.extend([f"## {version}", "", f"- Trials per slot: `{record['trial_count']}`", f"- Screening pass: `{record['screening_pass']}`", f"- Initial source: `{record['bundle']['initial_ref']['path']}`", f"- Repair source: `{record['bundle']['repair_ref']['path']}`", f"- Neutrality evidence: `{record['neutrality_ref']['path']}`", ""])
         lines.append("| slot | p0 | p1 | p2 | schema-after-format | semantic-first | truncated | cost_usd | model strings |")
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
         for model_id in sorted(record["slots"]):

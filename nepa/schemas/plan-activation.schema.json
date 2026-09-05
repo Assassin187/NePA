@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/plan-activation.schema.json",
+  "title": "NePA Plan revision activation WAL",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "revision_seq", "old_pointer", "new_pointer",
+    "old_state", "new_state", "old_file_ledger", "new_file_ledger",
+    "old_revision_ledger", "new_revision_ledger", "candidate_plan",
+    "old_hashes", "new_hashes"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "revision_seq": {"type": "integer", "minimum": 1},
+    "old_pointer": {"$ref": "#/$defs/json"},
+    "new_pointer": {"$ref": "#/$defs/json"},
+    "old_state": {"$ref": "#/$defs/json"},
+    "new_state": {"$ref": "#/$defs/json"},
+    "old_file_ledger": {"$ref": "#/$defs/json"},
+    "new_file_ledger": {"$ref": "#/$defs/json"},
+    "old_revision_ledger": {"$ref": "#/$defs/json"},
+    "new_revision_ledger": {"$ref": "#/$defs/json"},
+    "candidate_plan": {"$ref": "#/$defs/json"},
+    "old_hashes": {"$ref": "#/$defs/hashes"},
+    "new_hashes": {"$ref": "#/$defs/hashes"}
+  },
+  "$defs": {
+    "json": {"type": "object", "minProperties": 0},
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pointer", "state", "file_ledger", "revision_ledger", "plan"],
+      "properties": {
+        "pointer": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "state": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "file_ledger": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "revision_ledger": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "plan": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

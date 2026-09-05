@@ -1,6 +1,5 @@
 import copy
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -16,10 +15,6 @@ from nepa.stages.s4_planning import (
     validate_plan_critic_result,
     verify_m1_4a2_handoff,
 )
-
-
-ROOT = Path(__file__).parents[1]
-LINEAGE = ROOT / "runs/_calibration/s4-architecture/ee5a23a8fcbaa5dc273f36c0365707fac5a9684f050463fc32ec7fd6bc3b67a5"
 
 
 class _NeverCalled:
@@ -109,12 +104,16 @@ def test_flat_contract_is_closed_and_flat_role_is_strategy_gated():
         )
 
 
-def test_approved_handoff_resolves_confined_prompt_bytes_before_use():
-    bundle = verify_m1_4a2_handoff(LINEAGE)
-    assert bundle.initial_bytes == (ROOT / "nepa/agents/prompts/architecture_planner_initial.md").read_bytes()
-    assert bundle.repair_bytes == (ROOT / "nepa/agents/prompts/architecture_planner_repair.md").read_bytes()
+def test_current_contract_handoff_resolves_confined_prompt_bytes_before_use(current_contract_handoff):
+    admitted = verify_m1_4a2_handoff(current_contract_handoff["root"], expected_lineage_id=current_contract_handoff["lineage_id"])
+    assert admitted.selection_ref["path"] == "prompt-development/selection.json"
+    assert admitted.initial_ref["path"].endswith("/initial.md")
 
 
-def test_handoff_rejects_substituted_packaged_prompt_bytes_before_invocation():
-    with pytest.raises(Exception, match="prompt bytes"):
-        verify_m1_4a2_handoff(LINEAGE, {"initial": b"substituted", "repair": b"substituted"})
+def test_handoff_rejects_substituted_packaged_prompt_bytes_before_invocation(current_contract_handoff):
+    with pytest.raises(Exception, match="packaged ArchitecturePlanner prompt bytes differ"):
+        verify_m1_4a2_handoff(
+            current_contract_handoff["root"],
+            {"initial": b"substituted", "repair": b"substituted"},
+            current_contract_handoff["lineage_id"],
+        )

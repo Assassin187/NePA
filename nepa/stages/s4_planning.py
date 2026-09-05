@@ -50,7 +50,7 @@ from ..speclib.planning import (
 )
 
 
-LINEAGE_ID = "ee5a23a8fcbaa5dc273f36c0365707fac5a9684f050463fc32ec7fd6bc3b67a5"
+LINEAGE_ID = "4420296f4dead63a3119c49106e234147f4a69a1f4f4aecda8fa562af7944ab7"
 DEFAULT_HANDOFF_ROOT = Path("runs/_calibration/s4-architecture") / LINEAGE_ID
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _FORBIDDEN_KEYS = {"task_uid", "obligation_digest", "guidance_digest", "status", "attempts", "notes", "execution_state", "revision_seq", "epoch"}
@@ -170,21 +170,33 @@ def _packaged_prompt_bytes(packaged_prompts: Mapping[str, Any] | None) -> dict[s
 def verify_m1_4a2_handoff(
     lineage_root: str | Path,
     packaged_prompts: Mapping[str, Any] | None = None,
+    expected_lineage_id: str | None = None,
 ) -> ApprovedArchitecturePromptBundle:
     """Admit only the owner-approved, byte-bound M1-4a2 prompt pair."""
 
     root = Path(lineage_root).resolve()
-    if root.name != LINEAGE_ID or not root.is_dir():
+    bound_lineage_id = expected_lineage_id or LINEAGE_ID
+    if _SHA256.fullmatch(bound_lineage_id) is None or root.name != bound_lineage_id or not root.is_dir():
         raise S4ControlledError("M1-4a2 lineage root is missing or has the wrong identity", code="S4_HANDOFF_INVALID")
+    try:
+        lineage_data = json.loads((root / "lineage.json").read_text(encoding="utf-8"))
+        schema_ref = lineage_data["artifacts"]["schema"]
+        schema_bytes = _read_ref(root, schema_ref, "ArchitectureDraft Schema lineage")
+        schema_data = json.loads(schema_bytes.decode("utf-8"))
+    except (KeyError, OSError, UnicodeDecodeError, json.JSONDecodeError, S4Error) as exc:
+        raise S4ControlledError("M1-4a2 lineage Schema evidence is missing or unreadable", code="S4_HANDOFF_INVALID") from exc
+    contract_schema = schema_data.get("$defs", {}).get("contract", {}) if isinstance(schema_data, Mapping) else {}
+    if "exports" not in contract_schema.get("required", []) or "exports" not in contract_schema.get("properties", {}):
+        raise S4ControlledError("the approved M1-4a2 handoff predates the export-bearing ArchitectureDraft contract", code="S4_HANDOFF_INVALID")
     handoff_path = root / "prompt-development/handoff.json"
     try:
         handoff_data = json.loads(handoff_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise S4ControlledError("M1-4a2 handoff is missing or unreadable", code="S4_HANDOFF_INVALID") from exc
     _require_schema(handoff_data, "calibration-baseline-handoff.schema.json", "M1-4a2 handoff")
-    if handoff_data.get("lineage_id") != LINEAGE_ID or handoff_data.get("consumer") != "m1-4c":
+    if handoff_data.get("lineage_id") != bound_lineage_id or handoff_data.get("consumer") != "m1-4c":
         raise S4ControlledError("M1-4a2 handoff has the wrong lineage or consumer", code="S4_HANDOFF_INVALID")
-    if handoff_data.get("selected_version") != "v1" or handoff_data.get("satisfies") != {
+    if handoff_data.get("selected_version") not in {"v0", "v1", "v2"} or handoff_data.get("satisfies") != {
         "baseline_2_of_3": True,
         "protocol_neutrality": True,
         "owner_signature": True,
@@ -195,25 +207,34 @@ def verify_m1_4a2_handoff(
 
     selection_ref = _safe_ref(handoff_data["selection_ref"], "handoff selection_ref")
     selection = _json_ref(root, selection_ref, "selection", "calibration-baseline-selection.schema.json")
-    if selection.get("status") != "selected" or selection.get("selected_version") != "v1":
-        raise S4ControlledError("M1-4a2 selection is not the selected V1 record", code="S4_HANDOFF_INVALID")
-    if selection.get("lineage_id") != LINEAGE_ID or selection.get("bundle_ref") != handoff_data["bundle_ref"] or selection.get("assessment_ref") != handoff_data["assessment_ref"]:
+    if selection.get("status") != "selected" or selection.get("selected_version") not in {"v0", "v1", "v2"}:
+        raise S4ControlledError("M1-4a2 selection is not a selected current-contract record", code="S4_HANDOFF_INVALID")
+    if selection.get("lineage_id") != bound_lineage_id or selection.get("bundle_ref") != handoff_data["bundle_ref"] or selection.get("assessment_ref") != handoff_data["assessment_ref"]:
         raise S4ControlledError("M1-4a2 selection does not match the handoff", code="S4_HANDOFF_DRIFT")
     if selection_ref["path"] != "prompt-development/selection.json":
         raise S4ControlledError("M1-4a2 selection path is not lineage-relative", code="S4_HANDOFF_INVALID")
 
     approval_ref = _safe_ref(handoff_data["owner_approval_ref"], "owner approval reference")
     approval = _json_ref(root, approval_ref, "owner approval", "calibration-baseline-owner-approval.schema.json")
-    if approval.get("approved") is not True:
-        raise S4ControlledError("M1-4a2 owner approval is not affirmative", code="S4_HANDOFF_NOT_APPROVED")
+    if approval.get("approved") is not True or approval.get("lineage_id") != bound_lineage_id:
+        raise S4ControlledError("M1-4a2 owner approval is not affirmative or is bound to another lineage", code="S4_HANDOFF_NOT_APPROVED")
+    if approval.get("selection_ref") != selection_ref or approval.get("bundle_ref") != handoff_data["bundle_ref"] or approval.get("assessment_ref") != handoff_data["assessment_ref"]:
+        raise S4ControlledError("M1-4a2 owner approval references drift from the selected records", code="S4_HANDOFF_DRIFT")
 
     assessment = _json_ref(root, handoff_data["assessment_ref"], "assessment", "calibration-baseline-assessment.schema.json")
-    if assessment.get("lineage_id") != LINEAGE_ID or assessment.get("version") != "v1" or assessment.get("screening_pass") is not True:
-        raise S4ControlledError("M1-4a2 assessment is not a passing V1 assessment", code="S4_HANDOFF_NOT_APPROVED")
+    if assessment.get("lineage_id") != bound_lineage_id or assessment.get("version") != selection.get("selected_version") or assessment.get("screening_pass") is not True:
+        raise S4ControlledError("M1-4a2 assessment is not a passing selected assessment", code="S4_HANDOFF_NOT_APPROVED")
+    model_records = assessment.get("models", {})
+    model_record = next(iter(model_records.values()), {}) if isinstance(model_records, Mapping) else {}
+    if assessment.get("trial_count") != 3 or not isinstance(model_record, Mapping) or int(model_record.get("p2_passes", -1)) < 2:
+        raise S4ControlledError("M1-4a2 assessment does not contain a recomputable 2-of-3 result", code="S4_HANDOFF_NOT_APPROVED")
+    baseline = approval.get("baseline_2_of_3")
+    if not isinstance(baseline, Mapping) or baseline.get("trial_count") != 3 or baseline.get("p2_passes") != model_record.get("p2_passes") or baseline.get("screening_pass") is not True or baseline.get("recomputed_from") != "assessment_ref":
+        raise S4ControlledError("M1-4a2 owner approval does not bind the recomputable 2-of-3 result", code="S4_HANDOFF_DRIFT")
 
     bundle_ref = _safe_ref(handoff_data["bundle_ref"], "prompt bundle reference")
     bundle = _json_ref(root, bundle_ref, "prompt bundle", "calibration-baseline-snapshot.schema.json")
-    if bundle.get("lineage_id") != LINEAGE_ID or bundle.get("version") != "v1" or bundle.get("byte_encoding") != "utf-8-raw-template":
+    if bundle.get("lineage_id") != bound_lineage_id or bundle.get("version") != selection.get("selected_version") or bundle.get("byte_encoding") != "utf-8-raw-template":
         raise S4ControlledError("M1-4a2 prompt bundle identity is invalid", code="S4_HANDOFF_INVALID")
     initial_ref = _safe_ref(bundle["initial_ref"], "initial prompt reference")
     repair_ref = _safe_ref(bundle["repair_ref"], "repair prompt reference")
@@ -221,7 +242,19 @@ def verify_m1_4a2_handoff(
     repair_bytes = _read_ref(root, repair_ref, "repair prompt")
     if _sha(initial_bytes) != initial_ref["sha256"] or _sha(repair_bytes) != repair_ref["sha256"]:
         raise S4ControlledError("M1-4a2 prompt hash evidence is inconsistent", code="S4_HANDOFF_DRIFT")
-    packaged = _packaged_prompt_bytes(packaged_prompts)
+    neutrality_binding = approval.get("protocol_neutrality")
+    if not isinstance(neutrality_binding, Mapping) or neutrality_binding.get("status") != "pass":
+        raise S4ControlledError("M1-4a2 owner approval lacks a passing protocol-neutrality binding", code="S4_HANDOFF_NOT_APPROVED")
+    neutrality_ref = _safe_ref(neutrality_binding.get("evidence_ref"), "protocol-neutrality evidence reference")
+    neutrality = _json_ref(root, neutrality_ref, "protocol-neutrality evidence", "calibration-baseline-neutrality.schema.json")
+    if neutrality.get("lineage_id") != bound_lineage_id or neutrality.get("status") != "pass" or neutrality.get("prompt_refs") != {"initial": initial_ref, "repair": repair_ref}:
+        raise S4ControlledError("protocol-neutrality evidence is not bound to the selected prompt bundle", code="S4_HANDOFF_DRIFT")
+    # The repository templates are inputs to the independent design-7.2.0
+    # lineage; they do not implicitly replace this explicitly bound handoff.
+    if packaged_prompts is not None:
+        packaged = _packaged_prompt_bytes(packaged_prompts)
+    else:
+        packaged = {"initial": initial_bytes, "repair": repair_bytes}
     if packaged["initial"] != initial_bytes or packaged["repair"] != repair_bytes:
         raise S4ControlledError("packaged ArchitecturePlanner prompt bytes differ from the approved bundle", code="S4_HANDOFF_DRIFT")
     return ApprovedArchitecturePromptBundle(
@@ -542,13 +575,11 @@ def publish_initial_plan(
 
     completion = candidate_completion
     _require_schema(completion.plan, "plan.schema.json", "initial Plan")
-    if _contains_forbidden_key(completion.plan, {"task_uid", "obligation_digest", "guidance_digest"}):
-        raise S4ControlledError("initial Plan contains M1-4d identity fields", code="S4_PLAN_SCOPE_INVALID")
     _ledger_paths(completion)
     plan_ref = store.publish_immutable_json("plan/versions/plan-1.0.0.json", completion.plan, schema_name="plan.schema.json")
     if fault_hook is not None:
         fault_hook("plan_published")
-    file_ledger = {"schema_version": "1.0", "entries": _ledger_entries(completion)}
+    file_ledger = {"schema_version": "1.0", "files": _ledger_entries(completion)}
     _require_schema(file_ledger, "file-ledger.schema.json", "initial file ledger")
     file_ref = store.publish_immutable_json("plan/file_ledger.json", file_ledger, schema_name="file-ledger.schema.json")
     if fault_hook is not None:
@@ -592,7 +623,7 @@ def _verify_publication(
     revision = _json_ref(store.root, revision_ref, "revision ledger", "revision-ledger.schema.json")
     if plan != completion.plan or pointer != {"version": "1.0.0", "path": anchors["plan"]["path"], "sha256": anchors["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}:
         raise S4ArtifactDamage("published Plan or active pointer does not match the validated candidate")
-    expected_ledger = {"schema_version": "1.0", "entries": _ledger_entries(completion)}
+    expected_ledger = {"schema_version": "1.0", "files": _ledger_entries(completion)}
     if ledger != expected_ledger or revision != {"schema_version": "1.0", "entries": []}:
         raise S4ArtifactDamage("initial ledger content is not the validated canonical projection")
     blueprint_path = store._confined("plan/_s4/delivery_blueprint.json")
@@ -854,12 +885,14 @@ class S4Controller:
         invoker: AgentInvoker,
         *,
         handoff_root: str | Path = DEFAULT_HANDOFF_ROOT,
+        handoff_lineage_id: str | None = None,
         packaged_prompts: Mapping[str, Any] | None = None,
         context_window_tokens: Mapping[str, int] | None = None,
         fault_hook: Any | None = None,
     ) -> None:
         self.invoker = invoker
         self.handoff_root = Path(handoff_root)
+        self.handoff_lineage_id = handoff_lineage_id or LINEAGE_ID
         self.packaged_prompts = packaged_prompts
         self.context_window_tokens = context_window_tokens
         self.fault_hook = fault_hook
@@ -961,7 +994,7 @@ class S4Controller:
         return {"candidate_ref": candidate_ref, "validation_ref": validation_ref, "checkpoint_ref": checkpoint_ref}
 
     def _architecture(self, context: StageContext, prepared: PreparedArchitectureInputs, constraints: dict[str, Any], manifest: dict[str, Any], planning_index: dict[str, Any], commitment_ref: dict[str, str], book: _CheckpointBook) -> tuple[dict[str, Any], dict[str, str]]:
-        admission = verify_m1_4a2_handoff(self.handoff_root, self.packaged_prompts)
+        admission = verify_m1_4a2_handoff(self.handoff_root, self.packaged_prompts, self.handoff_lineage_id)
         sealed = book.find(kind="architecture_sealed", target_id="architecture")
         if sealed is not None:
             checkpoint, checkpoint_ref = sealed
@@ -1037,7 +1070,7 @@ class S4Controller:
     ) -> tuple[dict[str, Any], dict[str, str]]:
         allowed = ["/decisions", "/contracts", "/modules", "/work_packages", "/layout"]
         repair_context = {"candidate": dict(draft), "validation_issues": [dict(item) for item in issues], "allowed_paths": allowed}
-        admission = verify_m1_4a2_handoff(self.handoff_root, self.packaged_prompts)
+        admission = verify_m1_4a2_handoff(self.handoff_root, self.packaged_prompts, self.handoff_lineage_id)
         self._preflight_architecture(planning_index, constraints, repair_context, repair=True)
         _publish_s4_json(context.store, "plan/_s4/preflight/architecture_global_repair.json", self._preflight_report)
         result = self._invoke_reserved(context, book, role="architecture_planner", task_id="architecture", attempt=3, invoke=lambda: self.architecture_binding.invoke(
@@ -1434,8 +1467,14 @@ class S4Controller:
         store.verify_stage_refs({"output_refs": output_refs}, "s4")
         plan = _json_ref(store.root, output_refs["plan"], "sealed Plan", "plan.schema.json")
         active = _json_ref(store.root, output_refs["active_plan"], "sealed active pointer", "active-plan.schema.json")
-        if active != {"version": "1.0.0", "path": output_refs["plan"]["path"], "sha256": output_refs["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}:
-            raise S4ArtifactDamage("active pointer does not target the sealed Plan")
+        if output_refs["plan"] != {"path": "plan/versions/plan-1.0.0.json", "sha256": output_refs["plan"]["sha256"]}:
+            raise S4ArtifactDamage("S4 Plan anchor is not the immutable 1.0.0 Plan")
+        if active["revision_seq"] == 0:
+            if active != {"version": "1.0.0", "path": output_refs["plan"]["path"], "sha256": output_refs["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}:
+                raise S4ArtifactDamage("initial active pointer does not target the sealed Plan")
+            current_plan = plan
+        else:
+            current_plan = _json_ref(store.root, {"path": active["path"], "sha256": active["sha256"]}, "current active Plan", "plan.schema.json")
         if output_refs["config_snapshot_sha256"] != run["config_snapshot_sha256"]:
             raise S4ArtifactDamage("sealed configuration hash disagrees with Run v3")
         constraints = _json_ref(store.root, {"path": "plan/_s4/delivery_constraints.json", "sha256": _sha(store._confined("plan/_s4/delivery_constraints.json").read_bytes())}, "sealed Delivery Constraints")
@@ -1443,11 +1482,12 @@ class S4Controller:
         if not blueprint_path.is_file():
             raise S4ArtifactDamage("sealed Delivery Blueprint evidence is missing")
         blueprint = _json_ref(store.root, {"path": "plan/_s4/delivery_blueprint.json", "sha256": _sha(blueprint_path.read_bytes())}, "sealed Delivery Blueprint", "delivery-blueprint.schema.json")
-        recomputed = compile_delivery_blueprint(constraints, plan["architecture"], plan["work_packages"], plan["tasks"])
+        from ..speclib.plan import blueprint_task_semantic_projection
+        recomputed = compile_delivery_blueprint(constraints, plan["architecture"], plan["work_packages"], blueprint_task_semantic_projection(plan["tasks"]))
         if blueprint != recomputed or output_refs["delivery_blueprint_sha256"] != _sha(canonical_json_bytes(recomputed)):
             raise S4ArtifactDamage("sealed Delivery Blueprint anchor does not recompute")
         input_refs = _input_refs_from_run(run)
-        if plan.get("input_refs") != input_refs:
+        if plan.get("input_refs") != input_refs or current_plan.get("input_refs") != input_refs:
             raise S4ArtifactDamage("sealed Plan input refs do not bind the frozen Run inputs")
         ledger = _json_ref(store.root, {"path": "plan/file_ledger.json", "sha256": _sha(store._confined("plan/file_ledger.json").read_bytes())}, "sealed file ledger", "file-ledger.schema.json")
         revision = _json_ref(store.root, {"path": "plan/revision_ledger.json", "sha256": _sha(store._confined("plan/revision_ledger.json").read_bytes())}, "sealed revision ledger", "revision-ledger.schema.json")
@@ -1462,8 +1502,27 @@ class S4Controller:
                 item_paths = [item["path_pattern"].replace(placeholder, value) for value in domain]
             expected_entries.extend({"path": path, "class": item["class"], "state": "slot_only"} for path in item_paths)
         expected_entries.sort(key=lambda item: item["path"].encode("utf-8"))
-        if ledger != {"schema_version": "1.0", "entries": expected_entries} or revision != {"schema_version": "1.0", "entries": []}:
-            raise S4ArtifactDamage("sealed initial ledgers do not match the Blueprint")
+        if active["revision_seq"] == 0:
+            if ledger != {"schema_version": "1.0", "files": expected_entries} or revision != {"schema_version": "1.0", "entries": []}:
+                raise S4ArtifactDamage("sealed initial ledgers do not match the Blueprint")
+        else:
+            from ..speclib.plan_revision import PlanRevisionError, validate_revision_ledger
+            try:
+                validate_revision_ledger(revision)
+            except PlanRevisionError as exc:
+                raise S4ArtifactDamage(str(exc)) from exc
+            if len(revision["entries"]) != active["revision_seq"]:
+                raise S4ArtifactDamage("revision ledger length does not match the active pointer")
+            terminal = revision["entries"][-1]
+            if terminal["to_version"] != active["version"] or terminal["epoch_after"] != active["epoch"] or terminal["to_plan_ref"] != {"path": active["path"], "sha256": active["sha256"]}:
+                raise S4ArtifactDamage("revision ledger terminal entry does not bind the active pointer")
+            if not store._confined("plan/plan_state.json").is_file():
+                raise S4ArtifactDamage("current active Plan State is missing")
+            state = _json_ref(store.root, {"path": "plan/plan_state.json", "sha256": _sha(store._confined("plan/plan_state.json").read_bytes())}, "current Plan State", "plan-state.schema.json")
+            from ..speclib.plan_state import plan_state_snapshot_lint
+            state_report = plan_state_snapshot_lint(current_plan, state, s4_seal={"plan": output_refs["plan"], "active_plan": active}, config_snapshot=run["config_snapshot"], revision_ledger=revision)
+            if not state_report.get("valid"):
+                raise S4ArtifactDamage("current Plan State does not pass snapshot lint")
         spec = _json_ref(store.root, {"path": "spec/spec.json", "sha256": run["inputs"]["spec"]["sha256"]}, "sealed Spec")
         bundle = _json_ref(store.root, {"path": "inputs/test_bundle.json", "sha256": run["inputs"]["test_bundle"]["sha256"]}, "sealed Test Bundle")
         lint_plan_value = copy.deepcopy(plan)
@@ -1475,6 +1534,10 @@ class S4Controller:
         report = plan_lint(lint_plan_value, spec, bundle, run["config_snapshot"], level="full", constraints=constraints, blueprint=blueprint, target_profile=constraints["target_profile"])
         if not report.get("valid"):
             raise S4ArtifactDamage("sealed Plan no longer passes full lint")
+        if current_plan != plan:
+            current_report = plan_lint(current_plan, spec, bundle, run["config_snapshot"], level="basic")
+            if not current_report.get("valid"):
+                raise S4ArtifactDamage("current active Plan no longer passes basic lint")
 
     def verify_result(self, store: RunStore, result: StageResult) -> None:
         """Verify the publication suffix before Orchestrator commits S4."""

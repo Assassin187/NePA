@@ -15,6 +15,7 @@
       "purpose": "Expose the stable internal application interface.",
       "owner": "module-core",
       "interface_files": ["include/core/interface.h"],
+      "exports": [{"interface_file": "include/core/interface.h", "symbol": "core_interface_init", "signature": "int core_interface_init(void);"}],
       "ready_gate": "task",
       "provider": "module-core",
       "consumers": ["module-adapter"]

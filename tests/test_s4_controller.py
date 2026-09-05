@@ -24,6 +24,10 @@ def _store(tmp_path, *, strategy="layered", architecture_repairs=1):
     )
 
 
+def _controller(handoff, invoker, **kwargs):
+    return S4Controller(invoker, handoff_root=handoff["root"], handoff_lineage_id=handoff["lineage_id"], **kwargs)
+
+
 def _shard(package):
     return {
         "schema_version": "1.0",
@@ -80,11 +84,11 @@ class ScriptedInvoker:
         return SimpleNamespace(parsed=copy.deepcopy(parsed))
 
 
-def test_layered_controller_is_registered_at_the_programmatic_boundary_and_publishes_typed_seal(tmp_path):
+def test_layered_controller_is_registered_at_the_programmatic_boundary_and_publishes_typed_seal(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
     invoker = ScriptedInvoker()
     orchestrator = Orchestrator()
-    orchestrator.register_s4(S4Controller(invoker))
+    orchestrator.register_s4(_controller(current_contract_handoff, invoker))
 
     assert orchestrator.run_spec(store) == 0
     run = store.load_run()
@@ -97,7 +101,7 @@ def test_layered_controller_is_registered_at_the_programmatic_boundary_and_publi
     assert not (ROOT / "plan/active_plan.json").exists()
 
 
-def test_architecture_semantic_repair_is_bounded_and_precedes_any_shard(tmp_path):
+def test_architecture_semantic_repair_is_bounded_and_precedes_any_shard(tmp_path, current_contract_handoff):
     broken = copy.deepcopy(ARCHITECTURE)
     broken["work_packages"][1]["depends_on"] = ["wp-codec"]
     repaired = {"schema_version": "2.0", "patch_ops": [{
@@ -105,7 +109,7 @@ def test_architecture_semantic_repair_is_bounded_and_precedes_any_shard(tmp_path
     }]}
     store = _store(tmp_path)
     invoker = ScriptedInvoker(architecture=broken, repair=repaired)
-    orchestrator = Orchestrator({"s4": S4Controller(invoker)})
+    orchestrator = Orchestrator({"s4": _controller(current_contract_handoff, invoker)})
 
     assert orchestrator.run_spec(store) == 0
     assert [call["role"] for call in invoker.calls].count("architecture_planner") == 2
@@ -113,24 +117,24 @@ def test_architecture_semantic_repair_is_bounded_and_precedes_any_shard(tmp_path
     assert (store.root / "plan/_s4/checkpoints").is_dir()
 
 
-def test_architecture_budget_exhaustion_is_controlled_and_does_not_publish_plan(tmp_path):
+def test_architecture_budget_exhaustion_is_controlled_and_does_not_publish_plan(tmp_path, current_contract_handoff):
     broken = copy.deepcopy(ARCHITECTURE)
     broken["work_packages"][1]["depends_on"] = ["wp-codec"]
     store = _store(tmp_path, architecture_repairs=0)
     invoker = ScriptedInvoker(architecture=broken)
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 10
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 10
     run = store.load_run()
     assert run["termination_kind"] == "controlled_exit"
     assert run["termination_request"]["reason"]["code"] == "S4_BUDGET_EXHAUSTED"
     assert not (store.root / "plan/versions/plan-1.0.0.json").exists()
 
 
-def test_explicit_flat_strategy_has_no_layered_fallback(tmp_path):
+def test_explicit_flat_strategy_has_no_layered_fallback(tmp_path, current_contract_handoff):
     store = _store(tmp_path, strategy="flat")
     invoker = ScriptedInvoker(strategy="flat")
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 0
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 0
     assert [call["role"] for call in invoker.calls] == ["flat_plan_baseline", "plan_critic"]
 
 
@@ -154,11 +158,11 @@ def _global_issue():
     }
 
 
-def test_critic_local_repair_redoes_only_the_named_shard_and_then_reviews_fresh(tmp_path):
+def test_critic_local_repair_redoes_only_the_named_shard_and_then_reviews_fresh(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
     invoker = ScriptedInvoker(critic=[_local_issue(), {"schema_version": "1.0", "verdict": "pass", "issues": []}])
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 0
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 0
     assert sum(call["role"] == "task_planner" for call in invoker.calls) == 3
     assert sum(call["role"] == "plan_critic" for call in invoker.calls) == 2
     assert [call["task_id"] for call in invoker.calls if call["role"] == "task_planner"] == [
@@ -166,17 +170,17 @@ def test_critic_local_repair_redoes_only_the_named_shard_and_then_reviews_fresh(
     ]
 
 
-def test_critic_repeated_major_signature_stops_without_publishing_a_plan(tmp_path):
+def test_critic_repeated_major_signature_stops_without_publishing_a_plan(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
     invoker = ScriptedInvoker(critic=[_local_issue(), _local_issue()])
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 20
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 20
     run = store.load_run()
     assert run["termination_request"]["reason"]["code"] == "S4_CRITIC_NON_CONVERGENT"
     assert not (store.root / "plan/versions/plan-1.0.0.json").exists()
 
 
-def test_global_replan_does_not_consume_architecture_validation_repair_budget(tmp_path):
+def test_global_replan_does_not_consume_architecture_validation_repair_budget(tmp_path, current_contract_handoff):
     repair = {"schema_version": "2.0", "patch_ops": [{
         "op": "replace", "path": "/work_packages/wp-entry/depends_on",
         "expected_presence": "present", "value": [],
@@ -187,13 +191,13 @@ def test_global_replan_does_not_consume_architecture_validation_repair_budget(tm
         critic=[_global_issue(), {"schema_version": "1.0", "verdict": "pass", "issues": []}],
     )
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 0
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 0
     assert sum(call["role"] == "architecture_planner" for call in invoker.calls) == 2
 
 
-def test_terminal_resume_revalidates_the_sealed_plan(tmp_path):
+def test_terminal_resume_revalidates_the_sealed_plan(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
-    orchestrator = Orchestrator({"s4": S4Controller(ScriptedInvoker())})
+    orchestrator = Orchestrator({"s4": _controller(current_contract_handoff, ScriptedInvoker())})
     assert orchestrator.run_spec(store) == 0
     plan_path = store.root / "plan/versions/plan-1.0.0.json"
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -205,7 +209,7 @@ def test_terminal_resume_revalidates_the_sealed_plan(tmp_path):
 
 
 @pytest.mark.parametrize("strategy", ["layered", "flat"])
-def test_controller_runs_protocol_neutral_fixture_end_to_end(tmp_path, strategy):
+def test_controller_runs_protocol_neutral_fixture_end_to_end(tmp_path, strategy, current_contract_handoff):
     architecture = json.loads((NON_MQTT / "architecture-draft.json").read_text(encoding="utf-8"))
     store = RunStore.initialize_spec_run(
         tmp_path,
@@ -214,6 +218,6 @@ def test_controller_runs_protocol_neutral_fixture_end_to_end(tmp_path, strategy)
     )
     invoker = ScriptedInvoker(architecture=architecture, strategy=strategy)
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 0
+    assert Orchestrator({"s4": _controller(current_contract_handoff, invoker)}).run_spec(store) == 0
     assert (store.root / "plan/versions/plan-1.0.0.json").is_file()
     assert not (store.root / "_s4").exists()

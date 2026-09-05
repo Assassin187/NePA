@@ -17,6 +17,8 @@ NEW_CONTRACTS = (
     "active-plan",
     "file-ledger",
     "revision-ledger",
+    "migration-report",
+    "plan-activation",
 )
 
 

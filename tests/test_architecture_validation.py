@@ -29,8 +29,8 @@ def _valid_draft():
         {"id": "net", "name": "Net", "purpose": "net", "responsibilities": ["net"], "non_goals": ["no codec"], "owns_files": ["src/net/net.c", "apps/server_main.c"], "provides_contracts": [], "consumes_contracts": ["session-contract"]},
     ]
     contracts = [
-        {"id": "session-contract", "purpose": "session", "owner": "s5", "interface_files": ["include/core/session.h"], "ready_gate": "s5", "provider": "s5", "consumers": ["codec", "net"]},
-        {"id": "network-contract", "purpose": "network", "owner": "s5", "interface_files": ["include/core/net.h"], "ready_gate": "s5", "provider": "s5", "consumers": ["session"]},
+        {"id": "session-contract", "purpose": "session", "owner": "s5", "interface_files": ["include/core/session.h"], "exports": [{"interface_file": "include/core/session.h", "symbol": "mqtt_result_t", "signature": "typedef int mqtt_result_t;"}], "ready_gate": "s5", "provider": "s5", "consumers": ["codec", "net"]},
+        {"id": "network-contract", "purpose": "network", "owner": "s5", "interface_files": ["include/core/net.h"], "exports": [{"interface_file": "include/core/net.h", "symbol": "mqtt_packet_type_t", "signature": "typedef int mqtt_packet_type_t;"}], "ready_gate": "s5", "provider": "s5", "consumers": ["session"]},
     ]
     for module in modules:
         module["provides_contracts"] = []

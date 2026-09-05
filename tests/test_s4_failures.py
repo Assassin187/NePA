@@ -28,21 +28,21 @@ class _NoProviderCall:
         raise StructuredOutputError("final structured output was truncated")
 
 
-def test_final_structured_output_failure_is_a_controlled_s4_failure(tmp_path):
+def test_final_structured_output_failure_is_a_controlled_s4_failure(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
     invoker = _NoProviderCall()
 
-    assert Orchestrator({"s4": S4Controller(invoker)}).run_spec(store) == 20
+    assert Orchestrator({"s4": S4Controller(invoker, handoff_root=current_contract_handoff["root"], handoff_lineage_id=current_contract_handoff["lineage_id"])}).run_spec(store) == 20
     run = store.load_run()
     assert run["termination_request"]["reason"]["code"] == "S4_STRUCTURED_OUTPUT_INVALID"
     assert not (store.root / "plan/versions/plan-1.0.0.json").exists()
 
 
-def test_architecture_context_overflow_stops_before_architecture_provider_call(tmp_path):
+def test_architecture_context_overflow_stops_before_architecture_provider_call(tmp_path, current_contract_handoff):
     store = _store(tmp_path)
     invoker = _NoProviderCall()
 
-    controller = S4Controller(invoker, context_window_tokens={"claude-opus-5": 1})
+    controller = S4Controller(invoker, handoff_root=current_contract_handoff["root"], handoff_lineage_id=current_contract_handoff["lineage_id"], context_window_tokens={"claude-opus-5": 1})
     assert Orchestrator({"s4": controller}).run_spec(store) == 20
     run = store.load_run()
     assert run["termination_request"]["reason"]["code"] == "PLAN_CONTEXT_TOO_LARGE"

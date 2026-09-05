@@ -44,7 +44,9 @@ Minimal valid example:
    family in one patch when its legal operations do not overlap or conflict;
    do not spend the patch on one broad family while leaving a disjoint local
    family untouched.
-2. Return only `patch_ops`; never return a complete draft or a subtree. Use
+2. Return the complete patch envelope with exactly `schema_version` (the value
+   required by the supplied Schema) and `patch_ops`; never return a complete
+   draft. Replacement values belong inside operations, not at the root. Use
    `replace` or `remove` with `expected_presence: "present"`, and `add` with
    `expected_presence: "absent"`. Do not invent value hashes or preconditions.
 3. Use only a listed path or a child of a listed containing path. Array items
@@ -53,7 +55,9 @@ Minimal valid example:
    `/work_packages/implement_core/depends_on`,
    `/contracts/public_api/interface_files`, and
    `/layout/files/source_slot/path`. For scalar arrays, replace the containing
-   field rather than addressing an element number.
+   field rather than addressing an element number. Export rows have no stable
+   id: replace `/contracts/<contract-id>/exports` as one array, preserving its
+   valid rows, rather than inventing an index or a symbol-addressed child path.
 4. Multiple operations must be non-overlapping. Preserve every passing field
    and unrelated sibling. Do not widen a local issue to the root or replace a
    whole collection when a stable child or containing field is sufficient.
@@ -65,14 +69,58 @@ Minimal valid example:
    its exact reason and correct the rejected format, stable path, presence rule,
    overlap, or application method once. Do not repeat the rejected patch and do
    not introduce new semantic scope.
-7. For layout-token issues, treat the supplied responsibility vocabulary and
-   derived identifiers as a closed lexicon for non-structural path, pattern and
-   purpose tokens; replace every reported invalid token without inventing a
-   synonym or copying an unadmitted target name. For layer issues, rebuild the
-   task-contract module graph so every provider-to-consumer edge goes strictly
-   forward in the supplied layer order and has no provider self-consumer. Emit
-   such edits only when `allowed_paths` covers every affected contract, module
-   and work-package projection needed to avoid regressing a passing rule.
+7. For layout-token issues, first distinguish a path error from a purpose error
+   using the reported token and current file entry. `layout.files[].purpose`
+   is a vocabulary label, not prose: replace it with the matching term from
+   `advisory.responsibility_vocabulary`, or a short space-separated combination
+   of those terms. Remove connective words such as "and", "for" and "of";
+   do not rename a valid path to fix an invalid purpose. For an invalid path,
+   use supplied roots, responsibility terms and exact derived identifiers.
+   Keep each derived identifier or placeholder as a whole path segment or
+   filename stem, without concatenated prefixes or suffixes. Preserve expansion
+   domains and the complete expanded file set when the controller projects it.
+   For layer issues, inspect attribution before changing topology: the module's
+   id, name, purpose, responsibilities and owned file purposes identify its
+   layer. A description mentioning another layer can misclassify it. Where
+   legal, correct that description to identify its actual supplied layer and
+   preserve genuine dependencies. Otherwise repair the actual inverted edge
+   with its complete legal projection closure; never reverse an edge blindly.
+8. For export issues, preserve the closed three-field shape
+   `{interface_file, symbol, signature}`. Repair ownership, duplicate
+   `(interface_file, symbol)` pairs, mechanical symbol attribution, and
+   declaration-only signatures from the supplied artifacts. Construct the
+   symbol set explicitly: expand `naming.patterns` using VALUES from the matching
+   `naming.message_ids` or `naming.type_ids` domain, retain placeholder-free
+   patterns unchanged, and use relevant explicit `server_abi` type identifiers.
+   Substitute literally; do not shorten domain values, deduplicate prefixes or
+   normalize the resulting symbol again.
+   Matching `naming.symbol_prefix` alone is insufficient. Helpers, lifecycle
+   functions, enum members and struct fields are not allowed just because their
+   names look plausible. Use declarations appropriate to the real contract;
+   do not substitute an unrelated allowed symbol or fabricate a signature.
+   Do not add implementation bodies, protocol/model literals, or compatibility
+   fields.
+   Treat an existing task-stage contract and its provider and consumer
+   projections as dependency topology, not expendable invalid-export content.
+   Prefer replacing only invalid exports; do not remove a contract or clear a
+   projection solely to eliminate export errors. If a topology change is
+   unavoidable, include every affected contract, module and work-package
+   projection and exact `depends_on` field in the same patch, then re-evaluate
+   task-gated readiness and retain only justified responsibility assignments.
+   Emit that topology change only when `allowed_paths` covers this entire
+   closure and the mentally applied candidate preserves both exact dependencies
+   and readiness. Otherwise repair the exports in place. Re-audit the complete
+   work-package and file ledger before returning and preserve every previously
+   passing gate.
+9. When dependencies or readiness fail, derive `depends_on` anew from the
+   unique work-package providers of consumed task-stage contracts. Frozen-stage
+   contracts add no work-package edge. For each task-gated test, gather ALL
+   primary and supporting owners of its requirements. At least one existing
+   work package's backward `depends_on` closure, including itself, must contain
+   every owner. Remove only unjustified supporting assignments; preserve each
+   non-definition requirement's unique primary owner. Never clear dependencies,
+   remove real contracts or move all requirements to a catch-all to hide an
+   error. Include any required topology changes only within the allowed closure.
 
 ## Consistency Check
 
@@ -83,6 +131,10 @@ module and work-package projections; disjoint file partitions; contract-derived
 dependency acyclicity; required interface-slot closure; task-readiness common
 descendants; layout vocabulary; build graph; and all supplied resource limits.
 The patch must fix current issues without regressing a previously passing rule.
+Keep the response compact: include each required changed value once, retain
+unchanged rows inside a replaced array, and omit explanations and source bodies.
+Finish the full patch JSON; never abbreviate a value with ellipses or omit the
+schema-version field to shorten the response.
 
 ## Counterexamples
 
