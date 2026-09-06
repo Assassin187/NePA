@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import subprocess
 from typing import Any
 from collections.abc import Mapping
 
@@ -205,7 +206,25 @@ class S5MaterializationController:
                 store.replace_json("plan/revision_ledger.json", updated, schema_name="revision-ledger.schema.json")
             elif len(events) != 1 or events[0].get("payload", {}).get("epoch_receipt_ref") != refs.get("epoch_receipt") or events[0].get("payload", {}).get("binding_ref") != refs.get("binding_receipt"):
                 raise RunStoreError("accepted S5 output conflicts with its epoch event")
-            self.verify_completed(store, allow_pending=True)
+            workspace = store._confined("workspace")
+            epoch = store._read_json_artifact("plan/epochs/E0/receipt.json", schema_name="epoch-receipt.schema.json")
+            verification_wal = store._confined("plan/verification_pending.json")
+            head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip()
+            checkpoint = epoch["checkpoint_commit"]
+            if not verification_wal.exists() and head == checkpoint:
+                self.verify_completed(store, allow_pending=True)
+            elif verification_wal.exists():
+                # S6 owns the live candidate/WAL boundary; let its reconciliation
+                # restore or forward-complete before rechecking the E0 facts.
+                pass
+            elif store._confined("plan/plan_state.json").exists() and subprocess.run(
+                ["git", "-C", str(workspace), "merge-base", "--is-ancestor", checkpoint, head],
+                capture_output=True,
+                check=False,
+            ).returncode == 0:
+                pass
+            else:
+                self.verify_completed(store, allow_pending=True)
             pending = store._confined("plan/epochs/E0/pending.json")
             if pending.exists():
                 pending.unlink()

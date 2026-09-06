@@ -52,9 +52,10 @@ def _sealed_store(tmp_path: Path):
 
 def _frozen_fixture_store(tmp_path: Path, case_id: str) -> RunStore:
     fixture = Path(__file__).parent / "fixtures" / "s5" / case_id
+    source = Path(__file__).parents[1] / ("gold_file" if case_id == "mqtt" else "tests/fixtures/non_mqtt_application")
     store = RunStore.initialize_spec_run(
         tmp_path,
-        SpecRunInputs(fixture / "spec.json", fixture / "target.json", fixture / "test_bundle.json"),
+        SpecRunInputs(source / ("specIR.json" if case_id == "mqtt" else "spec.json"), source / "target.json", source / "test_bundle.json"),
         load_config(),
     )
     for name, relative in {
@@ -433,8 +434,9 @@ def test_s5_rejects_configuration_anchor_drift_before_workspace(tmp_path):
 
 class _S6Receipt:
     def run(self, context):
-        ref = context.store.publish_immutable_bytes("receipts/s6.json", b"s6")
-        return StageResult(output_refs={"receipt": ref})
+        example = Path(__file__).parents[1] / "nepa/schemas/examples/s6-receipt.example.json"
+        ref = context.store.publish_immutable_bytes("receipts/s6.json", example.read_bytes())
+        return StageResult(output_refs={"s6_receipt": ref})
 
 
 @pytest.mark.parametrize("point", ["s5_output_published", "s5_done_committed"])

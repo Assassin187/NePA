@@ -297,21 +297,22 @@ def _role_config(config: ResolvedConfig, role: str):
         raise AgentConfigurationError(f"role has no configured route: {role}") from exc
 
 
-def resolve_route(config: ResolvedConfig, role: str) -> ResolvedRoute:
+def resolve_route(config: ResolvedConfig, role: str, *, tier_override: str | None = None) -> ResolvedRoute:
     """Resolve a role route from a configured tier and explicit overrides."""
 
     from .roles import get_role
 
     get_role(role)
     role_config = _role_config(config, role)
+    selected_tier = tier_override or role_config.tier
     try:
-        tier = config.tiers[role_config.tier]
+        tier = config.tiers[selected_tier]
     except KeyError as exc:
-        raise AgentConfigurationError(f"role {role} references missing tier: {role_config.tier}") from exc
-    provider = role_config.provider if role_config.provider is not None else tier.provider
-    model = role_config.model if role_config.model is not None else tier.model
-    temperature = role_config.temperature if role_config.temperature is not None else tier.temperature
-    max_tokens = role_config.max_tokens if role_config.max_tokens is not None else tier.max_tokens
+        raise AgentConfigurationError(f"role {role} references missing tier: {selected_tier}") from exc
+    provider = role_config.provider if tier_override is None and role_config.provider is not None else tier.provider
+    model = role_config.model if tier_override is None and role_config.model is not None else tier.model
+    temperature = role_config.temperature if tier_override is None and role_config.temperature is not None else tier.temperature
+    max_tokens = role_config.max_tokens if tier_override is None and role_config.max_tokens is not None else tier.max_tokens
     if provider not in config.providers:
         raise AgentConfigurationError(f"role {role} references missing provider: {provider}")
     if not isinstance(provider, str) or not provider.strip() or not isinstance(model, str) or not model.strip():
@@ -324,7 +325,7 @@ def resolve_route(config: ResolvedConfig, role: str) -> ResolvedRoute:
         raise AgentConfigurationError(f"{role} must resolve to temperature no greater than 0.2")
     try:
         return ResolvedRoute(
-            tier=role_config.tier,
+            tier=selected_tier,
             provider=provider,
             model=model,
             temperature=temperature,
@@ -380,15 +381,23 @@ class AgentInvoker:
         use_cache: bool = True,
         template_bytes: bytes | None = None,
         template_path: str | None = None,
+        required_inputs: tuple[str, ...] | None = None,
+        tier_override: str | None = None,
+        allow_structured_repair: bool = True,
     ) -> AgentResult:
         from .roles import get_role
 
         definition = get_role(role)
+        updates: dict[str, Any] = {}
         if template_path is not None:
-            definition = definition.model_copy(update={"template_path": template_path})
+            updates["template_path"] = template_path
+        if required_inputs is not None:
+            updates["required_inputs"] = required_inputs
+        if updates:
+            definition = definition.model_copy(update=updates)
         self._check_identity(run_id=run_id, stage=stage, attempt=attempt, definition=definition)
         self._check_availability(definition)
-        route = resolve_route(self.config, role)
+        route = resolve_route(self.config, role, tier_override=tier_override)
         if template_bytes is None:
             rendered = self.renderer.render(
                 definition,
@@ -432,6 +441,7 @@ class AgentInvoker:
             model=route.model,
             context=context,
             use_cache=use_cache,
+            allow_structured_repair=allow_structured_repair,
         )
         return AgentResult(
             parsed=response.parsed,

@@ -37,7 +37,10 @@ ROLE_REGISTRY: dict[str, RoleDefinition] = {
         role="coder",
         stages=("S6",),
         template_path="coder.md",
-        required_inputs=("task", "spec_slice", "interface_files"),
+        required_inputs=(
+            "task", "work_package", "architecture", "spec_slice", "contract_map",
+            "interface_files", "language_guidance", "current_files",
+        ),
     ),
     "diagnoser": RoleDefinition(
         role="diagnoser",
@@ -49,7 +52,11 @@ ROLE_REGISTRY: dict[str, RoleDefinition] = {
         role="fixer",
         stages=("S6", "S8"),
         template_path="fixer.md",
-        required_inputs=("diagnosis", "target_files"),
+        required_inputs=(
+            "task", "work_package", "architecture", "spec_slice", "contract_map",
+            "interface_files", "language_guidance", "current_files", "execution_mode",
+            "failed_candidate", "validation_feedback", "diagnosis",
+        ),
     ),
 }
 

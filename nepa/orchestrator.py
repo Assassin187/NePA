@@ -287,7 +287,8 @@ class Orchestrator:
 
     def _finalize_controlled_exit(self, store: RunStore, run: dict[str, Any]) -> int:
         request = run["termination_request"]
-        outcome = "degraded" if "BUDGET" in request["reason"]["code"] else "failed"
+        degraded = request["reason"]["code"] in {"EXECUTION_UNRESOLVED", "S6_EXIT_VALIDATION_FAILED"} or "BUDGET" in request["reason"]["code"]
+        outcome = "degraded" if degraded else "failed"
         updated = copy.deepcopy(run)
         updated["termination_kind"] = "controlled_exit"
         updated["outcome"] = outcome
@@ -341,17 +342,20 @@ class Orchestrator:
             try:
                 store.verify_frozen_inputs()
                 stage = run["stages"]["s4"]
-                if stage["status"] == "done":
+                if stage["status"] == "done" and run["stages"]["s6"].get("status") != "done":
                     controller = self.controllers.get("s4")
                     if controller is not None and hasattr(controller, "verify_completed"):
                         controller.verify_completed(store)  # type: ignore[attr-defined]
                     self._stage_done(store, stage, "s4")
                 s5_controller = self.controllers.get("s5")
-                if s5_controller is not None and hasattr(s5_controller, "reconcile"):
+                if run["stages"]["s6"].get("status") != "done" and s5_controller is not None and hasattr(s5_controller, "reconcile"):
                     s5_controller.reconcile(store)  # type: ignore[attr-defined]
                 s5_stage = run["stages"]["s5"]
-                if s5_stage.get("status") == "done" and s5_controller is not None and hasattr(s5_controller, "verify_completed"):
+                if run["stages"]["s6"].get("status") != "done" and s5_stage.get("status") == "done" and s5_controller is not None and hasattr(s5_controller, "verify_completed"):
                     s5_controller.verify_completed(store)  # type: ignore[attr-defined]
+                s6_controller = self.controllers.get("s6")
+                if run["stages"]["s6"].get("status") == "done" and s6_controller is not None and hasattr(s6_controller, "verify_completed"):
+                    s6_controller.verify_completed(store)  # type: ignore[attr-defined]
             except Exception as exc:
                 return self._finalize_internal_error(store, run, str(exc))
             return int(run["exit_code"])
@@ -370,10 +374,16 @@ class Orchestrator:
             )
             return self._run_s9(store, run)
         if resume:
-            run = self._reconcile_orphaned(store, run)
-            controller = self.controllers.get("s5")
-            if controller is not None and hasattr(controller, "reconcile"):
-                controller.reconcile(store)  # type: ignore[attr-defined]
+            try:
+                controller = self.controllers.get("s5")
+                if run["stages"]["s6"].get("status") != "done" and controller is not None and hasattr(controller, "reconcile"):
+                    controller.reconcile(store)  # type: ignore[attr-defined]
+                s6_controller = self.controllers.get("s6")
+                if s6_controller is not None and hasattr(s6_controller, "reconcile"):
+                    s6_controller.reconcile(store)  # type: ignore[attr-defined]
+                run = self._reconcile_orphaned(store, run)
+            except Exception as exc:
+                return self._finalize_internal_error(store, store.load_run(), str(exc))
         if run.get("termination_request"):
             return self._run_s9(store, run)
         if self._planned_target_reached(run, "s3"):
@@ -390,7 +400,14 @@ class Orchestrator:
                         controller.verify_completed(store)  # type: ignore[attr-defined]
                     if stage_name == "s5" and controller is not None and hasattr(controller, "reconcile"):
                         controller.reconcile(store)  # type: ignore[attr-defined]
-                    if stage_name == "s5" and controller is not None and hasattr(controller, "verify_completed"):
+                    s6_has_started = (
+                        run["stages"]["s6"].get("status") != "pending"
+                        or store._confined("plan/plan_state.json").exists()
+                        or store._confined("plan/verification_pending.json").exists()
+                    )
+                    if stage_name == "s5" and not s6_has_started and controller is not None and hasattr(controller, "verify_completed"):
+                        controller.verify_completed(store)  # type: ignore[attr-defined]
+                    if stage_name == "s6" and controller is not None and hasattr(controller, "verify_completed"):
                         controller.verify_completed(store)  # type: ignore[attr-defined]
                     self._stage_done(store, stage, stage_name)
                 except RunStoreError as exc:

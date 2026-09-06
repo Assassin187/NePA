@@ -42,7 +42,7 @@ def _result(value: Any, *, variant: str, command: list[str], tree_sha: str, arti
     }
 
 
-def run_build_variants(executor: Executor, workspace: str | Path, blueprint: Mapping[str, Any], constraints: Mapping[str, Any]) -> list[dict[str, Any]]:
+def run_build_variants(executor: Executor, workspace: str | Path, blueprint: Mapping[str, Any], constraints: Mapping[str, Any], *, fail_fast: bool = True) -> list[dict[str, Any]]:
     root = Path(workspace).resolve()
     artifacts = [str(item["path"]) for item in blueprint.get("build_artifacts", [])]
     results: list[dict[str, Any]] = []
@@ -60,7 +60,7 @@ def run_build_variants(executor: Executor, workspace: str | Path, blueprint: Map
             clean_after = executor.exec(["make", "clean"], str(root), timeout_s=60, net="none")
             if getattr(clean_after, "returncode", None) != 0 or getattr(clean_after, "timed_out", False):
                 raise RuntimeError(f"sandbox clean failed after {variant}")
-        if record["status"] != "passed":
+        if record["status"] != "passed" and fail_fast:
             raise RuntimeError(f"sandbox build failed for {variant}")
     return results
 
@@ -102,7 +102,7 @@ def _smoke_observation(stdout: str, fallback: int | None) -> tuple[str, int | No
     return str(value.get("state", "invalid")), value.get("exit_code")
 
 
-def run_smoke_checks(executor: Executor, workspace: str | Path, blueprint: Mapping[str, Any], variants: list[Mapping[str, Any]], dwell_seconds: int, term_grace_seconds: int) -> list[dict[str, Any]]:
+def run_smoke_checks(executor: Executor, workspace: str | Path, blueprint: Mapping[str, Any], variants: list[Mapping[str, Any]], dwell_seconds: int, term_grace_seconds: int, *, fail_fast: bool = True) -> list[dict[str, Any]]:
     if dwell_seconds <= 0 or term_grace_seconds <= 0:
         raise ValueError("smoke dwell and grace must be positive")
     root = Path(workspace).resolve()
@@ -117,6 +117,7 @@ def run_smoke_checks(executor: Executor, workspace: str | Path, blueprint: Mappi
             clean_before = executor.exec(["make", "clean"], str(root), timeout_s=60, net="none")
             if getattr(clean_before, "returncode", None) != 0 or getattr(clean_before, "timed_out", False):
                 raise RuntimeError(f"sandbox clean failed before smoke {variant_id}")
+            failure: RuntimeError | None = None
             try:
                 build = executor.exec(["make", variant_id], str(root), timeout_s=300, net="none")
                 if getattr(build, "returncode", None) != 0 or getattr(build, "timed_out", False):
@@ -136,11 +137,13 @@ def run_smoke_checks(executor: Executor, workspace: str | Path, blueprint: Mappi
                     "status": "passed" if passed else "failed",
                 })
                 if not passed:
-                    raise RuntimeError(f"sandbox smoke failed for {variant_id}:{path}")
+                    failure = RuntimeError(f"sandbox smoke failed for {variant_id}:{path}")
             finally:
                 clean_after = executor.exec(["make", "clean"], str(root), timeout_s=60, net="none")
                 if getattr(clean_after, "returncode", None) != 0 or getattr(clean_after, "timed_out", False):
                     raise RuntimeError(f"sandbox clean failed after smoke {variant_id}")
+            if failure is not None and fail_fast:
+                raise failure
     return records
 
 

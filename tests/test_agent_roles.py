@@ -16,9 +16,9 @@ EXPECTED_INPUTS = {
     "task_planner": ("work_package", "spec_slice", "adjacent_contracts", "test_metadata", "planning_budget"),
     "plan_critic": ("candidate_plan_graph", "coverage_matrix", "lint_report"),
     "flat_plan_baseline": ("planning_index", "delivery_constraints", "manifest_metadata"),
-    "coder": ("task", "spec_slice", "interface_files"),
+    "coder": ("task", "work_package", "architecture", "spec_slice", "contract_map", "interface_files", "language_guidance", "current_files"),
     "diagnoser": ("build_errors", "relevant_code"),
-    "fixer": ("diagnosis", "target_files"),
+    "fixer": ("task", "work_package", "architecture", "spec_slice", "contract_map", "interface_files", "language_guidance", "current_files", "execution_mode", "failed_candidate", "validation_feedback", "diagnosis"),
 }
 
 

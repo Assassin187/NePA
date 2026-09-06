@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/coding-response.schema.json",
+  "title": "NePA S6 Coder/Fixer response",
+  "type": "object", "additionalProperties": false,
+  "required": ["micro_plan", "files", "notes"],
+  "properties": {
+    "micro_plan": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}},
+    "notes": {"type": "string"}
+  },
+  "$defs": {"file": {"type": "object", "additionalProperties": false, "required": ["path", "content"], "properties": {"path": {"type": "string", "minLength": 1}, "content": {"type": "string", "minLength": 1}}}}
+}

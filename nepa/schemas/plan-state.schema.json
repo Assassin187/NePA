@@ -1,14 +1,61 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.local/schemas/plan-state.schema.json",
-  "title": "NePA Plan State v1",
-  "type": "object", "additionalProperties": false, "required": ["schema_version", "plan_ref", "tasks"],
-  "properties": {"schema_version": {"const": "1.0"}, "plan_ref": {"$ref": "#/$defs/planRef"}, "tasks": {"type": "array", "items": {"$ref": "#/$defs/taskState"}}},
+  "title": "NePA Plan State v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_ref", "tasks", "evidence_counters", "s6_attempts_used"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "plan_ref": {"$ref": "#/$defs/planRef"},
+    "tasks": {"type": "array", "items": {"$ref": "#/$defs/task"}},
+    "evidence_counters": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "s6_attempts_used": {"type": "integer", "minimum": 0}
+  },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
-    "ref": {"type": ["object", "null"], "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "planRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "version", "revision_seq", "epoch"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "revision_seq": {"type": "integer", "minimum": 0}, "epoch": {"type": "string", "pattern": "^E[0-9]+$"}}},
-    "evidence": {"type": "object", "additionalProperties": false, "required": ["task_evidence_ref"], "properties": {"task_evidence_ref": {"$ref": "#/$defs/ref"}}},
-    "taskState": {"type": "object", "additionalProperties": false, "required": ["id", "status", "attempts", "notes", "commit_sha", "last_error", "acceptance_evidence"], "properties": {"id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]}, "attempts": {"type": "integer", "minimum": 0}, "notes": {"type": "string"}, "commit_sha": {"$ref": "#/$defs/commit"}, "last_error": {"type": ["string", "null"]}, "acceptance_evidence": {"$ref": "#/$defs/evidence"}}}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "planRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "version", "revision_seq", "epoch"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^plan/versions/plan-1\\.[0-9]+\\.[0-9]+\\.json$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+        "revision_seq": {"type": "integer", "minimum": 0},
+        "epoch": {"type": "string", "pattern": "^E[0-9]+$"}
+      }
+    },
+    "acceptance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_evidence_ref"],
+      "properties": {"task_evidence_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}}
+    },
+    "task": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "task_uid", "status", "execution_mode", "attempts", "amendment_used", "notes", "commit_sha", "last_error", "acceptance_evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^T-[0-9]{3}$"},
+        "task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]},
+        "execution_mode": {"enum": ["normal", "revalidate", "amend"]},
+        "attempts": {"type": "integer", "minimum": 0, "maximum": 4},
+        "amendment_used": {"type": "integer", "enum": [0, 1]},
+        "notes": {"type": "string"},
+        "commit_sha": {"anyOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
+        "last_error": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "acceptance_evidence": {"$ref": "#/$defs/acceptance"},
+        "migration_ref": {"anyOf": [{"$ref": "#/$defs/migrationRef"}, {"type": "null"}]},
+        "group_id": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+      }
+    },
+    "migrationRef": {
+      "type": "object", "additionalProperties": false, "required": ["revision_seq", "event_seq"],
+      "properties": {"revision_seq": {"type": "integer", "minimum": 1}, "event_seq": {"type": "integer", "minimum": 1}}
+    }
   }
 }

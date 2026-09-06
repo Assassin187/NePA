@@ -8,6 +8,10 @@ from typing import Sequence
 
 import typer
 
+from .application import build_orchestrator
+from .config import ResolvedConfig, load_config
+from .run_store import RunStore, SpecRunInputs
+from .speclib.plan_state import execution_state_lint, plan_state_snapshot_lint
 from .speclib.lint import lint_spec, lint_target, lint_test_bundle
 from .speclib.plan import PlanError, plan_lint
 
@@ -15,6 +19,65 @@ from .speclib.plan import PlanError, plan_lint
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 lint_app = typer.Typer(no_args_is_help=True)
 app.add_typer(lint_app, name="lint")
+
+
+def _print_json(value: object) -> None:
+    print(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2))
+
+
+def _run_status(store: RunStore, exit_code: int | None) -> dict:
+    run = store.load_run()
+    state_path = store._confined("plan/plan_state.json")
+    state = None
+    if state_path.exists():
+        state = store._read_json_artifact("plan/plan_state.json")
+    rows = state.get("tasks", []) if isinstance(state, dict) else []
+    return {
+        "run_id": run["run_id"], "run_dir": str(store.root), "exit_code": exit_code,
+        "termination_kind": run.get("termination_kind"), "stages": {key: value["status"] for key, value in run["stages"].items()},
+        "budget_used": run["budget_used"], "s6": {
+            "tasks": rows, "attempts_used": state.get("s6_attempts_used", 0) if isinstance(state, dict) else 0,
+        },
+    }
+
+
+@app.command("run")
+def run_command(
+    spec: str = typer.Option(..., "--spec"),
+    target_profile: str = typer.Option(..., "--target"),
+    test_bundle: str = typer.Option(..., "--test-bundle"),
+    runs_root: str = typer.Option("runs", "--runs-root"),
+    config_path: str | None = typer.Option(None, "--config"),
+    until: str | None = typer.Option(None, "--until"),
+) -> None:
+    overrides = {"run": {"until": until}} if until is not None else None
+    config = load_config(config_path, overrides=overrides)
+    store = RunStore.initialize_spec_run(runs_root, SpecRunInputs(spec, target_profile, test_bundle), config)
+    code = build_orchestrator(config, store).run_spec(store)
+    _print_json(_run_status(store, code))
+    raise typer.Exit(code=code)
+
+
+@app.command("resume")
+def resume_command(
+    run_id: str,
+    runs_root: str = typer.Option("runs", "--runs-root"),
+) -> None:
+    store = RunStore.open(runs_root, run_id)
+    run = store.load_run()
+    config = ResolvedConfig.model_validate(run["config_snapshot"])
+    code = build_orchestrator(config, store).resume(store)
+    _print_json(_run_status(store, code))
+    raise typer.Exit(code=code)
+
+
+@app.command("status")
+def status_command(
+    run_id: str,
+    runs_root: str = typer.Option("runs", "--runs-root"),
+) -> None:
+    store = RunStore.open(runs_root, run_id)
+    _print_json(_run_status(store, store.load_run().get("exit_code")))
 
 
 def _finish(report: dict) -> None:
@@ -78,6 +141,46 @@ def lint_plan_command(
         report = {"level": "full" if run_dir is not None else "basic", "valid": False, "errors": [{"code": exc.code, "path": "/", "message": str(exc)}], "warnings": []}
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         report = {"level": "full" if run_dir is not None else "basic", "valid": False, "errors": [{"code": "PLAN_INPUT_INVALID", "path": "/", "message": str(exc)}], "warnings": []}
+    _finish(report)
+
+
+@lint_app.command("state-snapshot")
+def lint_state_snapshot_command(
+    plan_path: str,
+    state_path: str,
+    run_dir: str | None = typer.Option(None, "--run-dir"),
+) -> None:
+    config = None
+    seal = None
+    revision = None
+    if run_dir is not None:
+        store = RunStore(run_dir)
+        run = store.load_run()
+        config = run["config_snapshot"]
+        seal = {"plan": run["stages"]["s4"].get("output_refs", {}).get("plan"), "active_plan": store._read_json_artifact("plan/active_plan.json"), "config_snapshot_sha256": run["config_snapshot_sha256"]}
+        revision = store._read_json_artifact("plan/revision_ledger.json")
+    report = plan_state_snapshot_lint(plan_path, state_path, s4_seal=seal, config_snapshot=config, revision_ledger=revision)
+    _finish(report)
+
+
+@lint_app.command("state-execution")
+def lint_state_execution_command(
+    plan_path: str,
+    state_path: str,
+    run_dir: str,
+) -> None:
+    store = RunStore(run_dir)
+    run = store.load_run()
+    stages = json.loads(json.dumps(run["stages"]))
+    epoch_ref = stages.get("s5", {}).get("output_refs", {}).get("epoch_receipt")
+    if isinstance(epoch_ref, dict):
+        epoch = store._read_json_artifact(epoch_ref["path"], schema_name="epoch-receipt.schema.json")
+        stages.setdefault("s5", {})["workspace_head"] = epoch["checkpoint_commit"]
+    report = execution_state_lint(
+        plan_path, state_path, store._confined("workspace"), store.root, stages,
+        config_snapshot=run["config_snapshot"], revision_ledger=store._read_json_artifact("plan/revision_ledger.json"),
+        active_pointer=store._read_json_artifact("plan/active_plan.json"),
+    )
     _finish(report)
 
 

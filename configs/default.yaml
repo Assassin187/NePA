@@ -47,6 +47,7 @@ budgets:
   plan_global_replans: 1
   coder_context_max_tokens: 24000
   task_fix_attempts: 3
+  s6_total_attempts_cap: 8
   repair_rounds: 3
 
 planning:

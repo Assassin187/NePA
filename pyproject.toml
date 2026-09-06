@@ -32,11 +32,12 @@ dev = [
 include = ["nepa*"]
 
 [tool.setuptools.package-data]
-nepa = ["templates/*", "schemas/*.json", "schemas/examples/*.json"]
+nepa = ["templates/*", "agents/prompts/*.md", "schemas/*.json", "schemas/examples/*.json"]
 
 [tool.pytest.ini_options]
 markers = [
   "s5_epoch: end-to-end S5 E0 materialization checks",
+  "s6_execution: end-to-end S6 ordinary task execution checks",
 ]
 
 [tool.ruff]

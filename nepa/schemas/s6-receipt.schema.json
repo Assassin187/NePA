@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/s6-receipt.schema.json",
+  "title": "NePA S6 receipt",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "active_plan_ref", "binding_ref", "plan_state_ref", "file_ledger_ref", "revision_ledger_ref", "workspace_head", "build_result_refs", "s6_build_ok", "smoke_result_refs", "status"],
+  "properties": {
+    "schema_version": {"const": "2.0"}, "active_plan_ref": {"$ref": "#/$defs/ref"}, "binding_ref": {"$ref": "#/$defs/ref"}, "plan_state_ref": {"$ref": "#/$defs/ref"}, "file_ledger_ref": {"$ref": "#/$defs/ref"}, "revision_ledger_ref": {"$ref": "#/$defs/ref"}, "workspace_head": {"$ref": "#/$defs/commit"}, "build_result_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ref"}}, "s6_build_ok": {"const": true}, "smoke_result_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ref"}}, "status": {"const": "complete"}
+  },
+  "$defs": {"commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+}

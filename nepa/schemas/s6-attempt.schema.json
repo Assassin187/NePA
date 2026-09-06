@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/s6-attempt.schema.json",
+  "title": "NePA S6 attempt record",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "task_id", "task_uid", "execution_mode", "attempt", "evidence_seq", "role", "tier", "baseline_commit", "baseline_tree", "status", "output_ref", "failure_ref"],
+  "properties": {
+    "schema_version": {"const": "2.0"}, "task_id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "execution_mode": {"enum": ["normal", "revalidate", "amend"]}, "attempt": {"type": "integer", "minimum": 1, "maximum": 4}, "evidence_seq": {"type": "integer", "minimum": 1},
+    "role": {"enum": ["coder", "fixer"]}, "tier": {"enum": ["T1", "T2"]}, "baseline_commit": {"$ref": "#/$defs/commit"}, "baseline_tree": {"$ref": "#/$defs/sha256"},
+    "status": {"enum": ["started", "failed", "succeeded", "exhausted"]}, "output_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "failure_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "started"}}}, "then": {"properties": {"output_ref": {"type": "null"}, "failure_ref": {"type": "null"}}}},
+    {"if": {"properties": {"status": {"enum": ["failed", "exhausted"]}}}, "then": {"properties": {"output_ref": {"type": "null"}, "failure_ref": {"$ref": "#/$defs/ref"}}}},
+    {"if": {"properties": {"status": {"const": "succeeded"}}}, "then": {"properties": {"output_ref": {"$ref": "#/$defs/ref"}, "failure_ref": {"type": "null"}}}}
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}}}
+}

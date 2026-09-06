@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 88
+    assert len(schema_paths) == 93
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -163,6 +163,11 @@ def test_schema_contract_audit():
         "epoch-receipt.schema.json",
         "binding-receipt.schema.json",
         "s5-pending-state.schema.json",
+        "coding-response.schema.json",
+        "s6-attempt.schema.json",
+        "task-evidence.schema.json",
+        "verification-pending.schema.json",
+        "s6-receipt.schema.json",
     }
     assert {path.name for path in SCHEMA_DIR.glob("*.schema.json")} == expected
 
@@ -275,6 +280,16 @@ def test_runtime_schema_rejects_unbound_output_reference():
     value = _example("run.example.json")
     value["stages"]["s4"]["output_refs"] = {"plan": {"path": "plan/plan.json", "sha256": "not-a-sha"}}
 
+    assert not validator.is_valid(value)
+
+
+def test_runtime_schema_rejects_arbitrary_s6_output_reference():
+    validator = Draft202012Validator(_schema("run.schema.json"))
+    value = _example("run.example.json")
+    value["stages"]["s6"] = {
+        "status": "done", "started_at": "2026-01-01T00:00:00Z", "ended_at": "2026-01-01T00:00:01Z", "error": None,
+        "output_refs": {"unexpected": {"path": "unexpected.json", "sha256": "0" * 64}},
+    }
     assert not validator.is_valid(value)
 
 

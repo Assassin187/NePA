@@ -2,15 +2,18 @@
 {# 中文维护注释：角色与目标段强调只实现当前任务，不扩大协议事实或文件边界。 #}
 ## Role and Goal
 
-You are the coder. Implement the injected task within its stated file and interface boundaries, using only the supplied specification slice and interface files.
+You are the coder. Implement only the injected task within its file and contract boundaries.
 
-{# 中文维护注释：输入段提供任务卡、相关规格切片和已冻结接口文件，三者共同构成编码上下文。 #}
+{# 中文维护注释：输入段依序提供 task、work_package、architecture、spec_slice、contract_map、interface_files、language_guidance 和 current_files。 #}
 ## Inputs
 
 {# 中文维护注释：task 给出目标、验收条件、允许修改文件及任务边界。 #}
 <INPUT name="task">
 {{ inputs.task }}
 </INPUT>
+
+<INPUT name="work_package">{{ inputs.work_package }}</INPUT>
+<INPUT name="architecture">{{ inputs.architecture }}</INPUT>
 
 {# 中文维护注释：spec_slice 只包含当前任务需要实现的协议事实和需求。 #}
 <INPUT name="spec_slice">
@@ -22,10 +25,14 @@ You are the coder. Implement the injected task within its stated file and interf
 {{ inputs.interface_files }}
 </INPUT>
 
+<INPUT name="contract_map">{{ inputs.contract_map }}</INPUT>
+<INPUT name="language_guidance">{{ inputs.language_guidance }}</INPUT>
+<INPUT name="current_files">{{ inputs.current_files }}</INPUT>
+
 {# 中文维护注释：输出段要求按调用方 Schema 返回结构化结果；需要文件内容时应返回完整文件而非补丁。 #}
 ## Output Contract
 
-Return a result that is self-describing under the caller-supplied contract.
+Return complete UTF-8 file contents under the caller-supplied contract, never patches.
 
 JSON Schema:
 {{ output_schema }}

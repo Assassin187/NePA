@@ -25,6 +25,10 @@ class RecordingController:
 
     def run(self, context):
         self.order.append(self.stage)
+        if self.stage == "s6":
+            example = ROOT / "nepa/schemas/examples/s6-receipt.example.json"
+            ref = context.store.publish_immutable_bytes("receipts/s6.json", example.read_bytes())
+            return StageResult(output_refs={"s6_receipt": ref})
         ref = context.store.publish_immutable_bytes(f"receipts/{self.stage}.json", self.stage.encode())
         if self.stage == "s5":
             binding = context.store.publish_immutable_bytes("receipts/s5-binding.json", b"s5-binding")

@@ -27,7 +27,7 @@
         "s3": {"$ref": "#/$defs/stage"},
         "s4": {"$ref": "#/$defs/s4Stage"},
         "s5": {"$ref": "#/$defs/s5Stage"},
-        "s6": {"$ref": "#/$defs/stage"},
+        "s6": {"$ref": "#/$defs/s6Stage"},
         "s7": {"$ref": "#/$defs/stage"},
         "s8": {"$ref": "#/$defs/stage"},
         "s9": {"$ref": "#/$defs/stage"}
@@ -297,6 +297,29 @@
           "additionalProperties": false,
           "required": ["receipt"],
           "properties": {"receipt": {"$ref": "#/$defs/ref"}}
+        }
+      ]
+    },
+    "s6Stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "started_at", "ended_at", "error"],
+      "properties": {
+        "status": {"enum": ["pending", "running", "done", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "error": {"type": ["string", "null"]},
+        "output_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["s6_receipt"],
+          "properties": {"s6_receipt": {"$ref": "#/$defs/ref"}}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "done"}}},
+          "then": {"required": ["output_refs"]}
         }
       ]
     },

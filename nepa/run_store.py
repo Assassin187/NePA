@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import fcntl
 import hashlib
 import json
@@ -254,6 +255,83 @@ class RunStore:
         path = self._confined(relative_path)
         self._write_atomic_at(path, data)
         return ArtifactRef(relative_path, sha256_bytes(data))
+
+    def allocate_s6_attempt(
+        self,
+        *,
+        task_id: str,
+        task_uid: str,
+        role: str,
+        tier: str,
+        baseline_commit: str,
+        baseline_tree: str,
+        proof: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Atomically consume one S6 call and evidence sequence before I/O."""
+
+        from .speclib.plan_state import PlanStateError, plan_state_snapshot_lint, project_state_transition
+
+        state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+        run = self.load_run()
+        if not re.fullmatch(r"[0-9a-f]{40}", baseline_commit) or not re.fullmatch(r"[0-9a-f]{64}", baseline_tree):
+            raise RunValidationError("S6 attempt baseline is not a canonical commit/tree binding")
+        budgets = run["config_snapshot"].get("budgets", {})
+        cap = budgets.get("s6_total_attempts_cap") if isinstance(budgets, Mapping) else None
+        if not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0:
+            raise RunValidationError("S6 total attempt cap is not configured")
+        if state.get("s6_attempts_used") >= cap:
+            raise RunValidationError("S6 total attempt cap is exhausted")
+        rows = {row["id"]: row for row in state.get("tasks", [])}
+        row = rows.get(task_id)
+        if not isinstance(row, Mapping) or row.get("task_uid") != task_uid or row.get("execution_mode") != "normal":
+            raise RunValidationError("S6 task identity is not bound by Plan State")
+        limit = min(4, int(budgets.get("task_fix_attempts", 3)) + 1)
+        if row.get("status") not in {"pending", "in_progress"} or row.get("attempts", 0) >= limit:
+            raise RunValidationError("S6 task attempt limit is exhausted")
+        next_attempt = int(row.get("attempts", 0)) + 1
+        expected_role = "coder" if next_attempt == 1 else "fixer"
+        expected_tier = "T2" if next_attempt <= 3 else "T1"
+        if role != expected_role or tier != expected_tier:
+            raise RunValidationError("S6 attempt role or tier does not match the bounded route")
+        sequence = int(state.get("evidence_counters", {}).get(task_uid, 0)) + 1
+        previous_failure_ref = None
+        if next_attempt > 1:
+            previous_record = self._read_json_artifact(
+                f"attempts/{task_uid}/attempt_{next_attempt - 1:03d}.json",
+                schema_name="s6-attempt.schema.json",
+            )
+            previous_failure_ref = previous_record.get("failure_ref")
+            if previous_record.get("status") != "failed" or not isinstance(previous_failure_ref, Mapping):
+                raise RunValidationError("S6 retry requires the immediately preceding failed attempt")
+        event = {
+            "schema_version": "2.0", "event": "attempt_started", "task_id": task_id,
+            "attempt": next_attempt,
+            "proof": {
+                "baseline_commit": baseline_commit, "baseline_tree": baseline_tree,
+                "evidence_seq": sequence, "s6_attempts_used": state["s6_attempts_used"] + 1,
+                **({"previous_failure_ref": dict(previous_failure_ref)} if previous_failure_ref else {}),
+            },
+        }
+        next_state = project_state_transition(state, event, config_snapshot=run["config_snapshot"])
+        snapshot_report = plan_state_snapshot_lint(
+            self._read_json_artifact(state["plan_ref"]["path"], schema_name="plan.schema.json"),
+            next_state,
+            config_snapshot=run["config_snapshot"],
+        )
+        if not snapshot_report["valid"]:
+            raise PlanStateError("S6 attempt allocation produced invalid State: " + snapshot_report["errors"][0]["message"])
+        self.replace_json("plan/plan_state.json", next_state, schema_name="plan-state.schema.json")
+        attempt = {
+            "schema_version": "2.0", "task_id": task_id, "task_uid": task_uid, "execution_mode": "normal",
+            "attempt": next_attempt,
+            "evidence_seq": sequence, "role": role, "tier": tier, "baseline_commit": baseline_commit,
+            "baseline_tree": baseline_tree, "status": "started", "output_ref": None, "failure_ref": None,
+        }
+        attempt_ref = self.replace_json(
+            f"attempts/{task_uid}/attempt_{attempt['attempt']:03d}.json", attempt,
+            schema_name="s6-attempt.schema.json",
+        )
+        return {"state": next_state, "attempt": attempt, "attempt_ref": attempt_ref}
 
     @staticmethod
     def _s5_fault(fault_hook: Callable[[str], None] | None, point: str) -> None:
@@ -892,6 +970,11 @@ class RunStore:
             required = {"epoch_receipt", "binding_receipt"}
             if set(refs) != required:
                 raise RunValidationError("S5 output_refs must contain epoch_receipt and binding_receipt")
+        if stage_name == "s6":
+            if set(refs) != {"s6_receipt"}:
+                raise RunValidationError("S6 output_refs must contain only s6_receipt")
+            self.verify_ref(refs["s6_receipt"], schema_name="s6-receipt.schema.json")
+            return
         for ref in refs.values():
             self.verify_ref(ref)
 

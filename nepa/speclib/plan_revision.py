@@ -418,7 +418,20 @@ def _total_attempt_limit(config_snapshot: Mapping[str, Any] | None) -> int:
 
 
 def _clean_state_row(task_id: str) -> dict[str, Any]:
-    return {"id": task_id, "status": "pending", "attempts": 0, "notes": "", "commit_sha": None, "last_error": None, "acceptance_evidence": {"task_evidence_ref": None}}
+    return {
+        "id": task_id,
+        "task_uid": "0" * 16,
+        "status": "pending",
+        "execution_mode": "normal",
+        "attempts": 0,
+        "amendment_used": 0,
+        "notes": "",
+        "commit_sha": None,
+        "last_error": None,
+        "acceptance_evidence": {"task_evidence_ref": None},
+        "migration_ref": None,
+        "group_id": None,
+    }
 
 
 def project_plan_state(
@@ -492,18 +505,30 @@ def project_plan_state(
             if old is None or not proof_passed:
                 raise PlanRevisionError("REVALIDATE requires typed successful build proof")
             row = copy.deepcopy(old)
-            row["id"] = task["id"]
+            row.update({"id": task["id"], "task_uid": task["task_uid"], "execution_mode": "revalidate", "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
         elif classification == "AMEND":
             if old is None or old["status"] != "done" or old["attempts"] >= limit:
                 raise PlanRevisionError("AMEND requires a completed task below the total attempt limit")
             row = _clean_state_row(task["id"])
-            row.update({"attempts": old["attempts"], "notes": f"revision classification=AMEND task_uid={task['task_uid']}"})
+            row.update({"task_uid": task["task_uid"], "execution_mode": "amend", "attempts": old["attempts"], "notes": f"revision classification=AMEND task_uid={task['task_uid']}", "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
         elif classification == "REGENERATE":
             row = _clean_state_row(task["id"])
+            row.update({"task_uid": task["task_uid"], "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
         else:
             raise PlanRevisionError("migration report contains an unknown classification")
         rows.append(row)
-    state = {"schema_version": "1.0", "plan_ref": copy.deepcopy(dict(new_plan_ref)), "tasks": rows}
+    for row, task in zip(rows, new_plan["tasks"]):
+        row["task_uid"] = task["task_uid"]
+    evidence_counters = copy.deepcopy(old_state.get("evidence_counters", {}))
+    for task_uid in new_uids:
+        evidence_counters.setdefault(task_uid, 0)
+    state = {
+        "schema_version": "2.0",
+        "plan_ref": copy.deepcopy(dict(new_plan_ref)),
+        "tasks": rows,
+        "evidence_counters": evidence_counters,
+        "s6_attempts_used": max(old_state.get("s6_attempts_used", 0), sum(row.get("attempts", 0) for row in old_state.get("tasks", []))),
+    }
     errors = _schema_errors(state, "plan-state.schema.json")
     if errors:
         raise PlanRevisionError("projected Plan State failed Schema validation: " + "; ".join(errors))
@@ -644,12 +669,32 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
     latest_revision = 0
     accepted_events: set[int] = set()
     activation_by_seq: dict[int, Mapping[str, Any]] = {}
+    verification_ids: set[str] = set()
+    verification_evidence: set[tuple[str, str]] = set()
     for entry in ledger.get("entries", []):
         if entry["event_seq"] != expected_seq or entry["prev_entry_sha256"] != previous:
             raise PlanRevisionError("revision ledger event sequence or predecessor hash is invalid")
         if entry["event_type"] not in _EVENT_TYPES:
             raise PlanRevisionError("revision ledger event type is unsupported")
         payload = entry["payload"]
+        if entry["event_type"] == "verification_committed":
+            verification_id = payload["verification_id"]
+            if verification_id in verification_ids:
+                raise PlanRevisionError("revision ledger contains a duplicate verification identity")
+            verification_ids.add(verification_id)
+            if payload.get("kind") != "normal" or len(payload.get("member_uids", [])) != 1 or len(payload.get("evidence_refs", [])) != 1:
+                raise PlanRevisionError("ordinary verification must bind exactly one member and evidence")
+            task_uid = payload["member_uids"][0]
+            evidence_ref = payload["evidence_refs"][0]
+            expected_id = f"v-{task_uid}-{_evidence_sequence(evidence_ref)}"
+            if verification_id != expected_id:
+                raise PlanRevisionError("verification identity disagrees with its member evidence")
+            evidence_key = (evidence_ref["path"], evidence_ref["sha256"])
+            if evidence_key in verification_evidence:
+                raise PlanRevisionError("revision ledger reuses verification evidence")
+            verification_evidence.add(evidence_key)
+            if payload.get("revision_seq") != latest_revision:
+                raise PlanRevisionError("verification revision sequence disagrees with latest activation")
         if entry["event_type"] in {"candidate_rejected", "epoch_materialized", "revision_activated"}:
             ref_events = []
             for key in ("trigger_event_seq",):
@@ -756,6 +801,50 @@ def append_revision_entry(ledger: Mapping[str, Any], entry: Mapping[str, Any]) -
     return current
 
 
+def append_verification_committed(
+    ledger: Mapping[str, Any],
+    *,
+    task_uid: str,
+    evidence_ref: Mapping[str, Any],
+    commit_sha: str,
+    revision_seq: int = 0,
+) -> dict[str, Any]:
+    """Append one idempotent ordinary F0 verification fact."""
+
+    if ledger.get("schema_version") != "2.0":
+        raise PlanRevisionError("ordinary verification requires a v2 revision ledger")
+    current = copy.deepcopy(dict(ledger))
+    validate_revision_ledger(current)
+    verification_id = f"v-{task_uid}-" + str(_evidence_sequence(evidence_ref))
+    payload = {
+        "verification_id": verification_id,
+        "kind": "normal",
+        "member_uids": [task_uid],
+        "evidence_refs": [dict(evidence_ref)],
+        "commit_sha": commit_sha,
+        "revision_seq": revision_seq,
+    }
+    for entry in current["entries"]:
+        if entry.get("event_type") != "verification_committed":
+            continue
+        existing = entry.get("payload", {})
+        if existing.get("verification_id") == verification_id:
+            if existing != payload:
+                raise PlanRevisionError("conflicting verification identity")
+            return current
+    current["entries"].append(build_event_entry(current, "verification_committed", payload))
+    validate_revision_ledger(current)
+    return current
+
+
+def _evidence_sequence(ref: Mapping[str, Any]) -> int:
+    path = ref.get("path", "")
+    match = re.search(r"evidence_(\d+)\.json$", str(path))
+    if match is None:
+        raise PlanRevisionError("verification evidence path does not contain an evidence sequence")
+    return int(match.group(1))
+
+
 def build_revision_entry(
     old_pointer: Mapping[str, Any],
     new_pointer: Mapping[str, Any],
@@ -775,5 +864,5 @@ def build_revision_entry(
 
 
 __all__ = [
-    "PlanRevisionError", "append_revision_entry", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_file_ledger", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
+    "PlanRevisionError", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_file_ledger", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
 ]

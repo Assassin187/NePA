@@ -336,6 +336,7 @@ class LLMClient:
         model: str,
         context: LLMCallContext | None = None,
         use_cache: bool = True,
+        allow_structured_repair: bool = True,
         _capability_probe: tuple[str, Any] | None = None,
     ) -> LLMResponse:
         def probe_fields(
@@ -446,6 +447,21 @@ class LLMClient:
             try:
                 final = self._structured_response(charged, request, native=native)
             except StructuredOutputError as first_error:
+                if not allow_structured_repair:
+                    first_error.responses = [charged]
+                    if self.telemetry is not None:
+                        self.telemetry.publish(
+                            provider_name=provider_name,
+                            request=request,
+                            response=charged,
+                            context=context,
+                            provider_requests=[provider_request],
+                            provider_responses=[charged],
+                            validation="fail",
+                            latency_ms=max(0, round((self._monotonic() - started) * 1000)),
+                            capability_probe=probe_fields(charged, accepted=True, error=first_error),
+                        )
+                    raise
                 repair_request = self._repair_request(request, charged, first_error.errors)
                 repair_provider_request = repair_request if native else self._fallback_request(repair_request)
                 try:

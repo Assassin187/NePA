@@ -2,25 +2,30 @@
 {# 中文维护注释：角色与目标段限定 Fixer 只解决本轮诊断，不重新设计任务。 #}
 ## Role and Goal
 
-You are the fixer. Apply a bounded repair guided by the injected diagnosis and target files while preserving unrelated behavior and interfaces.
+You are the fixer. Repair the injected failed candidate within the current task boundary.
 
-{# 中文维护注释：输入段提供诊断结论和允许修改的目标文件，二者共同限定修复范围。 #}
+{# 中文维护注释：输入段提供 task、work_package、architecture、spec_slice、contract_map、interface_files、language_guidance、current_files、execution_mode、failed_candidate、validation_feedback 和 diagnosis。 #}
 ## Inputs
 
 {# 中文维护注释：diagnosis 包含本轮失败证据、根因假设及建议修复位置。 #}
-<INPUT name="diagnosis">
-{{ inputs.diagnosis }}
-</INPUT>
+<INPUT name="task">{{ inputs.task }}</INPUT>
+<INPUT name="work_package">{{ inputs.work_package }}</INPUT>
+<INPUT name="architecture">{{ inputs.architecture }}</INPUT>
+<INPUT name="spec_slice">{{ inputs.spec_slice }}</INPUT>
+<INPUT name="contract_map">{{ inputs.contract_map }}</INPUT>
+<INPUT name="interface_files">{{ inputs.interface_files }}</INPUT>
+<INPUT name="language_guidance">{{ inputs.language_guidance }}</INPUT>
+<INPUT name="current_files">{{ inputs.current_files }}</INPUT>
+<INPUT name="execution_mode">{{ inputs.execution_mode }}</INPUT>
+<INPUT name="failed_candidate">{{ inputs.failed_candidate }}</INPUT>
+<INPUT name="validation_feedback">{{ inputs.validation_feedback }}</INPUT>
+<INPUT name="diagnosis">{{ inputs.diagnosis }}</INPUT>
 
 {# 中文维护注释：target_files 是 Fixer 唯一允许改写的文件集合及其当前内容。 #}
-<INPUT name="target_files">
-{{ inputs.target_files }}
-</INPUT>
-
 {# 中文维护注释：输出段要求遵守调用方 Schema；请求完整内容时不得返回局部片段。 #}
 ## Output Contract
 
-Return a result that is self-describing under the caller-supplied contract.
+Return complete UTF-8 file contents under the caller-supplied contract, never patches.
 
 JSON Schema:
 {{ output_schema }}

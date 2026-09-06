@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 import nepa.cli
+from nepa.config import load_config
+from nepa.run_store import RunStore, SpecRunInputs
 from nepa.speclib.lint import canonical_json_bytes
 
 
@@ -153,3 +155,55 @@ def test_cli_internal_error_returns_one(monkeypatch, capsys):
 
     assert nepa.cli.main(["lint", "spec", "input.json"]) == 1
     assert json.loads(capsys.readouterr().out)["errors"][0]["code"] == "NEPA_INTERNAL_ERROR"
+
+
+def test_cli_run_until_s6_forwards_boundary_and_keeps_later_stages_pending(monkeypatch, tmp_path, capsys):
+    observed = {}
+
+    class StubOrchestrator:
+        def run_spec(self, store):
+            observed["run_id"] = store.load_run()["run_id"]
+            return 0
+
+    def build(config, store):
+        observed["until"] = config.snapshot["run"]["until"]
+        return StubOrchestrator()
+
+    monkeypatch.setattr(nepa.cli, "build_orchestrator", build)
+    assert nepa.cli.main([
+        "run", "--spec", str(ROOT / "gold_file/specIR.json"),
+        "--target", str(ROOT / "gold_file/target.json"),
+        "--test-bundle", str(ROOT / "gold_file/test_bundle.json"),
+        "--runs-root", str(tmp_path), "--until", "s6",
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert observed["until"] == "s6"
+    assert report["run_id"] == observed["run_id"]
+    assert report["stages"]["s6"] == "pending"
+    assert report["stages"]["s7"] == "pending"
+    assert report["stages"]["s9"] == "pending"
+
+
+def test_cli_resume_and_status_expose_durable_run_state(monkeypatch, tmp_path, capsys):
+    store = RunStore.initialize_spec_run(
+        tmp_path,
+        SpecRunInputs(ROOT / "gold_file/specIR.json", ROOT / "gold_file/target.json", ROOT / "gold_file/test_bundle.json"),
+        load_config(overrides={"run": {"until": "s6"}}),
+    )
+    observed = []
+
+    class StubOrchestrator:
+        def resume(self, current):
+            observed.append(current.root)
+            return 10
+
+    monkeypatch.setattr(nepa.cli, "build_orchestrator", lambda config, current: StubOrchestrator())
+    assert nepa.cli.main(["resume", store.load_run()["run_id"], "--runs-root", str(tmp_path)]) == 10
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["exit_code"] == 10
+    assert observed == [store.root]
+
+    assert nepa.cli.main(["status", store.load_run()["run_id"], "--runs-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["exit_code"] is None
+    assert status["stages"]["s6"] == "pending"
