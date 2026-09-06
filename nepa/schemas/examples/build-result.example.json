@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "tree_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "variant": "release",
+  "command": ["make", "release"],
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": "",
+  "duration_ms": 1,
+  "timed_out": false,
+  "artifacts": ["bin/app"],
+  "status": "passed"
+}

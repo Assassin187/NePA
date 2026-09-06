@@ -61,7 +61,7 @@ def test_initial_publication_order_and_canonical_ledgers(tmp_path):
     ledger = json.loads((store.root / "plan/file_ledger.json").read_text(encoding="utf-8"))
     revision = json.loads((store.root / "plan/revision_ledger.json").read_text(encoding="utf-8"))
     assert active == {"version": "1.0.0", "path": "plan/versions/plan-1.0.0.json", "sha256": result.output_refs["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}
-    assert revision == {"schema_version": "1.0", "entries": []}
+    assert revision == {"schema_version": "2.0", "entries": []}
     assert [item["path"] for item in ledger["files"]] == sorted(
         item["path"] for item in ledger["files"]
     )

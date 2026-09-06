@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 81
+    assert len(schema_paths) == 88
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -24,6 +24,39 @@ def test_schema_examples():
         example = json.loads(example_path.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(example)
+
+
+def test_s5_public_contracts_reject_open_or_nonready_values():
+    epoch = _example("epoch-receipt.example.json")
+    epoch["pending_group_ids"] = ["unexpected"]
+    assert list(Draft202012Validator(_schema("epoch-receipt.schema.json")).iter_errors(epoch))
+
+    run = _example("run.example.json")
+    run["stages"]["s5"] = {
+        "instance_id": "E0", "status": "done", "started_at": "2026-01-01T00:00:00Z", "ended_at": "2026-01-01T00:00:01Z", "error": None,
+        "output_refs": {
+            "epoch_receipt": {"path": "epoch.json", "sha256": "0" * 64},
+            "binding_receipt": {"path": "binding.json", "sha256": "1" * 64},
+            "extra": {"path": "extra.json", "sha256": "2" * 64},
+        },
+    }
+    assert list(Draft202012Validator(_schema("run.schema.json")).iter_errors(run))
+
+    manifest_validator = Draft202012Validator(_schema("artifact-manifest.schema.json"))
+    manifest = _example("artifact-manifest.example.json")
+    manifest["files"][0]["unexpected"] = True
+    assert list(manifest_validator.iter_errors(manifest))
+    manifest = _example("artifact-manifest.example.json")
+    manifest["files"][0].update({"mutability": "s6_owned", "owner_task_id": None})
+    assert list(manifest_validator.iter_errors(manifest))
+
+    contract_map = _example("contract-map.example.json")
+    contract_map["contracts"][0]["provider_task_id"] = None
+    assert list(Draft202012Validator(_schema("contract-map.schema.json")).iter_errors(contract_map))
+
+    pending = _example("s5-pending-state.example.json")
+    pending["unexpected"] = True
+    assert list(Draft202012Validator(_schema("s5-pending-state.schema.json")).iter_errors(pending))
 
 
 def _schema(name: str) -> dict:
@@ -123,6 +156,13 @@ def test_schema_contract_audit():
         "revision-ledger.schema.json",
         "migration-report.schema.json",
         "plan-activation.schema.json",
+        "artifact-manifest.schema.json",
+        "contract-map.schema.json",
+        "build-result.schema.json",
+        "smoke-result.schema.json",
+        "epoch-receipt.schema.json",
+        "binding-receipt.schema.json",
+        "s5-pending-state.schema.json",
     }
     assert {path.name for path in SCHEMA_DIR.glob("*.schema.json")} == expected
 

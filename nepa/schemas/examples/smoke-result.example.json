@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "tree_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "variant": "release",
+  "artifact": "bin/app",
+  "command": ["bin/app"],
+  "dwell_seconds": 2,
+  "term_grace_seconds": 5,
+  "observed_exit_code": 143,
+  "normalized_exit_code": 143,
+  "stdout": "NEPA_SMOKE {\"state\":\"terminated\",\"exit_code\":143}\n",
+  "stderr": "",
+  "timed_out": false,
+  "sanitizer_clean": true,
+  "status": "passed"
+}

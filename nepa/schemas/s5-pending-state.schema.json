@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/s5-pending-state.schema.json",
+  "title": "NePA S5 E0 pending state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "epoch", "phase", "plan_ref", "input_refs", "blueprint", "constraints", "blueprint_sha256", "rendering_view", "rendering_view_sha256", "expected_files", "build_results", "smoke_results", "checkpoint_commit", "checkpoint_tree", "output_refs"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "epoch": {"const": "E0"}, "phase": {"enum": ["pending", "rendered", "built", "smoked", "checkpointed", "receipted", "accepted"]}, "plan_ref": {"$ref": "#/$defs/ref"},
+    "input_refs": {"type": "object", "additionalProperties": false, "required": ["spec", "target_profile", "test_bundle"], "properties": {"spec": {"$ref": "#/$defs/ref"}, "target_profile": {"$ref": "#/$defs/ref"}, "test_bundle": {"$ref": "#/$defs/ref"}}},
+    "blueprint": {"type": "object"}, "constraints": {"type": "object"}, "blueprint_sha256": {"$ref": "#/$defs/sha256"}, "rendering_view": {"type": "object"}, "rendering_view_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_files": {"type": "array", "items": {"$ref": "#/$defs/file"}}, "build_results": {"type": "array", "items": {"type": "object"}}, "smoke_results": {"type": "array", "items": {"type": "object"}},
+    "checkpoint_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "checkpoint_tree": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "output_refs": {"type": "object", "additionalProperties": false, "properties": {"epoch_receipt": {"$ref": "#/$defs/ref"}, "binding_receipt": {"$ref": "#/$defs/ref"}}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "content"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "content": {"type": "string"}}}
+  }
+}

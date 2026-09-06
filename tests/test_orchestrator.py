@@ -26,6 +26,9 @@ class RecordingController:
     def run(self, context):
         self.order.append(self.stage)
         ref = context.store.publish_immutable_bytes(f"receipts/{self.stage}.json", self.stage.encode())
+        if self.stage == "s5":
+            binding = context.store.publish_immutable_bytes("receipts/s5-binding.json", b"s5-binding")
+            return StageResult(output_refs={"epoch_receipt": ref, "binding_receipt": binding})
         return StageResult(output_refs={"receipt": ref})
 
 

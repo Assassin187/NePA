@@ -71,3 +71,7 @@ sandbox:
   image: nepa-sandbox:latest
   cpu: 2
   mem_gb: 4
+
+smoke:
+  dwell_seconds: 2
+  term_grace_seconds: 5

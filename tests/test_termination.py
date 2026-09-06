@@ -46,6 +46,9 @@ def test_structured_s6_failure_uses_the_same_controlled_exit_path(tmp_path):
             if context.stage == "s6":
                 raise ControlledStageFailure({"code": "S6_STRUCTURED_FAILURE", "detail": "s6 failed"})
             ref = context.store.publish_immutable_bytes(f"receipts/{context.stage}.json", context.stage.encode())
+            if context.stage == "s5":
+                binding = context.store.publish_immutable_bytes("receipts/s5-binding.json", b"s5-binding")
+                return StageResult(output_refs={"epoch_receipt": ref, "binding_receipt": binding})
             return StageResult(output_refs={"receipt": ref})
 
     controller = Orchestrator({stage: S6Failure() for stage in ("s4", "s5", "s6")})

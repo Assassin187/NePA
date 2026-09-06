@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/binding-receipt.schema.json",
+  "title": "NePA E0 binding receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_ref", "epoch_receipt_ref", "manifest_ref", "contract_map_ref"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "plan_ref": {"$ref": "#/$defs/ref"}, "epoch_receipt_ref": {"$ref": "#/$defs/ref"}, "manifest_ref": {"$ref": "#/$defs/ref"}, "contract_map_ref": {"$ref": "#/$defs/ref"}
+  },
+  "$defs": {"ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+}

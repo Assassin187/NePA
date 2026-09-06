@@ -36,7 +36,7 @@ from ..schemas import (
     task_shard_contract,
 )
 from ..speclib.architecture import ArchitectureError, load_architecture_draft, validate_architecture
-from ..speclib.delivery import DeliveryConstraintError, compile_delivery_blueprint, compile_delivery_constraints
+from ..speclib.delivery import DeliveryConstraintError, compile_delivery_blueprint, compile_delivery_constraints, expand_file_rules
 from ..speclib.lint import canonical_json_bytes
 from ..speclib.plan import PlanError, link_plan, plan_lint, normalize_plan_draft
 from ..speclib.planning import (
@@ -526,35 +526,18 @@ def complete_plan_candidate(
 
 def _ledger_paths(completion: CandidateCompletion) -> list[str]:
     expected = _expand_layout_paths(completion.plan["architecture"], completion.constraints)
-    blueprint_paths: list[str] = []
-    for rule in completion.blueprint.get("file_rules", []):
-        pattern = rule.get("path_pattern")
-        expansion = rule.get("expansion")
-        if expansion == "per_message":
-            domain = sorted(set((completion.constraints.get("naming", {}).get("message_ids") or {}).values()), key=lambda value: value.encode("utf-8"))
-            blueprint_paths.extend(pattern.replace("{message_id}", value) for value in domain)
-        elif expansion == "per_type":
-            domain = sorted(set((completion.constraints.get("naming", {}).get("type_ids") or {}).values()), key=lambda value: value.encode("utf-8"))
-            blueprint_paths.extend(pattern.replace("{type_id}", value) for value in domain)
-        else:
-            blueprint_paths.append(pattern)
+    blueprint_paths = [row["path"] for row in expand_file_rules(completion.blueprint, completion.constraints)]
     if sorted(set(blueprint_paths), key=lambda value: value.encode("utf-8")) != expected:
         raise S4ControlledError("Blueprint concrete file paths do not match the accepted layout", code="S4_LEDGER_PATH_INVALID")
     return expected
 
 
 def _ledger_entries(completion: CandidateCompletion) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
-    for item in completion.plan["architecture"].get("layout", {}).get("files", []):
-        if item.get("path") is not None:
-            paths = [item["path"]]
-        else:
-            domain_name = "message_ids" if item.get("expand_over") == "messages" else "type_ids"
-            domain = sorted(set((completion.constraints.get("naming", {}).get(domain_name) or {}).values()), key=lambda value: value.encode("utf-8"))
-            placeholder = "{message_id}" if item.get("expand_over") == "messages" else "{type_id}"
-            paths = [item["path_pattern"].replace(placeholder, value) for value in domain]
-        entries.extend({"path": path, "class": item["class"], "state": "slot_only"} for path in paths)
-    return sorted(entries, key=lambda item: item["path"].encode("utf-8"))
+    class_by_rule = {item["slot_id"]: item["class"] for item in completion.plan["architecture"].get("layout", {}).get("files", [])}
+    return [
+        {"path": row["path"], "class": class_by_rule[row["rule_id"]], "state": "slot_only"}
+        for row in expand_file_rules(completion.blueprint, completion.constraints)
+    ]
 
 
 def _contains_forbidden_key(value: Any, forbidden: set[str]) -> bool:
@@ -579,12 +562,12 @@ def publish_initial_plan(
     plan_ref = store.publish_immutable_json("plan/versions/plan-1.0.0.json", completion.plan, schema_name="plan.schema.json")
     if fault_hook is not None:
         fault_hook("plan_published")
-    file_ledger = {"schema_version": "1.0", "files": _ledger_entries(completion)}
+    file_ledger = {"schema_version": "2.0", "files": _ledger_entries(completion)}
     _require_schema(file_ledger, "file-ledger.schema.json", "initial file ledger")
     file_ref = store.publish_immutable_json("plan/file_ledger.json", file_ledger, schema_name="file-ledger.schema.json")
     if fault_hook is not None:
         fault_hook("file_ledger_published")
-    revision_ledger = {"schema_version": "1.0", "entries": []}
+    revision_ledger = {"schema_version": "2.0", "entries": []}
     _require_schema(revision_ledger, "revision-ledger.schema.json", "initial revision ledger")
     revision_ref = store.publish_immutable_json("plan/revision_ledger.json", revision_ledger, schema_name="revision-ledger.schema.json")
     if fault_hook is not None:
@@ -623,8 +606,8 @@ def _verify_publication(
     revision = _json_ref(store.root, revision_ref, "revision ledger", "revision-ledger.schema.json")
     if plan != completion.plan or pointer != {"version": "1.0.0", "path": anchors["plan"]["path"], "sha256": anchors["plan"]["sha256"], "revision_seq": 0, "epoch": "E0"}:
         raise S4ArtifactDamage("published Plan or active pointer does not match the validated candidate")
-    expected_ledger = {"schema_version": "1.0", "files": _ledger_entries(completion)}
-    if ledger != expected_ledger or revision != {"schema_version": "1.0", "entries": []}:
+    expected_ledger = {"schema_version": "2.0", "files": _ledger_entries(completion)}
+    if ledger != expected_ledger or revision != {"schema_version": "2.0", "entries": []}:
         raise S4ArtifactDamage("initial ledger content is not the validated canonical projection")
     blueprint_path = store._confined("plan/_s4/delivery_blueprint.json")
     if not blueprint_path.is_file():
@@ -1476,7 +1459,7 @@ class S4Controller:
         else:
             current_plan = _json_ref(store.root, {"path": active["path"], "sha256": active["sha256"]}, "current active Plan", "plan.schema.json")
         if output_refs["config_snapshot_sha256"] != run["config_snapshot_sha256"]:
-            raise S4ArtifactDamage("sealed configuration hash disagrees with Run v3")
+            raise S4ArtifactDamage("sealed configuration hash disagrees with Run v4")
         constraints = _json_ref(store.root, {"path": "plan/_s4/delivery_constraints.json", "sha256": _sha(store._confined("plan/_s4/delivery_constraints.json").read_bytes())}, "sealed Delivery Constraints")
         blueprint_path = store._confined("plan/_s4/delivery_blueprint.json")
         if not blueprint_path.is_file():
@@ -1491,30 +1474,55 @@ class S4Controller:
             raise S4ArtifactDamage("sealed Plan input refs do not bind the frozen Run inputs")
         ledger = _json_ref(store.root, {"path": "plan/file_ledger.json", "sha256": _sha(store._confined("plan/file_ledger.json").read_bytes())}, "sealed file ledger", "file-ledger.schema.json")
         revision = _json_ref(store.root, {"path": "plan/revision_ledger.json", "sha256": _sha(store._confined("plan/revision_ledger.json").read_bytes())}, "sealed revision ledger", "revision-ledger.schema.json")
-        expected_entries = []
-        for item in plan["architecture"].get("layout", {}).get("files", []):
-            if item.get("path") is not None:
-                item_paths = [item["path"]]
-            else:
-                domain_name = "message_ids" if item.get("expand_over") == "messages" else "type_ids"
-                domain = sorted(set((constraints.get("naming", {}).get(domain_name) or {}).values()), key=lambda value: value.encode("utf-8"))
-                placeholder = "{message_id}" if item.get("expand_over") == "messages" else "{type_id}"
-                item_paths = [item["path_pattern"].replace(placeholder, value) for value in domain]
-            expected_entries.extend({"path": path, "class": item["class"], "state": "slot_only"} for path in item_paths)
-        expected_entries.sort(key=lambda item: item["path"].encode("utf-8"))
+        class_by_rule = {item["slot_id"]: item["class"] for item in plan["architecture"].get("layout", {}).get("files", [])}
+        expected_entries = [
+            {"path": row["path"], "class": class_by_rule[row["rule_id"]], "state": "slot_only"}
+            for row in expand_file_rules(blueprint, constraints)
+        ]
         if active["revision_seq"] == 0:
-            if ledger != {"schema_version": "1.0", "files": expected_entries} or revision != {"schema_version": "1.0", "entries": []}:
+            initial_ledger = {"schema_version": "2.0", "files": expected_entries}
+            if ledger != initial_ledger and not revision.get("entries"):
                 raise S4ArtifactDamage("sealed initial ledgers do not match the Blueprint")
-        else:
             from ..speclib.plan_revision import PlanRevisionError, validate_revision_ledger
             try:
                 validate_revision_ledger(revision)
             except PlanRevisionError as exc:
                 raise S4ArtifactDamage(str(exc)) from exc
-            if len(revision["entries"]) != active["revision_seq"]:
-                raise S4ArtifactDamage("revision ledger length does not match the active pointer")
-            terminal = revision["entries"][-1]
-            if terminal["to_version"] != active["version"] or terminal["epoch_after"] != active["epoch"] or terminal["to_plan_ref"] != {"path": active["path"], "sha256": active["sha256"]}:
+            if ledger != initial_ledger:
+                class_by_path = {item["path"]: class_by_rule[item["rule_id"]] for item in expand_file_rules(blueprint, constraints)}
+                if {row.get("path") for row in ledger.get("files", [])} != {row["path"] for row in expected_entries} or any(row.get("class") != class_by_path.get(row.get("path")) for row in ledger.get("files", [])):
+                    raise S4ArtifactDamage("materialized file ledger path/class set does not match the Blueprint")
+            if any(entry.get("event_type") == "revision_activated" for entry in revision.get("entries", [])):
+                raise S4ArtifactDamage("initial active pointer cannot coexist with a revision activation")
+            for entry in revision.get("entries", []):
+                if entry.get("event_type") == "epoch_materialized":
+                    payload = entry.get("payload", {})
+                    if payload.get("revision_seq") != 0:
+                        raise S4ArtifactDamage("E0 materialization event has an invalid revision sequence")
+                    store.verify_ref(payload["epoch_receipt_ref"], schema_name="epoch-receipt.schema.json")
+                    store.verify_ref(payload["binding_ref"], schema_name="binding-receipt.schema.json")
+        else:
+            from ..speclib.plan_revision import PlanRevisionError, latest_activation, validate_revision_ledger
+            try:
+                validate_revision_ledger(revision)
+            except PlanRevisionError as exc:
+                raise S4ArtifactDamage(str(exc)) from exc
+            activation = latest_activation(revision)
+            if activation is None or activation.get("revision_seq") != active["revision_seq"]:
+                raise S4ArtifactDamage("revision ledger has no activation matching the active pointer")
+            if revision.get("schema_version") == "2.0":
+                matches = (
+                    activation.get("to_version") == active["version"]
+                    and activation.get("epoch_after") == active["epoch"]
+                    and activation.get("to_plan_ref") == {"path": active["path"], "sha256": active["sha256"]}
+                )
+            else:
+                matches = (
+                    activation.get("to_version") == active["version"]
+                    and activation.get("epoch_after") == active["epoch"]
+                    and activation.get("to_plan_ref") == {"path": active["path"], "sha256": active["sha256"]}
+                )
+            if not matches:
                 raise S4ArtifactDamage("revision ledger terminal entry does not bind the active pointer")
             if not store._confined("plan/plan_state.json").is_file():
                 raise S4ArtifactDamage("current active Plan State is missing")

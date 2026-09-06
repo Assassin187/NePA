@@ -1,26 +1,132 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.local/schemas/revision-ledger.schema.json",
-  "title": "NePA append-only revision ledger",
-  "type": "object", "additionalProperties": false,
+  "title": "NePA typed append-only revision ledger v2",
+  "type": "object",
+  "additionalProperties": false,
   "required": ["schema_version", "entries"],
-  "properties": {"schema_version": {"const": "1.0"}, "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}},
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}
+  },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "trigger": {"type": "object", "additionalProperties": false, "required": ["code", "evidence_refs"], "properties": {"code": {"type": "string", "minLength": 1}, "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}}},
-    "patch": {"type": "object", "additionalProperties": false, "required": ["op"], "properties": {"op": {"enum": ["split_task", "merge_tasks", "rewrite_instructions", "add_contract", "remove_contract", "re_adopt"]}, "target_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "into": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}}, "merged_from": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}}}},
-    "counts": {"type": "object", "additionalProperties": false, "required": ["inherit", "revalidate", "amend", "regenerate"], "properties": {"inherit": {"type": "integer", "minimum": 0}, "revalidate": {"type": "integer", "minimum": 0}, "amend": {"type": "integer", "minimum": 0}, "regenerate": {"type": "integer", "minimum": 0}}},
-    "task": {"type": "object", "additionalProperties": false, "required": ["old_task_id", "old_task_uid", "new_task_id", "new_task_uid", "classification", "reason", "old_attempts"], "properties": {"old_task_id": {"type": ["string", "null"], "pattern": "^T-[0-9]{3}$"}, "old_task_uid": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"}, "merged_from": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}}, "merged_from_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^T-[0-9]{3}$"}}, "new_task_id": {"type": ["string", "null"], "pattern": "^T-[0-9]{3}$"}, "new_task_uid": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"}, "classification": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]}, "reason": {"type": "string", "minLength": 1}, "old_attempts": {"type": "integer", "minimum": 0}}},
-    "file": {"type": "object", "additionalProperties": false, "required": ["path", "old_owner_uid", "new_owner_uid", "classification"], "properties": {"path": {"type": "string", "minLength": 1}, "old_owner_uid": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"}, "new_owner_uid": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"}, "classification": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]}}},
-    "migration": {"type": "object", "additionalProperties": false, "required": ["counts", "tasks", "files"], "properties": {"counts": {"$ref": "#/$defs/counts"}, "tasks": {"type": "array", "items": {"$ref": "#/$defs/task"}}, "files": {"type": "array", "items": {"$ref": "#/$defs/file"}}}},
+    "ref": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "eventRef": {"type": "object", "additionalProperties": false, "required": ["event_seq"], "properties": {"event_seq": {"type": "integer", "minimum": 1}}},
+    "trigger": {
+      "type": "object", "additionalProperties": false,
+      "required": ["boundary_key", "plan_ref", "hit_code", "hit_signature", "evidence_refs", "selected", "reason"],
+      "properties": {
+        "boundary_key": {"type": "object", "additionalProperties": true},
+        "plan_ref": {"$ref": "#/$defs/ref"},
+        "hit_code": {"type": "string", "minLength": 1},
+        "hit_signature": {"$ref": "#/$defs/sha256"},
+        "evidence_refs": {"$ref": "#/$defs/refs"},
+        "selected": {"type": ["boolean", "null"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "candidateRejected": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "trigger_event_seq", "level", "failed_gate", "reason", "evidence_refs"],
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1},
+        "trigger_event_seq": {"type": "integer", "minimum": 1},
+        "level": {"enum": ["F1", "F2", "F3"]},
+        "failed_gate": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence_refs": {"$ref": "#/$defs/refs"}
+      }
+    },
+    "migrationTask": {
+      "type": "object", "additionalProperties": false,
+      "required": ["old_task_id", "old_task_uid", "new_task_id", "new_task_uid", "classification", "reason", "old_attempts"],
+      "properties": {
+        "old_task_id": {"type": ["string", "null"]}, "old_task_uid": {"type": ["string", "null"]},
+        "new_task_id": {"type": ["string", "null"]}, "new_task_uid": {"type": ["string", "null"]},
+        "merged_from": {"type": "array", "items": {"type": "string"}}, "merged_from_ids": {"type": "array", "items": {"type": "string"}},
+        "classification": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]},
+        "reason": {"type": "string", "minLength": 1}, "old_attempts": {"type": "integer", "minimum": 0}
+      }
+    },
+    "migrationFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "old_owner_uid", "new_owner_uid", "classification"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "old_owner_uid": {"type": ["string", "null"]}, "new_owner_uid": {"type": ["string", "null"]}, "classification": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]}}
+    },
+    "migration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["counts", "tasks", "files"],
+      "properties": {
+        "counts": {"type": "object", "additionalProperties": false, "required": ["inherit", "revalidate", "amend", "regenerate"], "properties": {"inherit": {"type": "integer", "minimum": 0}, "revalidate": {"type": "integer", "minimum": 0}, "amend": {"type": "integer", "minimum": 0}, "regenerate": {"type": "integer", "minimum": 0}}},
+        "tasks": {"type": "array", "items": {"$ref": "#/$defs/migrationTask"}},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/migrationFile"}}
+      }
+    },
+    "activation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision_seq", "from_version", "to_version", "from_plan_ref", "to_plan_ref", "level", "trigger_event_seq", "trigger_signature", "patch_ops", "migration", "preservation_rate", "rework_cost_estimate_usd", "gates", "epoch_after", "activated_at_commit", "binding_ref", "pending_materialization"],
+      "properties": {
+        "revision_seq": {"type": "integer", "minimum": 1}, "from_version": {"type": "string"}, "to_version": {"type": "string"},
+        "from_plan_ref": {"$ref": "#/$defs/ref"}, "to_plan_ref": {"$ref": "#/$defs/ref"},
+        "level": {"enum": ["F2", "F3"]}, "trigger_event_seq": {"type": "integer", "minimum": 1}, "trigger_signature": {"$ref": "#/$defs/sha256"},
+        "patch_ops": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "migration": {"$ref": "#/$defs/migration"},
+        "preservation_rate": {"type": "number", "minimum": 0, "maximum": 1}, "rework_cost_estimate_usd": {"type": "number", "minimum": 0},
+        "gates": {"type": "object", "additionalProperties": false, "required": ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"], "properties": {"RG-1": {"enum": ["pass", "fail"]}, "RG-2": {"enum": ["pass", "fail"]}, "RG-3": {"enum": ["pass", "fail"]}, "RG-4": {"enum": ["pass", "fail"]}, "RG-5": {"enum": ["pass", "fail"]}}},
+        "epoch_after": {"type": "string", "pattern": "^E[0-9]+$"}, "activated_at_commit": {"$ref": "#/$defs/commit"},
+        "binding_ref": {"type": ["object", "null"]}, "pending_materialization": {"type": "boolean"}
+      }
+    },
+    "epoch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision_seq", "epoch_receipt_ref", "binding_ref"],
+      "properties": {"revision_seq": {"type": "integer", "minimum": 0}, "epoch_receipt_ref": {"$ref": "#/$defs/ref"}, "binding_ref": {"$ref": "#/$defs/ref"}}
+    },
+    "leaseStarted": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lease_id", "task_uid", "leased_uids", "leased_paths", "baseline_commit", "execution_count", "authorization_ref"],
+      "properties": {"lease_id": {"type": "string"}, "task_uid": {"type": "string"}, "leased_uids": {"type": "array", "items": {"type": "string"}}, "leased_paths": {"type": "array", "items": {"type": "string"}}, "baseline_commit": {"$ref": "#/$defs/commit"}, "execution_count": {"type": "integer", "minimum": 0}, "authorization_ref": {"$ref": "#/$defs/ref"}}
+    },
+    "leaseFinished": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lease_id", "success", "reason", "joint_evidence_ref", "commit_sha", "call_refs"],
+      "properties": {"lease_id": {"type": "string"}, "success": {"type": "boolean"}, "reason": {"type": ["string", "null"]}, "joint_evidence_ref": {"type": ["object", "null"]}, "commit_sha": {"type": ["string", "null"]}, "call_refs": {"$ref": "#/$defs/refs"}}
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verification_id", "kind", "member_uids", "evidence_refs", "commit_sha", "revision_seq"],
+      "properties": {"verification_id": {"type": "string"}, "kind": {"type": "string"}, "member_uids": {"type": "array", "items": {"type": "string"}}, "evidence_refs": {"$ref": "#/$defs/refs"}, "commit_sha": {"$ref": "#/$defs/commit"}, "revision_seq": {"type": "integer", "minimum": 0}}
+    },
+    "evaluation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision_seq", "evaluated_at", "obligation_anchors", "resolved", "ineffective", "evidence_refs", "call_refs", "cost_usd"],
+      "properties": {"revision_seq": {"type": "integer", "minimum": 0}, "evaluated_at": {"type": "string", "minLength": 1}, "obligation_anchors": {"type": "array", "items": {"type": "string"}}, "resolved": {"type": "boolean"}, "ineffective": {"type": "boolean"}, "evidence_refs": {"$ref": "#/$defs/refs"}, "call_refs": {"$ref": "#/$defs/refs"}, "cost_usd": {"type": "number", "minimum": 0}}
+    },
     "entry": {
       "type": "object", "additionalProperties": false,
-      "required": ["revision_seq", "prev_entry_sha256", "from_plan_ref", "to_plan_ref", "from_version", "to_version", "level", "trigger", "trigger_signature", "patch_ops", "migration", "preservation_rate", "gates", "epoch_after", "activated_at_commit", "cost_usd"],
+      "required": ["event_seq", "event_type", "prev_entry_sha256", "payload"],
       "properties": {
-        "revision_seq": {"type": "integer", "minimum": 1}, "prev_entry_sha256": {"$ref": "#/$defs/sha256"}, "from_plan_ref": {"$ref": "#/$defs/ref"}, "to_plan_ref": {"$ref": "#/$defs/ref"}, "from_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "to_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "level": {"enum": ["F1", "F2", "F3"]}, "trigger": {"$ref": "#/$defs/trigger"}, "trigger_signature": {"$ref": "#/$defs/sha256"}, "patch_ops": {"type": "array", "items": {"$ref": "#/$defs/patch"}}, "migration": {"$ref": "#/$defs/migration"}, "preservation_rate": {"type": "number", "minimum": 0, "maximum": 1}, "gates": {"type": "object", "additionalProperties": false, "required": ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"], "properties": {"RG-1": {"enum": ["pass", "fail"]}, "RG-2": {"enum": ["pass", "fail"]}, "RG-3": {"enum": ["pass", "fail"]}, "RG-4": {"enum": ["pass", "fail"]}, "RG-5": {"enum": ["pass", "fail"]}}}, "epoch_after": {"type": "string", "pattern": "^E[0-9]+$"}, "activated_at_commit": {"$ref": "#/$defs/commit"}, "cost_usd": {"type": "number", "minimum": 0}
-      }
+        "event_seq": {"type": "integer", "minimum": 1},
+        "event_type": {"enum": ["trigger_evaluated", "candidate_rejected", "revision_activated", "epoch_materialized", "lease_started", "lease_finished", "verification_committed", "revision_evaluated"]},
+        "prev_entry_sha256": {"$ref": "#/$defs/sha256"},
+        "payload": {"type": "object"}
+      },
+      "oneOf": [
+        {"properties": {"event_type": {"const": "trigger_evaluated"}, "payload": {"$ref": "#/$defs/trigger"}}},
+        {"properties": {"event_type": {"const": "candidate_rejected"}, "payload": {"$ref": "#/$defs/candidateRejected"}}},
+        {"properties": {"event_type": {"const": "revision_activated"}, "payload": {"$ref": "#/$defs/activation"}}},
+        {"properties": {"event_type": {"const": "epoch_materialized"}, "payload": {"$ref": "#/$defs/epoch"}}},
+        {"properties": {"event_type": {"const": "lease_started"}, "payload": {"$ref": "#/$defs/leaseStarted"}}},
+        {"properties": {"event_type": {"const": "lease_finished"}, "payload": {"$ref": "#/$defs/leaseFinished"}}},
+        {"properties": {"event_type": {"const": "verification_committed"}, "payload": {"$ref": "#/$defs/verification"}}},
+        {"properties": {"event_type": {"const": "revision_evaluated"}, "payload": {"$ref": "#/$defs/evaluation"}}}
+      ]
     }
   }
 }

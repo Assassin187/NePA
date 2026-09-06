@@ -27,6 +27,9 @@ class Recording:
     def run(self, context):
         self.calls.append(self.stage)
         ref = context.store.publish_immutable_bytes(f"receipts/{self.stage}.json", self.stage.encode())
+        if self.stage == "s5":
+            binding = context.store.publish_immutable_bytes("receipts/s5-binding.json", b"s5-binding")
+            return StageResult(output_refs={"epoch_receipt": ref, "binding_receipt": binding})
         return StageResult(output_refs={"receipt": ref})
 
 
@@ -146,6 +149,7 @@ def test_crash_window_output_publication_replays_immutable_output_with_fresh_ins
     assert output.read_bytes() == before
     assert sorted(path.relative_to(store.root).as_posix() for path in (store.root / "receipts").glob("*")) == [
         "receipts/s4.json",
+        "receipts/s5-binding.json",
         "receipts/s5.json",
         "receipts/s6.json",
     ]

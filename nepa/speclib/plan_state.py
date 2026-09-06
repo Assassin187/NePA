@@ -163,17 +163,30 @@ def plan_state_snapshot_lint(
         total_limit = 4
     ledger_value = _read(revision_ledger, "revision ledger") if revision_ledger is not None else None
     if ledger_value is not None:
-        from .plan_revision import PlanRevisionError, validate_revision_ledger
+        from .plan_revision import PlanRevisionError, latest_activation, validate_revision_ledger
         try:
             validate_revision_ledger(ledger_value)
         except PlanRevisionError as exc:
             errors.append(_issue("STATE_REVISION_LEDGER_INVALID", "/revision_ledger", str(exc)))
         current_ref = state_value.get("plan_ref", {})
         entries = ledger_value.get("entries", []) if isinstance(ledger_value, Mapping) else []
-        if current_ref.get("revision_seq") != len(entries):
-            errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref/revision_seq", "Plan State revision sequence does not equal the complete revision ledger"))
-        if entries and (entries[-1].get("to_version") != current_ref.get("version") or entries[-1].get("epoch_after") != current_ref.get("epoch")):
-            errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref", "Plan State does not bind the terminal revision ledger entry"))
+        activation = latest_activation(ledger_value) if not errors else None
+        if ledger_value.get("schema_version") == "2.0":
+            if activation is None:
+                if current_ref.get("revision_seq") != 0:
+                    errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref/revision_seq", "Plan State has a revision sequence without an accepted activation"))
+            elif (
+                activation.get("revision_seq") != current_ref.get("revision_seq")
+                or activation.get("to_version") != current_ref.get("version")
+                or activation.get("epoch_after") != current_ref.get("epoch")
+                or activation.get("to_plan_ref") != {"path": current_ref.get("path"), "sha256": current_ref.get("sha256")}
+            ):
+                errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref", "Plan State does not bind the latest accepted activation"))
+        else:
+            if current_ref.get("revision_seq") != len(entries):
+                errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref/revision_seq", "Plan State revision sequence does not equal the complete revision ledger"))
+            if entries and (entries[-1].get("to_version") != current_ref.get("version") or entries[-1].get("epoch_after") != current_ref.get("epoch")):
+                errors.append(_issue("STATE_REVISION_BINDING_INVALID", "/plan_ref", "Plan State does not bind the terminal revision ledger entry"))
     for index, task in enumerate(state_value.get("tasks", [])):
         base = f"/tasks/{index}"
         status = task.get("status")

@@ -57,7 +57,7 @@ def _validate_complete_inputs(
         (old_state, "plan-state.schema.json", "old Plan State"),
         (file_ledger, "file-ledger.schema.json", "file ledger"),
     ):
-        errors = _schema_errors(value, schema)
+        errors = [] if schema == "file-ledger.schema.json" and value.get("schema_version") == "1.0" else _schema_errors(value, schema)
         if errors:
             raise PlanRevisionError(f"{label} failed Schema validation: {'; '.join(errors)}")
     _validate_unique_task_uids(old_plan, "old Plan")
@@ -332,6 +332,19 @@ def validate_migration_report(
 
 
 def validate_file_ledger(ledger: Mapping[str, Any]) -> None:
+    # Historical v1 ledgers remain readable by the historical revision
+    # helpers.  Fresh-run publication and all S5 writers use v2 exclusively;
+    # this branch is not an in-place migration path.
+    if ledger.get("schema_version") == "1.0":
+        if not isinstance(ledger.get("files"), list):
+            raise PlanRevisionError("legacy file ledger files must be an array")
+        paths = [row.get("path") for row in ledger["files"] if isinstance(row, Mapping)]
+        if len(paths) != len(set(paths)):
+            raise PlanRevisionError("file ledger paths must be unique")
+        for row in ledger["files"]:
+            if not isinstance(row, Mapping) or row.get("state") not in {"slot_only", "realized", "quarantined"}:
+                raise PlanRevisionError("legacy file ledger row is invalid")
+        return
     errors = _schema_errors(ledger, "file-ledger.schema.json")
     if errors:
         raise PlanRevisionError("file ledger failed Schema validation: " + "; ".join(errors))
@@ -340,7 +353,7 @@ def validate_file_ledger(ledger: Mapping[str, Any]) -> None:
         raise PlanRevisionError("file ledger paths must be unique")
     for row in ledger.get("files", []):
         state = row["state"]
-        if state == "slot_only" and any(key in row for key in ("created_in_epoch", "content_sha256", "last_commit_sha", "verified_by", "owner_history", "quarantined_in_epoch", "quarantine_path")):
+        if state == "slot_only" and any(key in row for key in ("created_in_epoch", "content_sha256", "last_commit_sha", "verified_by", "owner_history", "created_by_stage", "epoch_receipt_ref", "quarantined_in_epoch", "quarantine_path")):
             raise PlanRevisionError("slot_only file rows cannot carry realization evidence")
         if state == "realized" and any(key in row for key in ("quarantined_in_epoch", "quarantine_path")):
             raise PlanRevisionError("realized file rows cannot carry quarantine evidence")
@@ -554,15 +567,18 @@ def project_file_ledger(
             result.append(quarantined)
         elif path not in active_paths and old.get("state") == "quarantined":
             result.append(copy.deepcopy(old))
-    ledger = {"schema_version": "1.0", "files": result}
+    ledger = {"schema_version": "2.0" if old_ledger.get("schema_version") == "2.0" else "1.0", "files": result}
     validate_file_ledger(ledger)
     return ledger
 
 
-def validate_revision_ledger(ledger: Mapping[str, Any]) -> None:
-    errors = _schema_errors(ledger, "revision-ledger.schema.json")
-    if errors:
-        raise PlanRevisionError("revision ledger failed Schema validation: " + "; ".join(errors))
+def _validate_revision_ledger_v1(ledger: Mapping[str, Any]) -> None:
+    if ledger.get("schema_version") != "1.0" or not isinstance(ledger.get("entries"), list):
+        raise PlanRevisionError("legacy revision ledger shape is invalid")
+    required = {"revision_seq", "prev_entry_sha256", "from_plan_ref", "to_plan_ref", "from_version", "to_version", "level", "trigger", "trigger_signature", "patch_ops", "migration", "preservation_rate", "gates", "epoch_after", "activated_at_commit", "cost_usd"}
+    for entry in ledger["entries"]:
+        if not isinstance(entry, Mapping) or set(entry) != required:
+            raise PlanRevisionError("legacy revision entry shape is invalid")
     previous = _ZERO_HASH
     expected_seq = 1
     previous_version = "1.0.0"
@@ -611,6 +627,119 @@ def validate_revision_ledger(ledger: Mapping[str, Any]) -> None:
         previous_version = entry["to_version"]
         previous_epoch = entry["epoch_after"]
         expected_seq += 1
+
+
+_EVENT_TYPES = {
+    "trigger_evaluated", "candidate_rejected", "revision_activated", "epoch_materialized",
+    "lease_started", "lease_finished", "verification_committed", "revision_evaluated",
+}
+
+
+def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
+    errors = _schema_errors(ledger, "revision-ledger.schema.json")
+    if errors:
+        raise PlanRevisionError("revision ledger failed Schema validation: " + "; ".join(errors))
+    previous = _ZERO_HASH
+    expected_seq = 1
+    latest_revision = 0
+    accepted_events: set[int] = set()
+    activation_by_seq: dict[int, Mapping[str, Any]] = {}
+    for entry in ledger.get("entries", []):
+        if entry["event_seq"] != expected_seq or entry["prev_entry_sha256"] != previous:
+            raise PlanRevisionError("revision ledger event sequence or predecessor hash is invalid")
+        if entry["event_type"] not in _EVENT_TYPES:
+            raise PlanRevisionError("revision ledger event type is unsupported")
+        payload = entry["payload"]
+        if entry["event_type"] in {"candidate_rejected", "epoch_materialized", "revision_activated"}:
+            ref_events = []
+            for key in ("trigger_event_seq",):
+                if key in payload:
+                    ref_events.append(payload[key])
+            if entry["event_type"] == "epoch_materialized":
+                if payload["revision_seq"] != latest_revision:
+                    raise PlanRevisionError("epoch materialization revision sequence disagrees with latest activation")
+            if any(not isinstance(value, int) or value >= entry["event_seq"] or value not in accepted_events for value in ref_events):
+                raise PlanRevisionError("revision ledger event references a future or unaccepted event")
+        if entry["event_type"] == "revision_activated":
+            if payload["revision_seq"] != latest_revision + 1:
+                raise PlanRevisionError("revision activation sequence is not consecutive")
+            if payload["pending_materialization"] is False and payload.get("binding_ref") is None:
+                raise PlanRevisionError("accepted activation without pending materialization requires a binding ref")
+            latest_revision = payload["revision_seq"]
+            activation_by_seq[latest_revision] = payload
+        if entry["event_type"] == "epoch_materialized":
+            if payload["revision_seq"] == 0 and latest_revision != 0:
+                raise PlanRevisionError("E0 materialization cannot follow a revision activation")
+        accepted_events.add(entry["event_seq"])
+        previous = _sha(entry)
+        expected_seq += 1
+
+
+def validate_revision_ledger(ledger: Mapping[str, Any]) -> None:
+    version = ledger.get("schema_version")
+    if version == "1.0":
+        _validate_revision_ledger_v1(ledger)
+        return
+    if version == "2.0":
+        _validate_revision_ledger_v2(ledger)
+        return
+    raise PlanRevisionError("revision ledger schema version is unsupported")
+
+
+def latest_activation(ledger: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return the most recent accepted activation payload, ignoring tails."""
+
+    validate_revision_ledger(ledger)
+    if ledger.get("schema_version") == "1.0":
+        return ledger["entries"][-1] if ledger.get("entries") else None
+    for entry in reversed(ledger.get("entries", [])):
+        if entry.get("event_type") == "revision_activated":
+            return entry["payload"]
+    return None
+
+
+def build_event_entry(ledger: Mapping[str, Any], event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    if ledger.get("schema_version") != "2.0":
+        raise PlanRevisionError("typed events require a v2 revision ledger")
+    validate_revision_ledger(ledger)
+    if event_type not in _EVENT_TYPES:
+        raise PlanRevisionError(f"unsupported typed revision event {event_type!r}")
+    entry = {
+        "event_seq": len(ledger.get("entries", [])) + 1,
+        "event_type": event_type,
+        "prev_entry_sha256": _sha(ledger["entries"][-1]) if ledger.get("entries") else _ZERO_HASH,
+        "payload": copy.deepcopy(dict(payload)),
+    }
+    errors = _schema_errors({"schema_version": "2.0", "entries": [entry]}, "revision-ledger.schema.json")
+    if errors:
+        raise PlanRevisionError("typed revision event failed Schema validation: " + "; ".join(errors))
+    return entry
+
+
+def append_epoch_materialized(
+    ledger: Mapping[str, Any],
+    *,
+    epoch_receipt_ref: Mapping[str, Any],
+    binding_ref: Mapping[str, Any],
+    revision_seq: int = 0,
+) -> dict[str, Any]:
+    """Append the accepted E0 fact exactly once."""
+
+    current = copy.deepcopy(dict(ledger))
+    if current.get("schema_version") != "2.0":
+        raise PlanRevisionError("epoch materialization requires a v2 revision ledger")
+    validate_revision_ledger(current)
+    payload = {"revision_seq": revision_seq, "epoch_receipt_ref": dict(epoch_receipt_ref), "binding_ref": dict(binding_ref)}
+    for entry in current["entries"]:
+        if entry.get("event_type") != "epoch_materialized":
+            continue
+        if entry.get("payload") == payload:
+            return current
+        if entry.get("payload", {}).get("revision_seq") == revision_seq:
+            raise PlanRevisionError("conflicting epoch materialization fact")
+    current["entries"].append(build_event_entry(current, "epoch_materialized", payload))
+    validate_revision_ledger(current)
+    return current
 
 
 def append_revision_entry(ledger: Mapping[str, Any], entry: Mapping[str, Any]) -> dict[str, Any]:

@@ -493,7 +493,7 @@ def compile_delivery_blueprint(
         if link_set_id in {item["id"] for item in link_sets}:
             raise DeliveryConstraintError(f"link source set id {link_set_id!r} is not unique", code="BLUEPRINT_LINK_SOURCE_INVALID")
         link_sets.append({"id": link_set_id, "file_rule_ids": sorted(source_ids, key=lambda value: value.encode("utf-8"))})
-        artifacts.append({"id": artifact_id, "deliverable_id": delivery_roles[0] if delivery_roles else "server", "link_source_set_id": link_set_id, "path": output_path, "build_variant_ids": sorted(constraints.get("build_variant_ids", []), key=lambda value: value.encode("utf-8"))})
+        artifacts.append({"id": artifact_id, "deliverable_id": delivery_roles[0] if delivery_roles else "server", "link_source_set_id": link_set_id, "entry_file_slot": entry_id, "path": output_path, "build_variant_ids": sorted(constraints.get("build_variant_ids", []), key=lambda value: value.encode("utf-8"))})
     expected_shape = constraints.get("hard", {}).get("delivery_shape", {})
     if len(artifacts) != expected_shape.get("executable_artifact_count", len(artifacts)):
         raise DeliveryConstraintError("build artifact count does not match delivery shape", code="BLUEPRINT_ARTIFACT_CARDINALITY")
@@ -560,12 +560,53 @@ def canonical_delivery_blueprint(blueprint: Mapping[str, Any]) -> dict[str, Any]
     return json.loads(canonical_json_bytes(dict(blueprint)).decode("utf-8"))
 
 
+def expand_file_rules(blueprint: Mapping[str, Any], constraints: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Expand the already-compiled Blueprint into concrete file records.
+
+    This is intentionally the only public path expansion used by S4 and S5.
+    It consumes the compiler's explicit ``expansion`` field and never derives
+    behavior from a path suffix or purpose text.
+    """
+
+    blueprint = canonical_delivery_blueprint(blueprint)
+    concrete: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    naming = constraints.get("naming", {}) if isinstance(constraints, Mapping) else {}
+    domains = {
+        "per_message": sorted(set((naming.get("message_ids") or {}).values()), key=lambda value: str(value).encode("utf-8")),
+        "per_type": sorted(set((naming.get("type_ids") or {}).values()), key=lambda value: str(value).encode("utf-8")),
+    }
+    for rule in blueprint.get("file_rules", []):
+        expansion = rule.get("expansion", "none")
+        pattern = rule.get("path_pattern")
+        if not isinstance(pattern, str):
+            raise DeliveryConstraintError("Blueprint file rule path_pattern must be a string", code="BLUEPRINT_PATH_INVALID")
+        if expansion == "none":
+            paths = [pattern]
+        elif expansion in domains:
+            placeholder = "{message_id}" if expansion == "per_message" else "{type_id}"
+            paths = [pattern.replace(placeholder, value) for value in domains[expansion]]
+        else:
+            raise DeliveryConstraintError(f"unsupported Blueprint expansion {expansion!r}", code="BLUEPRINT_EXPANSION_INVALID")
+        for path in paths:
+            _safe_relative_path(path, "expanded Blueprint path")
+            if path in seen:
+                raise DeliveryConstraintError(f"expanded Blueprint path {path!r} is duplicated", code="BLUEPRINT_PATH_DUPLICATE")
+            seen.add(path)
+            row = dict(rule)
+            row["rule_id"] = rule["id"]
+            row["path"] = path
+            concrete.append(row)
+    return sorted(concrete, key=lambda item: (item["path"].encode("utf-8"), item["rule_id"].encode("utf-8")))
+
+
 __all__ = [
     "DeliveryConstraintError",
     "canonical_layout_convention",
     "canonical_delivery_blueprint",
     "compile_delivery_blueprint",
     "compile_delivery_constraints",
+    "expand_file_rules",
     "layout_convention_id",
     "load_layout_convention",
     "normalize_identifier",

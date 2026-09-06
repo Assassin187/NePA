@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -175,7 +176,7 @@ class RunStore:
     def _canonical_run_bytes(self, run: Mapping[str, Any]) -> bytes:
         errors = _schema_errors(dict(run), "run.schema.json")
         if errors:
-            raise RunValidationError("invalid Run v3: " + "; ".join(item["message"] for item in errors))
+            raise RunValidationError("invalid Run v4: " + "; ".join(item["message"] for item in errors))
         try:
             return canonical_json_bytes(dict(run))
         except (TypeError, ValueError) as exc:
@@ -255,6 +256,194 @@ class RunStore:
         return ArtifactRef(relative_path, sha256_bytes(data))
 
     @staticmethod
+    def _s5_fault(fault_hook: Callable[[str], None] | None, point: str) -> None:
+        if fault_hook is not None:
+            fault_hook(point)
+
+    def publish_s5_e0(self, bundle: Mapping[str, Any], fault_hook: Callable[[str], None] | None = None) -> dict[str, ArtifactRef]:
+        """Publish one deterministic E0 suffix after the caller's run lock is held."""
+
+        from .speclib.materialization import build_artifact_manifest, build_contract_map, project_e0_file_ledger
+        from .tools.git_ops import checkpoint_workspace
+
+        workspace_relative = str(bundle.get("workspace", "workspace"))
+        workspace = self._confined(workspace_relative)
+        rendered_files = bundle.get("rendered_files")
+        view = bundle.get("rendering_view")
+        blueprint = bundle.get("blueprint")
+        plan_ref = bundle.get("plan_ref")
+        build_results = bundle.get("build_results", [])
+        smoke_results = bundle.get("smoke_results", [])
+        if not isinstance(rendered_files, Mapping) or not isinstance(view, Mapping) or not isinstance(blueprint, Mapping) or not isinstance(plan_ref, Mapping):
+            raise RunValidationError("S5 publication bundle is incomplete")
+        if not all(isinstance(path, str) and isinstance(data, bytes) for path, data in rendered_files.items()):
+            raise RunValidationError("S5 rendered files must be a path-to-bytes map")
+        expected_files = [
+            {"path": path, "sha256": sha256_bytes(data), "content": data.decode("utf-8")}
+            for path, data in sorted(rendered_files.items(), key=lambda item: item[0].encode("utf-8"))
+        ]
+        run = self.load_run()
+        pending = {
+            "schema_version": "1.0", "epoch": "E0", "phase": "pending", "plan_ref": dict(plan_ref),
+            "input_refs": {
+                key: {"path": path, "sha256": run["inputs"][key]["sha256"]}
+                for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))
+            },
+            "blueprint": dict(blueprint), "constraints": dict(bundle.get("constraints", {})),
+            "blueprint_sha256": self._canonical_value_hash(blueprint), "rendering_view": dict(view),
+            "rendering_view_sha256": self._canonical_value_hash(view), "expected_files": expected_files,
+            "build_results": list(build_results), "smoke_results": list(smoke_results),
+            "checkpoint_commit": None, "checkpoint_tree": None, "output_refs": {},
+        }
+        pending_path = "plan/epochs/E0/pending.json"
+        existing_pending: dict[str, Any] | None = None
+        if self._confined(pending_path).exists():
+            existing_pending = self._read_json_artifact(pending_path, schema_name="s5-pending-state.schema.json")
+            stable_keys = ("plan_ref", "input_refs", "blueprint", "constraints", "blueprint_sha256", "rendering_view", "rendering_view_sha256", "expected_files", "build_results", "smoke_results")
+            if any(existing_pending.get(key) != pending[key] for key in stable_keys):
+                raise ArtifactConflict("pending E0 record does not match the current sealed materialization")
+        if existing_pending is None or existing_pending.get("checkpoint_commit") is None:
+            self.replace_json(pending_path, pending, schema_name="s5-pending-state.schema.json")
+            self._s5_fault(fault_hook, "pending_written")
+        else:
+            pending = existing_pending
+        from .tools.git_ops import verify_checkpoint
+        if pending.get("checkpoint_commit") is not None and pending.get("checkpoint_tree") is not None:
+            checkpoint = {"commit_sha": pending["checkpoint_commit"], "tree_sha": pending["checkpoint_tree"]}
+            verify_checkpoint(workspace, {"commit_sha": checkpoint["commit_sha"], "tree_sha": checkpoint["tree_sha"]})
+            actual = {
+                item.relative_to(workspace).as_posix(): item.read_bytes()
+                for item in workspace.rglob("*") if item.is_file() and ".git" not in item.parts
+            }
+            if actual != dict(rendered_files):
+                raise ArtifactConflict("checkpointed E0 workspace differs from its recorded source tree")
+        else:
+            workspace.mkdir(parents=True, exist_ok=True)
+            for path, data in rendered_files.items():
+                target = (workspace / path).resolve()
+                try:
+                    target.relative_to(workspace.resolve())
+                except ValueError as exc:
+                    raise PathConfinementError(f"rendered path escapes workspace: {path}") from exc
+                if target.exists() and target.read_bytes() != data:
+                    raise ArtifactConflict(f"rendered workspace file differs at {path}")
+                self._write_atomic_at(target, data)
+            checkpoint = checkpoint_workspace(workspace, rendered_files.keys(), plan_version="1.0.0", epoch="E0")
+        pending.update({"phase": "checkpointed", "checkpoint_commit": checkpoint["commit_sha"], "checkpoint_tree": checkpoint["tree_sha"]})
+        self.replace_json(pending_path, pending, schema_name="s5-pending-state.schema.json")
+        self._s5_fault(fault_hook, "checkpoint_created")
+
+        build_refs: list[dict[str, str]] = []
+        for result in build_results:
+            variant = str(result.get("variant", "unknown"))
+            ref = self.publish_immutable_json(f"plan/epochs/E0/build/{variant}.json", result, schema_name="build-result.schema.json")
+            build_refs.append(ref.as_dict())
+            self._s5_fault(fault_hook, f"build_evidence_published:{variant}")
+        smoke_refs: list[dict[str, str]] = []
+        for index, result in enumerate(smoke_results):
+            variant = str(result.get("variant", "unknown")); artifact = str(result.get("artifact", index)).replace("/", "_")
+            ref = self.publish_immutable_json(f"plan/epochs/E0/smoke/{variant}_{artifact}.json", result, schema_name="smoke-result.schema.json")
+            smoke_refs.append(ref.as_dict())
+            self._s5_fault(fault_hook, f"smoke_evidence_published:{variant}:{artifact}")
+        view_with_files = {**dict(view), "rendered_files": dict(rendered_files)}
+        manifest = build_artifact_manifest(plan_ref, blueprint, view_with_files, "E0")
+        contract_map = build_contract_map(plan_ref, blueprint, view_with_files, "E0")
+        manifest_ref = self.publish_immutable_json("plan/bindings/1.0.0/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
+        map_ref = self.publish_immutable_json("plan/bindings/1.0.0/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        self._s5_fault(fault_hook, "manifest_map_published")
+        epoch_receipt = {
+            "schema_version": "1.0", "epoch": "E0", "materialized_plan_ref": dict(plan_ref),
+            "blueprint_sha256": self._canonical_value_hash(blueprint), "checkpoint_commit": checkpoint["commit_sha"],
+            "checkpoint_tree": checkpoint["tree_sha"], "materialization_status": "ready",
+            "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "pending_group_ids": [],
+        }
+        epoch_ref = self.publish_immutable_json("plan/epochs/E0/receipt.json", epoch_receipt, schema_name="epoch-receipt.schema.json")
+        self._s5_fault(fault_hook, "epoch_receipt_published")
+        binding_receipt = {
+            "schema_version": "1.0", "plan_ref": dict(plan_ref), "epoch_receipt_ref": epoch_ref.as_dict(),
+            "manifest_ref": manifest_ref.as_dict(), "contract_map_ref": map_ref.as_dict(),
+        }
+        binding_ref = self.publish_immutable_json("plan/bindings/1.0.0/receipt.json", binding_receipt, schema_name="binding-receipt.schema.json")
+        self._s5_fault(fault_hook, "binding_receipt_published")
+        initial_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+        build_evidence = {"build_variant_ids": [str(item.get("variant")) for item in build_results], "evidence_ref": build_refs[0] if build_refs else {"path": "plan/epochs/E0/receipt.json", "sha256": epoch_ref.sha256}}
+        ledger = project_e0_file_ledger(initial_ledger, dict(rendered_files), checkpoint, build_evidence, epoch_ref.as_dict())
+        self.replace_json("plan/file_ledger.json", ledger, schema_name="file-ledger.schema.json")
+        self.replace_json("plan/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
+        self.replace_json("plan/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        self._s5_fault(fault_hook, "mutable_e0_copies_replaced")
+        pending.update({"phase": "accepted", "output_refs": {"epoch_receipt": epoch_ref.as_dict(), "binding_receipt": binding_ref.as_dict()}})
+        self.replace_json(pending_path, pending, schema_name="s5-pending-state.schema.json")
+        self._s5_fault(fault_hook, "pending_accepted")
+        return {"epoch_receipt": epoch_ref, "binding_receipt": binding_ref}
+
+    def recover_s5_e0(self, fault_hook: Callable[[str], None] | None = None) -> dict[str, ArtifactRef] | None:
+        """Return a previously accepted S5 suffix or fail closed on a damaged pending record."""
+
+        path = self._confined("plan/epochs/E0/pending.json")
+        if not path.exists():
+            return None
+        pending = self._read_json_artifact("plan/epochs/E0/pending.json", schema_name="s5-pending-state.schema.json")
+        refs = pending.get("output_refs", {})
+        if pending.get("phase") == "accepted" and isinstance(refs, Mapping) and set(refs) == {"epoch_receipt", "binding_receipt"}:
+            for key in refs:
+                self.verify_ref(refs[key])
+            self._s5_fault(fault_hook, "pending_recovered_accepted")
+            return {key: ArtifactRef.from_value(value) for key, value in refs.items()}
+        if pending.get("checkpoint_commit") is None:
+            workspace = self._confined("workspace")
+            for item in pending.get("expected_files", []):
+                relative = item["path"]
+                target = (workspace / relative).resolve()
+                try:
+                    target.relative_to(workspace)
+                except ValueError as exc:
+                    raise PathConfinementError(f"pending E0 path escapes workspace: {relative}") from exc
+                if not target.exists():
+                    continue
+                if not target.is_file() or sha256_bytes(target.read_bytes()) != item["sha256"]:
+                    raise ArtifactConflict(f"pending E0 recovery found conflicting bytes at {relative}")
+                target.unlink()
+            if workspace.is_dir():
+                for directory in sorted((item for item in workspace.rglob("*") if item.is_dir() and item.name != ".git"), key=lambda item: len(item.parts), reverse=True):
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        pass
+            git_dir = workspace / ".git"
+            if git_dir.is_dir():
+                try:
+                    has_commit = subprocess.run(["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD^{commit}"], capture_output=True, check=False).returncode == 0
+                except OSError as exc:
+                    raise RunStoreError("unable to inspect pre-checkpoint E0 repository") from exc
+                if has_commit:
+                    raise ArtifactConflict("pending E0 recovery found a checkpoint that is not recorded")
+                shutil.rmtree(git_dir)
+            path.unlink()
+            self._s5_fault(fault_hook, "pending_precheckpoint_recovered")
+            return None
+        if pending.get("checkpoint_tree") is None:
+            raise ArtifactConflict("pending E0 records a checkpoint commit without its tree")
+        for ref in pending["input_refs"].values():
+            self.verify_ref(ref)
+        self.verify_ref(pending["plan_ref"], schema_name="plan.schema.json")
+        if self._canonical_value_hash(pending["blueprint"]) != pending["blueprint_sha256"] or self._canonical_value_hash(pending["rendering_view"]) != pending["rendering_view_sha256"]:
+            raise ArtifactConflict("pending E0 sealed values do not match their hashes")
+        rendered: dict[str, bytes] = {}
+        for item in pending["expected_files"]:
+            data = item["content"].encode("utf-8")
+            if sha256_bytes(data) != item["sha256"]:
+                raise ArtifactConflict(f"pending E0 content hash drifted at {item['path']}")
+            rendered[item["path"]] = data
+        result = self.publish_s5_e0({
+            "workspace": "workspace", "plan_ref": pending["plan_ref"], "blueprint": pending["blueprint"],
+            "constraints": pending["constraints"], "rendering_view": pending["rendering_view"],
+            "rendered_files": rendered, "build_results": pending["build_results"], "smoke_results": pending["smoke_results"],
+        }, fault_hook=fault_hook)
+        self._s5_fault(fault_hook, "pending_postcheckpoint_recovered")
+        return result
+
+    @staticmethod
     def _canonical_value_hash(value: object) -> str:
         try:
             return sha256_bytes(canonical_json_bytes(value))
@@ -291,7 +480,7 @@ class RunStore:
             hook(point)
 
     def _run_with_active_pointer(self, pointer: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Prepare the sole Run v3 mutation made by revision activation."""
+        """Prepare the sole fresh-run mutation made by revision activation."""
 
         run = self.load_run()
         stages = run.get("stages")
@@ -469,20 +658,56 @@ class RunStore:
                 raise RunValidationError("projected Plan State is not the deterministic migration projection")
             if file_ledger != expected_file_ledger:
                 raise RunValidationError("projected file ledger is not the deterministic migration projection")
-            entry.setdefault("revision_seq", new_pointer["revision_seq"])
-            if entry.get("prev_entry_sha256") == "0" * 64 and old_revision_ledger["entries"]:
-                entry["prev_entry_sha256"] = self._canonical_value_hash(old_revision_ledger["entries"][-1])
-            if entry.get("from_plan_ref") != {"path": old_pointer["path"], "sha256": old_pointer["sha256"]} or entry.get("to_plan_ref") != {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}:
-                raise RunValidationError("revision entry Plan refs do not bind the activation pointers")
-            if activated_at_commit is not None and entry.get("activated_at_commit") != activated_at_commit:
-                raise RunValidationError("revision entry activation commit does not match the supplied activation commit")
-            if entry.get("migration") != {key: report[key] for key in ("counts", "tasks", "files")} or entry.get("preservation_rate") != report["preservation_rate"]:
-                raise RunValidationError("revision entry migration does not bind the complete migration report")
             try:
-                new_revision_ledger = append_revision_entry(old_revision_ledger, entry)
+                if old_revision_ledger.get("schema_version") == "2.0":
+                    from .speclib.plan_revision import build_event_entry
+                    typed = json.loads(canonical_json_bytes(old_revision_ledger).decode("utf-8"))
+                    trigger_event = next((item for item in typed["entries"] if item.get("event_type") == "trigger_evaluated"), None)
+                    if trigger_event is None:
+                        trigger = entry.get("trigger", {})
+                        trigger_payload = {
+                            "boundary_key": {"revision_seq": new_pointer["revision_seq"]},
+                            "plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
+                            "hit_code": str(trigger.get("code", "revision_activation")),
+                            "hit_signature": self._canonical_value_hash(trigger),
+                            "evidence_refs": list(trigger.get("evidence_refs", [])),
+                            "selected": True,
+                            "reason": "caller-supplied dormant activation contract",
+                        }
+                        typed["entries"].append(build_event_entry(typed, "trigger_evaluated", trigger_payload))
+                        trigger_event = typed["entries"][-1]
+                    activation_payload = {
+                        "revision_seq": new_pointer["revision_seq"],
+                        "from_version": old_pointer["version"], "to_version": new_pointer["version"],
+                        "from_plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
+                        "to_plan_ref": {"path": new_pointer["path"], "sha256": new_pointer["sha256"]},
+                        "level": entry["level"], "trigger_event_seq": trigger_event["event_seq"],
+                        "trigger_signature": self._canonical_value_hash(entry.get("trigger", {})),
+                        "patch_ops": list(entry.get("patch_ops", [])),
+                        "migration": {key: report[key] for key in ("counts", "tasks", "files")},
+                        "preservation_rate": report["preservation_rate"],
+                        "rework_cost_estimate_usd": entry.get("cost_usd", 0.0),
+                        "gates": dict(entry["gates"]), "epoch_after": new_pointer["epoch"],
+                        "activated_at_commit": entry["activated_at_commit"], "binding_ref": None,
+                        "pending_materialization": True,
+                    }
+                    typed["entries"].append(build_event_entry(typed, "revision_activated", activation_payload))
+                    validate_revision_ledger(typed)
+                    new_revision_ledger = typed
+                else:
+                    entry.setdefault("revision_seq", new_pointer["revision_seq"])
+                    if entry.get("prev_entry_sha256") == "0" * 64 and old_revision_ledger["entries"]:
+                        entry["prev_entry_sha256"] = self._canonical_value_hash(old_revision_ledger["entries"][-1])
+                    if entry.get("from_plan_ref") != {"path": old_pointer["path"], "sha256": old_pointer["sha256"]} or entry.get("to_plan_ref") != {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}:
+                        raise RunValidationError("revision entry Plan refs do not bind the activation pointers")
+                    if activated_at_commit is not None and entry.get("activated_at_commit") != activated_at_commit:
+                        raise RunValidationError("revision entry activation commit does not match the supplied activation commit")
+                    if entry.get("migration") != {key: report[key] for key in ("counts", "tasks", "files")} or entry.get("preservation_rate") != report["preservation_rate"]:
+                        raise RunValidationError("revision entry migration does not bind the complete migration report")
+                    new_revision_ledger = append_revision_entry(old_revision_ledger, entry)
             except PlanRevisionError as exc:
                 raise RunValidationError(str(exc)) from exc
-            if new_revision_ledger["entries"][-1].get("epoch_after") != new_pointer["epoch"]:
+            if old_revision_ledger.get("schema_version") == "1.0" and new_revision_ledger["entries"][-1].get("epoch_after") != new_pointer["epoch"]:
                 raise RunValidationError("revision entry epoch does not bind the new pointer")
             wal = {
                 "schema_version": "1.0", "revision_seq": new_pointer["revision_seq"],
@@ -522,7 +747,7 @@ class RunStore:
     def recover_revision(self, revision_seq: int | None = None) -> dict[str, Any]:
         """Reconcile one interrupted activation using its immutable WAL."""
 
-        from .speclib.plan_revision import PlanRevisionError, validate_plan_successor, validate_revision_ledger
+        from .speclib.plan_revision import PlanRevisionError, latest_activation, validate_plan_successor, validate_revision_ledger
 
         with self.controller_lock():
             if revision_seq is None:
@@ -555,7 +780,9 @@ class RunStore:
             try:
                 validate_revision_ledger(old_revision)
                 validate_revision_ledger(new_revision)
-                validate_plan_successor(old_pointer, new_pointer, new_revision["entries"][-1]["level"])
+                activation = latest_activation(new_revision)
+                level = activation.get("level") if isinstance(activation, Mapping) else new_revision["entries"][-1]["level"]
+                validate_plan_successor(old_pointer, new_pointer, level)
             except (PlanRevisionError, IndexError, KeyError) as exc:
                 raise RunValidationError(str(exc)) from exc
             current_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
@@ -661,6 +888,10 @@ class RunStore:
                 if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
                     raise RunValidationError(f"S4 {key} must be a lowercase SHA-256 anchor")
             return
+        if stage_name == "s5":
+            required = {"epoch_receipt", "binding_receipt"}
+            if set(refs) != required:
+                raise RunValidationError("S5 output_refs must contain epoch_receipt and binding_receipt")
         for ref in refs.values():
             self.verify_ref(ref)
 
@@ -816,8 +1047,9 @@ class RunStore:
                 stage: {"status": "skipped" if stage in {"s1", "s2", "s3"} else "pending", "started_at": None, "ended_at": None, "error": None}
                 for stage in ("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9")
             }
+            stages["s5"]["instance_id"] = "E0"
             run = {
-                "schema_version": "3.0",
+                "schema_version": "4.0",
                 "run_id": run_id,
                 "entry": "spec-run",
                 "created_at": _utc_now(),

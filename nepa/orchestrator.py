@@ -346,6 +346,12 @@ class Orchestrator:
                     if controller is not None and hasattr(controller, "verify_completed"):
                         controller.verify_completed(store)  # type: ignore[attr-defined]
                     self._stage_done(store, stage, "s4")
+                s5_controller = self.controllers.get("s5")
+                if s5_controller is not None and hasattr(s5_controller, "reconcile"):
+                    s5_controller.reconcile(store)  # type: ignore[attr-defined]
+                s5_stage = run["stages"]["s5"]
+                if s5_stage.get("status") == "done" and s5_controller is not None and hasattr(s5_controller, "verify_completed"):
+                    s5_controller.verify_completed(store)  # type: ignore[attr-defined]
             except Exception as exc:
                 return self._finalize_internal_error(store, run, str(exc))
             return int(run["exit_code"])
@@ -365,6 +371,9 @@ class Orchestrator:
             return self._run_s9(store, run)
         if resume:
             run = self._reconcile_orphaned(store, run)
+            controller = self.controllers.get("s5")
+            if controller is not None and hasattr(controller, "reconcile"):
+                controller.reconcile(store)  # type: ignore[attr-defined]
         if run.get("termination_request"):
             return self._run_s9(store, run)
         if self._planned_target_reached(run, "s3"):
@@ -378,6 +387,10 @@ class Orchestrator:
                 try:
                     controller = self.controllers.get(stage_name)
                     if stage_name == "s4" and controller is not None and hasattr(controller, "verify_completed"):
+                        controller.verify_completed(store)  # type: ignore[attr-defined]
+                    if stage_name == "s5" and controller is not None and hasattr(controller, "reconcile"):
+                        controller.reconcile(store)  # type: ignore[attr-defined]
+                    if stage_name == "s5" and controller is not None and hasattr(controller, "verify_completed"):
                         controller.verify_completed(store)  # type: ignore[attr-defined]
                     self._stage_done(store, stage, stage_name)
                 except RunStoreError as exc:
@@ -406,6 +419,8 @@ class Orchestrator:
                     run = self._commit_stage(store, store.load_run(), stage_name, result)
                     if stage_name == "s4" and hasattr(controller, "verify_completed"):
                         controller.verify_completed(store)  # type: ignore[attr-defined]
+                    if stage_name == "s5" and hasattr(controller, "after_commit"):
+                        controller.after_commit(store, result)  # type: ignore[attr-defined]
                 except ControlledStageFailure as exc:
                     run = self._persist_request(store, store.load_run(), stage_name, exc.reason, failed=True)
                     return self._run_s9(store, run)

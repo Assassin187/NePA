@@ -19,11 +19,17 @@ def test_config_models_are_closed_and_default_yaml_is_loadable():
     assert config.providers["anthropic"].api_key_env == "NEPA_CLAUDE_API_KEY"
     assert config.budgets.max_cost_usd == 20
     assert public_config_snapshot(config)["run"]["until"] is None
+    assert config.smoke.dwell_seconds == 2
+    assert config.smoke.term_grace_seconds == 5
 
     with pytest.raises(ConfigError):
         load_config(overrides={"unknown": True})
     with pytest.raises(ConfigError):
         load_config(overrides={"budgets": {"max_cost_usd": "not-a-number"}})
+    with pytest.raises(ConfigError):
+        load_config(overrides={"smoke": {"dwell_seconds": 0}})
+    with pytest.raises(ConfigError):
+        load_config(overrides={"smoke": {"term_grace_seconds": -1}})
 
 
 def test_configuration_precedence_and_stable_snapshot_hash(tmp_path):

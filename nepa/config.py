@@ -109,6 +109,11 @@ class SandboxConfig(_Model):
     mem_gb: float = Field(gt=0)
 
 
+class SmokeConfig(_Model):
+    dwell_seconds: int = Field(gt=0)
+    term_grace_seconds: int = Field(gt=0)
+
+
 class ResolvedConfig(_Model):
     providers: dict[str, ProviderConfig]
     calibration_models: dict[str, ModelConfig]
@@ -121,6 +126,7 @@ class ResolvedConfig(_Model):
     stages: StageConfig
     assets: AssetsConfig
     sandbox: SandboxConfig
+    smoke: SmokeConfig
 
     @property
     def snapshot(self) -> dict[str, Any]:
@@ -175,6 +181,7 @@ _DEFAULTS: dict[str, Any] = {
     "stages": {"l0": True, "l1": True, "l2": True, "l3": False},
     "assets": {"target_profile": "gold_file/target.json", "test_bundle": "gold_file/test_bundle.json"},
     "sandbox": {"image": "nepa-sandbox:latest", "cpu": 2, "mem_gb": 4},
+    "smoke": {"dwell_seconds": 2, "term_grace_seconds": 5},
 }
 
 _DEFAULT_ROLES = {

@@ -1,5 +1,5 @@
 {
-  "schema_version": "3.0",
+  "schema_version": "4.0",
   "run_id": "run-min",
   "entry": "spec-run",
   "created_at": "2026-01-01T00:00:00Z",
@@ -26,7 +26,7 @@
     "s2": {"status": "skipped", "started_at": null, "ended_at": null, "error": null},
     "s3": {"status": "skipped", "started_at": null, "ended_at": null, "error": null},
     "s4": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
-    "s5": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
+    "s5": {"instance_id": "E0", "status": "pending", "started_at": null, "ended_at": null, "error": null},
     "s6": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
     "s7": {"status": "pending", "started_at": null, "ended_at": null, "error": null},
     "s8": {"status": "pending", "started_at": null, "ended_at": null, "error": null},

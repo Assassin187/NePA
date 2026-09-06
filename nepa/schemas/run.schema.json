@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "run_id", "entry", "created_at", "inputs", "config_snapshot", "config_snapshot_sha256", "stages", "budget_used"],
   "properties": {
-    "schema_version": {"const": "3.0"},
+    "schema_version": {"const": "4.0"},
     "run_id": {"type": "string", "minLength": 1},
     "entry": {"enum": ["spec-run", "doc-run"]},
     "created_at": {
@@ -26,7 +26,7 @@
         "s2": {"$ref": "#/$defs/stage"},
         "s3": {"$ref": "#/$defs/stage"},
         "s4": {"$ref": "#/$defs/s4Stage"},
-        "s5": {"$ref": "#/$defs/stage"},
+        "s5": {"$ref": "#/$defs/s5Stage"},
         "s6": {"$ref": "#/$defs/stage"},
         "s7": {"$ref": "#/$defs/stage"},
         "s8": {"$ref": "#/$defs/stage"},
@@ -245,6 +245,39 @@
         "error": {"type": ["string", "null"]},
         "output_refs": {"$ref": "#/$defs/s4OutputRefs"}
       }
+    },
+    "s5Stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instance_id", "status", "started_at", "ended_at", "error"],
+      "properties": {
+        "instance_id": {"const": "E0"},
+        "status": {"enum": ["pending", "running", "done", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "error": {"type": ["string", "null"]},
+        "output_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "epoch_receipt": {"$ref": "#/$defs/ref"},
+            "binding_receipt": {"$ref": "#/$defs/ref"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "done"}}},
+          "then": {
+            "required": ["output_refs"],
+            "properties": {
+              "output_refs": {
+                "required": ["epoch_receipt", "binding_receipt"]
+              }
+            }
+          }
+        }
+      ]
     },
     "s4OutputRefs": {
       "oneOf": [
