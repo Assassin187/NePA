@@ -1,5 +1,9 @@
 # NePA 流水线设计：S4～S9 规划、物化、执行与修订
 
+> 文档状态：Active\
+> 设计版本：2.0.2\
+> 最后更新：2026\-09\-06
+
 ## 0\. 阅读指南
 
 ### 0\.1 本文档的使用方式
@@ -41,7 +45,7 @@ S4 发布的计划在 S6 执行中可能被证伪。若把"修订计划"实现�
 | --- | --- | --- |
 | 1 | 把"计划"拆成**承诺层 / 结构层 / 分解层**三个独立冻结的地层 | 绝大多数修订只动最便宜的一层 |
 | 2 | 给计划节点**稳定语义身份**，修订以**封闭补丁算子集**表达 | 新旧版本可逐节点对齐，失效范围可机械计算 |
-| 3 | 代码存续由**文件实现台账 \+ 义务摘要**决定，不由计划版本决定 | 分解层修订的代码保全率恒为 1\.0 |
+| 3 | 代码存续由**文件实现台账 \+ 义务摘要**决定，不由计划版本决定 | 分解层激活不重生成源文件；是否仍满足新义务须逐文件计算 |
 | 4 | **不是所有错误都应该在 run 内修**：架构改轴（F4）与合约重协商（F5）永久留在 run 外 | 成本爆炸的唯一入口被结构性封死 |
 
 一句话：**代码存续与任务身份存续是两件事。**
@@ -54,10 +58,10 @@ S4 发布的计划在 S6 执行中可能被证伪。若把"修订计划"实现�
 | --- | --- |
 | 无人在场 | 触发条件必须是**机器可判谓词**，不能是 Agent 自述"计划不对" |
 | 完成率可操纵 | 修订**禁止**缩小义务集；必须有覆盖单调性不变量 \+ 哈希链账本 |
-| 完成判定必须机器可判 | 修订后的验收仍走同一 lint/构建/测试真值，不新增评审型硬门 |
+| 完成判定必须机器可判 | 修订后的验收仍走同一 lint/构建/测试真值，不以模型评审代替执行验收；RG-4 仅是候选计划的发布门 |
 | 单 run 无外部纠偏 | 必须有振荡熔断与受控降级出口，不能无界重试 |
 
-`3.3` 的通则同样适用：**任何新增硬门必须下推到能判定它的最便宜一级真值**，而不是新增一层评审。本文档的全部触发谓词与修订门据此按真值级别标注。
+门先使用能完成判定的确定性检查。本文的“真值级别”只表示证据来源：1=集合/图/状态，2=输出与路径检查，3=编译资产静态检查或物化预演，4=构建，5=独立测试，6=模型评审；编号不是成本全序，也不引用主文档 §3.3 中不存在的阶梯。模型输出只是候选或诊断，不是实现成功证据。
 
 ## 2\. 三层冻结
 
@@ -67,7 +71,7 @@ S4 发布的计划在 S6 执行中可能被证伪。若把"修订计划"实现�
 | --- | --- | --- | --- | --- | --- |
 | **L\-C** | 承诺层 Commitment | 冻结输入三项引用；规范性 REQ 全集及其 MUST/MUST NOT 分级；测试契约（nodeid/gate/req 映射）；构建变体集合；全局预算上限 | S4a 结束 | **禁止** | — |
 | **L\-A** | 结构层 Architecture | 模块与职责、internal contract（owner / ready\_gate / provider / consumer / interface\_files）、**文件布局声明与模块级 `owns_files`**、工作包骨架与包级 REQ 责任 | S4b 结束 | 受限允许（F3） | 高：需重物化 \+ 纪元切换 |
-| **L\-P** | 分解层 Plan | 任务切分、instructions、任务级 `deliverable_files` 划分、任务 DAG、任务级 REQ 责任细化、验收绑定 | S4c 结束 | 允许（F2） | 低：不失效任何代码 |
+| **L\-P** | 分解层 Plan | 任务切分、instructions、任务级 `deliverable_files` 划分、任务 DAG、任务级 REQ 责任细化、验收绑定 | S4c 结束 | 允许（F2） | 低：保留源文件，按新义务重验或增量修复 |
 
 三条不变量把"允许修订"与"完成率不可操纵"同时保住。
 
@@ -84,17 +88,17 @@ S4 发布的计划在 S6 执行中可能被证伪。若把"修订计划"实现�
 
 即：**责任可以搬家，不可以消失。** 允许把 REQ 从 T\-a 移到 T\-b（这是重规划的正常内容），**禁止**让任何规范性 REQ 失去 primary owner。这条把"重规划"与"卸责"在机器层面区分开。
 
-**INV\-3 义务不放宽。** 任务的 `acceptance.build_variant_ids` 只能增不能减；`acceptance.tests`（M2 起）只能增不能减。任何减少验收义务的补丁一律拒绝，不进入门检查。
+**INV\-3 义务不放宽。** 对同 uid 任务，原验收义务必须保留；split/merge/move 必须显式给出旧义务到新 owner/验收节点的映射。构建变体绑定到承接对应文件的任务，测试按冻结 nodeid 及其完整 REQ 闭包重新由 Linker 定位最早合法 gate；原测试不得消失、禁用或推迟到闭包不满足的任务。split 的后继义务并集覆盖前驱，merge 的新节点覆盖所有前驱，允许因 readiness 改变迁移 gate，不允许放宽测试本身。映射与覆盖检查先于激活，不按标题或相似度推断。
 
 ### 2\.1 为什么恰好是三层
 
 - 承诺层与结构层必须分开：**目标不变而结构可错**是最常见的现实情形，把二者绑在一起意味着结构一错就得重开合约；
-- 结构层与分解层必须分开：**结构对而切分错**是第二常见情形（任务太大、边界画偏），这一类占绝大多数，且完全不影响文件内容归属，因此可以做到零代码失效；
-- 再往下细分（例如把 instructions 单独成层）没有收益：instructions 变化不进入任何失效闭包，本来就不需要版本。
+- 结构层与分解层必须分开：**结构对而切分错**是第二常见情形（任务太大、边界画偏），这一类占绝大多数，且完全不影响文件内容归属，因此无需因任务改名而重写代码；新增义务仍须验证；
+- 再往下细分（例如把 instructions 单独成层）没有收益：instructions 变化不进入代码失效闭包，但仍须通过 F2 发布不可变的新计划版本。
 
-### 2\.2 与 Plan v4 字段的对应关系
+### 2\.2 与 Plan v5 字段的对应关系
 
-Plan v4（`5.2`）的字段不重新发明，只按层归属并分别哈希：
+Plan v5（`5.2`）的字段不重新发明，只按层归属并分别哈希：
 
 ```text
 L-C  = { input_refs, coverage.tests(契约面), 规范性 REQ 集合与分级,
@@ -108,186 +112,109 @@ L-P  = { tasks[], 任务级 depends_on, 任务级责任细化, acceptance 绑定
 
 ## 3\. 稳定身份与失效闭包
 
-### 3\.1 双身份：位置 id 与语义 uid
+### 3\.1 双身份与义务血缘
 
-保留 `T-###` 作为**位置 id**（拓扑序、可读、进 commit message），另引入**语义 uid** 作为跨版本身份锚：
+保留拓扑位置 id `T-###`，跨版本身份为 `task_uid = sha256(canonical_json([work_package_id, local_task_id])).hexdigest()[:16]`。canonical 编码沿用主文档第 5 章；截取 16 个小写十六进制字符，Plan 内碰撞直接拒绝。正式 Plan 必须保留 `local_task_id`，不得从 `_s4` 草稿补回正式事实。
 
-```text
-task_uid = sha256_16(work_package_id ‖ local_task_id)      # 由 TaskPlanner 的局部语义 id 派生
-```
+F2/F3 重新 Link 可以改变位置 id。split/merge 生成新局部 id，并分别写 `derived_from` / `merged_from[]`；move 保持 uid，另记录旧义务与文件到新 owner 的映射。局部 id 在同 run 同工作包内不得被无血缘的新任务复用。uid、义务摘要与指导摘要仅用于编译、迁移、审计，不进入 Coder/Fixer 上下文或 Blueprint 语义投影。
 
-- `T-###` 每次 Link 后可以变（`6.4.5` 步 4 的确定性拓扑分配不变）；
-- `task_uid` 只要工作包 id 与局部语义 id 不变就不变；
-- 补丁算子（本文 §6.2）显式声明每个算子对 uid 的影响：`split_task` 产出 `uid_a`/`uid_b` 并记 `derived_from`，`merge_tasks` 记 `merged_from[]`。**身份变化由算子记录，禁止事后推断。**
-
-`task_uid` 只用于状态迁移与账本审计，**禁止**进入 Coder/Fixer 上下文，也**禁止**参与 Blueprint 语义投影（避免 `6.4.1` 的哈希循环）。
-
-### 3\.2 输入摘要：失效的唯一判据
-
-对每个任务节点计算两个摘要，语义严格分开：
+### 3\.2 分类：先对齐血缘，再判断执行与文件
 
 ```text
 obligation_digest(task) = sha256(canonical{
-    sorted(requirement_responsibilities),          # 我必须实现哪些 REQ、什么角色
-    sorted(deliverable_files),                     # 我拥有哪些文件
-    sorted(provides_contracts), sorted(consumes_contracts),
-    sorted(interface_signature_digest(c) for c in consumes_contracts),   # 我依赖的接口长什么样
-    sorted(acceptance.build_variant_ids), sorted(acceptance.tests),
+  sorted(requirement_responsibilities), sorted(deliverable_files),
+  sorted(provides_contracts), sorted(consumes_contracts),
+  sorted((id, interface_signature_digest(c)) for c in provides ∪ consumes),
+  sorted(acceptance.build_variant_ids), sorted(acceptance.tests)
 })
-
-guidance_digest(task) = sha256(canonical{ title, goal, instructions, kind, context_refs })
+guidance_digest(task) = sha256(canonical{title, goal, instructions, kind, context_refs})
 ```
 
-`interface_signature_digest(c)` 取 contract 的 **interface\_files 中导出符号签名集合**的 canonical 哈希，**不含实现体**。因此 provider 改实现不失效 consumer，provider 改签名才失效 consumer。
+contract 的 `exports[]`、函数实现槽位和可渲染声明契约由 `5.2.1` 定义。接口签名摘要仍对按 `(interface_file, symbol, signature)` 排序后的三元组数组计算 canonical SHA-256，声明文本按字节比较；实现位置、文件义务变化另由迁移映射和 Blueprint 差异检查。因此 provider 实现变化不自动传播，provider 或 consumer 依赖的声明变化必须进入受影响闭包。
 
-**失效规则**（对 `status=done` 的任务，在版本迁移时判定）：
+分类器先展开算子的显式血缘，把新任务对应到旧任务、旧文件及旧验收义务；然后按下表顺序选择唯一任务分类。未完成任务无成功证明，INHERIT 只能保留其未完成状态，不能 INHERIT 或 REVALIDATE 为 done。
 
-| 条件 | 结论 | 成本 |
+| 优先级 | 机器条件 | 任务分类与执行 |
 | --- | --- | --- |
-| `obligation_digest` 不变 | `INHERIT`：状态、commit、证据全部继承 | 0 |
-| 仅 `guidance_digest` 变 | `INHERIT`：guidance 只对未完成任务有意义 | 0 |
-| 仅 owner 变（文件内容归属不变，`deliverable_files` 集合等价重划） | `REVALIDATE`：重跑构建门，不调 LLM | 一次构建 |
-| `consumes` 的接口签名变 / 新增 REQ 责任 | `AMEND`：保留现有文件内容为起点，调 Fixer 做增量修改 | 一次 Fixer |
-| `deliverable_files` 新增文件 / obligation 大幅重构（下述判据） | `REGENERATE`：调 Coder 重写 | 全额 |
+| 1 | 同 uid、义务摘要相同；旧 done 时必须有有效完成证据；guidance 可改变 | `INHERIT`：继承原状态/额度；仅原 done 继承 commit/evidence，并通过迁移证明绑定新计划 |
+| 2 | 新义务均由显式前驱的有效完成证明覆盖；只改变位置、文件分区、owner 或验收归属 | `REVALIDATE`：零 LLM，按新验收重跑，通过前保持 pending/revalidate；新 uid 也可走此分支 |
+| 3 | 不满足前两项，全部目标文件已有 realized 内容，且血缘对齐后的责任 Jaccard ≥ 0.5 | `AMEND`：保留内容，每次迁移一次 Fixer；提供或消费接口签名变化均落入本项或下一项 |
+| 4 | 有无 realized 起点的新目标文件，或责任 Jaccard < 0.5 | `REGENERATE`：Coder 起始的有界执行；不是删除旧文件 |
 
-`AMEND` 与 `REGENERATE` 的分界用机器判据，**禁止**用模型判断：
+Jaccard 对 `(req_id,role)` 集合计算；双方空集取 1。比较对象是映射到该后继的前驱义务并集，不是随意取一个父任务。义务未变化的未完成任务，无论指导变或不变，保持原执行模式、attempts 与当前状态；不得通过 rewrite_instructions 刷新额度。blocked_by_dependency 在依赖图修订后解除阻塞，恢复原未执行模式和 0 次普通 attempts。
 
-```text
-REGENERATE  iff  |new_files ∖ old_files| > 0
-             ∨  jaccard(old_responsibilities, new_responsibilities) < 0.5
-             ∨  该任务在旧版本从未达到 done
-otherwise AMEND
-```
+文件分类独立于任务分类：旧 realized 文件内容、接口与对应义务均保持且证明可继承为 INHERIT；仅验证归属/验收绑定变化为 REVALIDATE；所属任务要执行 AMEND、或 REGENERATE 但该文件仍有保留内容时为 AMEND（完整文件输出契约可能重写它）；无可用起点或槽位退役为 REGENERATE。同一文件命中多条取成本较高者；新增文件单列，不混入旧文件分母。失效沿声明变化传播，遇到声明及消费义务均未变化的节点终止；不以“新 uid”本身判全部文件重写。
 
-**失效是闭包，但闭包沿接口签名传播、且到 `INHERIT` 即止。** provider 的签名不变时，闭包在第一跳终止。
+分类结果必须输出逐任务旧/新 id、uid、血缘/义务映射、classification、reason、旧 attempts、来源 evidence refs，以及逐文件 path、旧/新 owner、分类与原因。INHERIT 不改写旧 evidence 的 plan hash；新 State 通过已激活 migration proof 证明旧验证仍覆盖当前义务。REVALIDATE/AMEND/REGENERATE 只有实际验收通过才能发布新的完成事实。
 
 ### 3\.3 文件实现台账
 
-新增一份跨版本存活的工件 `plan/file_ledger.json`，它**不以任务为键，以文件为键**：
+`plan/file_ledger.json` 使用 `schema_version="2.0"` 和唯一集合键 `files`。每项以当前活动路径为键，携带 `class ∈ {s5_frozen,s6_owned}` 与 `state ∈ {slot_only,realized,quarantined}`：
 
-```json
-{
-  "schema_version": "1.0",
-  "files": [{
-    "path": "src/codec/fixed_header.c",
-    "class": "s6_owned",
-    "created_in_epoch": "E0",
-    "content_sha256": "<64 hex>",
-    "last_commit_sha": "<40 hex>",
-    "verified_by": {"build_variant_ids": ["release", "san"], "evidence_ref": {"path": "...", "sha256": "..."}},
-    "owner_history": [
-      {"plan_version": "1.0.0", "task_uid": "a1b2c3d4e5f60718", "task_id": "T-007"},
-      {"plan_version": "1.0.1", "task_uid": "a1b2c3d4e5f60718", "task_id": "T-009"}
-    ],
-    "state": "realized"
-  }]
-}
-```
+- slot_only：path/class/state，表示 S5 存根，不宣称任务实现完成；
+- realized：另带 `created_in_epoch`、`content_sha256`、`last_commit_sha`、`verified_by`（build variants 与带哈希 evidence ref）；s6_owned 必带非空 `owner_history[{plan_version,task_uid,task_id}]`；s5_frozen 不带 task owner，带 `created_by_stage="s5"` 与 epoch receipt ref；
+- quarantined：保留上次 realized 字段，增加 `quarantined_in_epoch/quarantine_path`，不进入活动构建图。
 
-`state ∈ {slot_only, realized, quarantined}`。台账把"这段代码已被验证过"这一事实**从任务 id 上解耦**：任务可以改名、拆分、合并、易主，文件的验证事实照旧。
+owner_history 仅在 owner 或任务位置/版本绑定变更时追加；F1 不改 owner，只更新内容与验证证据。`verified_by` 表示某个 tree/版本上的历史验证，不因文件保留自动成为新版本验证。S5 E1+ 带不兼容检查点中的新增/变化机械文件保持 slot_only，旧版本的机械内容及验证仍可从旧 epoch checkpoint/receipt 读取，待联合验收通过才成为 realized；禁止把失败构建写成 verified_by。
 
-对应地，Plan State 的职责收窄为纯执行账本（attempts / status / notes / 当前版本绑定），**不再**是代码有效性的唯一来源。`9.1.4` 的 `task_completion_rate` 因此按本文 §9.1 重新锚定。
-
-### 3\.4 保全率：修订的价格标签
-
-版本迁移时，控制器对上一版本所有 `realized` 文件做四分类，得到可直接进预算门的量：
+### 3\.4 保全率与返工预算
 
 ```text
-preservation_rate = (|INHERIT| + |REVALIDATE|) / |realized_files(P_i)|
-rework_cost_estimate = |AMEND| × c_fixer + |REGENERATE| × c_coder + |REVALIDATE| × c_build
+preservation_rate = (旧 realized 文件中 INHERIT 数 + REVALIDATE 数) / 旧 realized 文件数
 ```
 
-两者都是**确定性可算的**，在候选激活之前就能算出。于是"修订会不会把成本打爆"从事后事实变成事前门（本文 §6.3 的 `RG-3`）。
+旧 realized 为空取 1；退役/隔离的文件仍进入旧分母，新增文件不进入分母。F2 只保证激活不重生成源文件，不保证新任务义务无需修改代码，故不再要求 F2 保全率恒为 1。
 
-对 `L\-P` 层补丁（F2）可以证明 `preservation_rate ≡ 1.0`：分解层补丁不改变 `module.owns_files`、不改变 contract 接口签名、不改变承诺层，因此每个文件的内容归属与义务摘要中的接口部分均不变，最坏落到 `REVALIDATE`。**这是"计划被证伪不必使全部代码失效"的形式化答案**：把大多数修订压到 F2，保全率是构造性的 1\.0。
+`rework_cost_estimate_usd` 按迁移后的执行单元计算：每个 AMEND 一次 Fixer、每个 REGENERATE 一次 Coder 加其剩余 Fixer 最大额度、每个 REVALIDATE 的构建，以及修复组最大验证次数；新增文件归属的任务必须计入，同任务多文件不重复乘调用次数。模型单价及输入/输出 token 上界来自冻结配置和上下文/输出预算，构建资源单价采用显式试验配置（不计费用时明确为 0）。它是预算估算而非真实收费或成功保证，实际费用按关联调用的 telemetry 追加记账。RG-3 同时检查剩余调用额度、成本预算与保全率，不能以低估算绕过全局硬顶。
 
-### 3\.5 孤儿代码：隔离，不删除
+### 3\.5 槽位退役、隔离与重新采纳
 
-若某文件在新版本的 Blueprint 中不再有槽位（只在 F3 发生），处置为：
+退役只由 F3 `retire_file_slot` 完成：候选整体必须仍覆盖原 REQ、验收和已发布接口；更新布局引用、构建图、owner 与实现槽位，禁止留下悬空符号。realized 文件由控制器 `git mv` 到 `_orphan/<epoch>/<原路径>`，保留历史证据；slot_only 可删除。`re_adopt` 也是 F3，必须显式给出 quarantine_path、目标槽及 owner，恢复槽位并移动内容，重跑新义务验收后方可重新 realized。
 
-1. `git mv` 到 `workspace/_orphan/<epoch>/<原路径>`，`state=quarantined`，不进入构建图；
-2. 台账保留其完整 `owner_history` 与验证证据；
-3. 后续修订可以**重新采纳**（`re_adopt` 算子）；
-4. **禁止**任何角色删除 `realized` 文件。只有确定性控制器可以隔离，且必须落账本。
-
-理由：删除是唯一不可逆的动作，隔离的成本是几 KB 磁盘，误删的成本是一次重写。
+改路径使用同一 F3 补丁中的退役、新增槽和显式文件迁移映射；不把旧 path 的完成证明直接当新 path 的证明。不提供隐式 rename 或文件删除算子。工作树双向一致性检查的“活动源码树”排除 `.git`、声明的构建输出和台账已登记的 `_orphan`，但这些例外必须逐项有来源。
 
 ## 4\. 版本、纪元与工件布局
 
-### 4\.1 版本号：C\.A\.P 三元组
+### 4\.1 C.A.P 与纪元
 
-```text
-plan_version = "<C>.<A>.<P>"        例：1.0.0 → 1.0.1 → 1.1.0
-```
+初始 `1.0.0/E0`；F2 只增加 P，F3 增加 A 并把 P 归零；C 在 run 内恒为 1。纪元按 A 位划分，是结构层代不变的区间，允许多个 F2 计划版本。F2 激活不重生成源文件、不建物化提交，但会生成新的元数据绑定；重验可产生绑定新证据的空树变更提交。F3 开始新纪元并进入 S5。`Rev-n` 只表示第 n 次成功版本激活，不复用风险编号或历史 prompt 命名。
 
-| 位 | 含义 | 递增条件 | 副作用 |
-| --- | --- | --- | --- |
-| C | 承诺层代 | run 内恒为 1 | 变化即换 run |
-| A | 结构层代 | F3 修订激活 | **切换执行纪元**，触发增量重物化 \+ 新检查点 |
-| P | 分解层代 | F2 修订激活 | 不切纪元，不重物化，不动工作区 |
-
-**纪元边界只由 A 位定义。** 分解层补丁完全不触碰工作区，为其开纪元只是徒增检查点与账目。修订序号用 `Rev-n` 指代第 n 次修订；**禁止**使用 `R0/R1` 记法（已用于 `6.4.8.2.1` 的恢复期 prompt 版本）或 `R-n` 记法（已用于 `11.1` 风险登记 id）。
-
-### 4\.2 工件布局
+### 4\.2 工件与独立锚点
 
 ```text
 plan/
-├── versions/
-│   ├── plan-1.0.0.json          # 每个版本一份，写入后不可变
-│   ├── plan-1.0.1.json
-│   └── plan-1.1.0.json
-├── active_plan.json             # 原子指针：{version, path, sha256, revision_seq, epoch}
-├── file_ledger.json             # 本文 §3.3，跨版本存活
-├── revision_ledger.json         # 哈希链修订账本，本文 §4.3
-├── plan_state.json              # 纯执行账本；带 plan_version 绑定
-├── _s4/                         # 初始编译草稿
-├── _s4r/rev_NNN/                # 每次修订的候选与预演现场
-├── artifact_manifest.json       # 由最新一次物化重写，带 epoch
-└── contract_map.json
+├── versions/plan-<C.A.P>.json             # 不可变计划
+├── active_plan.json                     # version/path/sha256/revision_seq/epoch
+├── plan_state.json                      # 活动执行快照
+├── file_ledger.json
+├── s6_revision_ledger.json               # S6 封存的不可变事件前缀
+├── revision_ledger.json                  # 类型化事件哈希链
+├── bindings/<C.A.P>/                     # 不可变版本绑定（F2 也生成）
+│   ├── artifact_manifest.json
+│   ├── contract_map.json
+│   └── receipt.json                     # 绑定 plan、两工件与 epoch receipt
+├── epochs/E<n>/receipt.json              # 不可变物化事实、checkpoint 与构建结果
+├── artifact_manifest.json               # 当前 binding 的确定性副本，非独立真值
+├── contract_map.json                    # 同上
+├── _s4/
+└── _s4r/candidate_<event_seq>/           # 候选、activation WAL、组修复现场
 ```
 
-**不可变性口径**（对 `5.2` 的修订）：
+公共字段与 Schema 版本归主文档 `5.4/5.6.7`。初始 seal 仍锚定 1.0.0；`run.stages.s4.output_refs.active_plan` 只由激活控制器更新。S5 epoch receipt 不随 F2 回写；版本 binding receipt 引用同一 epoch receipt 及新 manifest/map。S6/S7/S9 读取当前 binding 并核对其来源，禁止要求旧 S5 receipt 的 manifest hash 等于 F2 后的当前副本。多纪元历史通过不可变 epoch/binding receipts 留存，账本保存其引用，不回写旧事件。
 
-- **每个版本文件**发布后逐字节不可变；
-- `active_plan.json` 是唯一可推进的指针，其推进必须原子、必须单调（`revision_seq` 严格加一）、必须同时写 `revision_ledger`；
-- `run.json.stages.s4.output_refs` 继续锚定 **1\.0\.0**（初始密封），另加 `output_refs.active_plan` 由修订控制器原子更新。
+### 4\.3 类型化修订账本
 
-"不可变"因此从"单个文件不可变"升级为"**版本链只能追加**"，审计强度不降低：任何回溯篡改都会打断哈希链。
+`revision_ledger` v2 的每条 entry 都有连续 `event_seq`、`event_type`、`prev_entry_sha256` 与 `payload`。首条前驱固定 64 个 0，后续指向前条完整 canonical 字节 SHA-256；禁止回写、删除或缺号。
 
-### 4\.3 修订账本：哈希链
+事件身份、boundary_key 去重和派生 revision_locked 按 5.6.7。事件类型为 `trigger_evaluated/candidate_rejected/revision_activated/epoch_materialized/lease_started/lease_finished/verification_committed/revision_evaluated`。payload 的公共契约见 `5.6.7`。只有 revision_activated 增加 `revision_seq`，其 from/to version、迁移结果、绑定 refs 和活动指针一致；F1、拒绝及事后评价不推进计划。候选 id 使用评估事件序号，拒绝候选不会占用版本号。
 
-```json
-{
-  "schema_version": "1.0",
-  "entries": [{
-    "revision_seq": 1,
-    "prev_entry_sha256": "<64 hex>",
-    "from_version": "1.0.0",
-    "to_version": "1.0.1",
-    "level": "F2",
-    "trigger": {"code": "TR-4_GRANULARITY_OVERFLOW", "evidence_refs": [{"path": "...", "sha256": "..."}]},
-    "trigger_signature": "<64 hex>",
-    "patch_ops": [{"op": "split_task", "target_uid": "...", "into": ["...", "..."]}],
-    "migration": {"inherit": 11, "revalidate": 2, "amend": 0, "regenerate": 1},
-    "preservation_rate": 0.929,
-    "gates": {"RG-1": "pass", "RG-2": "pass", "RG-3": "pass", "RG-4": "pass", "RG-5": "pass"},
-    "epoch_after": "E0",
-    "activated_at_commit": "<40 hex>",
-    "cost_usd": 0.41
-  }]
-}
-```
+活动指针与**最近一条 revision_activated**比较；不存在激活事件时，必须等于初始 seal 的 1.0.0、revision_seq=0、E0，即使已有触发或租约事件。版本提交点仍是活动指针推进：预写但未提交的 activation entry 只能由 WAL 恢复处理，禁止下游在 reconciliation 前读取。事后 checkpoint、租约结果、实际成本和有效性以新事件及 refs 记录，不补写 activation payload。
 
-账本是本文 §9 全部修订指标的唯一数据源，也是 S9 报告读取"本次 run 改了几次计划、改对了没有"的入口。F1 修复租约同样以 `level="F1"` 落账。
+### 4\.4 纪元级状态与执行视图
 
-### 4\.4 执行纪元
+S5 的实例键是 epoch；`done` 只对同一实例终态，F3 可以创建新的 pending 实例，禁止直接把旧 done 改成 running。`run.stages.s5` 是当前实例投影，历史完成事实由 epoch receipt 留存。同一已完成实例重复执行是零变更操作。S6 在所有激活/物化/重验完成后才封存阶段 receipt，F3 前不得先把 S6 标 done。
 
-```text
-E0  = 初始物化检查点 → 首次 S6 执行
-E1  = 第一次 F3 激活后的重物化检查点 → 继续 S6 执行
-```
-
-纪元的唯一实质内容是：**一次增量重物化 \+ 一个检查点提交**。它不清空任何状态、不重置任何预算、不重新初始化 Plan State。纪元号只用于账本、`artifact_manifest` 与 `_orphan/` 路径分区。
+初始 S4 seal 的 file ledger 为 slot_only、revision ledger 为空；Plan State 仍在 S6 admission 首次创建。F2/F3 只允许在 S6 任务边界、无在途 attempt/租约/修复组时开始，不重置 run 总预算。
 
 ## 5\. 阶段流程
 
@@ -332,14 +259,14 @@ S4 内部状态机在 `6.4.2` 基础上把 `PREPARE`/`DELIVERY_CONSTRAINTS` 归�
 
 ### 5\.2 S4b 结构与布局规划
 
-沿用 `6.4.4` 的 ArchitecturePlanner 调用形态与 `ARCH_VALIDATE` 全部既有子门（`arch_01`～`arch_10`），出口新增两项：
+沿用 `6.4.4` 的 ArchitecturePlanner 调用形态与既有子门编号，保留已交付的架构输入与校验契约，新增声明可渲染预检由 S5 按主文档 5.2.1 承担；出口包括两项：
 
 1. 单独计算并封存 `L\-A` canonical hash，写 `_s4/architecture.sealed.json`；
 2. **文件布局由 ArchitecturePlanner 自由规划**（本文 §5.2.1～§5.2.4），不再由 Delivery Compiler 固定给出。
 
-架构定点修复额度不变（≤ 1，M1\-4a3 冻结值）。
+生产架构定点修复额度按主文档 4.7；M1-4a2 的至多两次语义 patch 是独立实验协议，不冒充生产额度已完成实测冻结。
 
-新增出口检查**结构层可修订性预检**：每个 internal contract 的 `interface_files` 必须与其 provider 工作包一一对应且不跨模块，否则 F3 修订的失效闭包不可计算。这是 `5.2.1` 既有约束的显式门化。
+新增出口检查**结构层可修订性预检**：task-ready contract 的实现文件必须属于唯一 provider 工作包，声明头按 5.2.1 的 frozen/owned 分类验证；ready_gate=s5 无 provider task，不适用此项。不得把声明就绪当实现就绪。
 
 #### 5\.2.1 职责划分：什么自由、什么机械
 
@@ -349,7 +276,8 @@ S4 内部状态机在 `6.4.2` 基础上把 `PREPARE`/`DELIVERY_CONSTRAINTS` 归�
 | --- | --- | --- |
 | 文件路径、目录结构、文件数量、模块切分、每模块 `owns_files` | **S4b 自由规划** | 本文 §5.2.2 |
 | 逐报文文件的展开规则与占位符 | **S4b 自由规划**（占位符取值域受限） | 本文 §5.2.2 |
-| 导出符号命名（`5.6.5.2` 六条模式：`symbol_prefix`/`encode_fn`/`decode_fn`/`message_struct`/`error_enum`/`type_id`） | **机械派生，禁止自由** | `5.6.5.2` |
+| 机械符号命名（六模式：`message_struct`/`encode_fn`/`decode_fn`/`type_alias`/`error_enum`/`packet_type_enum`） | **机械派生，禁止自由** | `5.6.5.2` |
+| 架构内部 ABI 符号 | 规划 symbol_id，按统一前缀/规范化规则派生，禁止协议先验 | `5.6.5.2` |
 | 四项资源上限默认值 | **机械派生，禁止自由** | `5.6.5.2` |
 | 三段构建图形状（deliverable → build artifact → link source set） | **强制形状，内容自由** | `6.4.1` |
 | `s5_frozen` / `s6_owned` 二分与"每个 `s6_owned` 文件恰有一个 task owner" | **强制不变量** | `5.2.2`、`6.4.1` |
@@ -365,9 +293,9 @@ ArchitecturePlanner 在既有输出（模块职责、internal contract、设计�
 architecture.layout = {
   "roots": {"include": "include/<dir>", "source": "src", "app": "apps", "build": "."},
   "files": [{
-    "slot_id": "<稳定局部 id，模块内唯一>",
+    "slot_id": "<稳定 id，整个 layout 内唯一>",
     "path": "include/<dir>/<name>.h",        # 或含占位符的 path_pattern
-    "path_pattern": null,                    # 与 path 互斥；仅逐报文文件使用
+    "path_pattern": null,                    # 与 path 互斥；逐报文或逐类型文件使用
     "expand_over": null,                     # path_pattern 的展开域，取值见下
     "class": "s5_frozen | s6_owned",
     "render_rule": "header | source_stub | build_file | doc | mechanical",
@@ -405,11 +333,11 @@ architecture.layout = {
 
 表外组合一律非法并由 Blueprint 编译受控失败，明确包括 `mechanical + entry_point`、`header` 未绑定 contract、`build_file`/`doc` 绑定 contract 或参与链接、`source_stub` 同时绑定 contract 并参与链接、`s6_owned` 由 `layout_template`/`mechanical_spec` 生产，以及 `s5_frozen` 由 `s6_task` 生产。Delivery Compiler **禁止**按路径、文件后缀、模块名或协议身份补充猜测。
 
-**所有导出符号必须在 contract 中显式声明**（名称按 `5.6.5.2` 六条模式机械派生，签名由 ArchitecturePlanner 声明）。S5 只渲染已声明内容，**禁止**推断任何未声明符号。
+**所有导出符号必须在 contract 中显式声明**。机械符号按 `5.6.5.2` 六模式及枚举成员规则派生，架构内部 ABI 按已声明的通用职责标识命名；函数到实现槽、声明到头文件的绑定及可渲染类型规则见 `5.2.1`。M1-5 从既有输入确定性派生主文档 `5.2.1` 的 S5 渲染视图，不增加已交付架构提示词的必填输出；不能猜测未声明符号或歧义实现位置。
 
 #### 5\.2.3 布局约定：确定性输入
 
-"通用网络工程经验"以**协议无关、可哈希、可版本化的确定性输入**注入，**禁止**写进任何提示词（`6.4.8.2` 既有约束：禁止把文件名、接口名写入 prompt）。
+布局约定以协议无关、可版本化资产注入。6.4.8.2 禁止的是 MQTT 专有文件名/接口名、成功架构和模型分支，不禁止通用工程说明或协议无关抽象示例；约定资产中的 hard 条款不得靠 prompt 文本代替机械校验。
 
 | 项 | 规定 |
 | --- | --- |
@@ -435,11 +363,11 @@ architecture.layout = {
 
 #### 5\.2.4 新增 ARCH\_VALIDATE 子门
 
-自由布局把布局校验从"逐值比对固定表"改为**结构性与闭合性校验**，并把这项裁决完整放在架构层：五个新增子门属于 `S4-G2` 的 `ARCH_VALIDATE`，与既有 `arch_01`～`arch_10`（编号与语义不变）并列。`S4-G1` 不重复裁决布局本身，只校验 Blueprint 对已通过的 `layout` 的忠实转写（本文 §5.2.5）。新增五个：
+自由布局把布局校验从"逐值比对固定表"改为**结构性与闭合性校验**，并把这项裁决完整放在架构层：五个布局子门属于 `S4-G2` 的 `ARCH_VALIDATE`，与 `arch_01`～`arch_10` 并列；原门编号及已交付 contract/owner 子门保持不变；主文档 5.2.1 的新增声明/实现绑定预检归 M1-5，不作为回改 S4 或重开架构实验的理由。`S4-G1` 不重复裁决布局本身，只校验 Blueprint 对已通过的 `layout` 的忠实转写（本文 §5.2.5）。新增五个：
 
 | 子门 | 条件 | 真值级别 |
 | --- | --- | --- |
-| `arch_11 LAYOUT_SAFETY` | 全部路径为相对路径、无 `..`、无绝对路径、无符号链接语义、落在 `hard` 段允许的路径根内、不命中保留名黑名单；`path`/`path_pattern` 展开后全局唯一无碰撞 | 1 级 |
+| `arch_11 LAYOUT_SAFETY` | 全部路径为相对路径、无 `..`、无绝对路径、无符号链接语义、落在 `hard` 段允许的路径根内、不命中保留名黑名单；slot_id 在整个 layout 唯一；`path`/`path_pattern` 展开后全局唯一无碰撞 | 1 级 |
 | `arch_12 LAYOUT_CLASS` | `class` 与 `render_rule` 的组合合法（本文 §5.2.2）；`s5_frozen` 文件不被任何任务列为 `deliverable_files`；每个 `s6_owned` 文件恰有一个 owner 模块 | 1 级 |
 | `arch_13 BUILD_GRAPH` | 三段引用全部存在且集合闭合；每个 `link_source` 槽恰进入一个 artifact；artifact 输出路径唯一；`delivery_form` 要求的 `entry_point` 数量精确匹配；构建图无环 | 3 级 |
 | `arch_14 LAYERING` | 模块间依赖方向与 `hard` 段声明的层次序一致，无反向边、无环；contract 的 provider/consumer 方向与之一致 | 1 级 |
@@ -447,7 +375,7 @@ architecture.layout = {
 
 `arch_15` 是自由布局引入的必要防线：模型自由命名文件时可能复现记忆中的某协议工程惯例，从而使协议事实绕过冻结输入进入生成物。该门与 `10.2` D1\.11 的命名来源审计共用同一白名单实现。
 
-该白名单的归属需明确，避免与 §5.2.3 的资产分段混淆：**通用职责白名单是版本受控的校验器侧共享实现**（与 D1\.11 命名来源审计同一份），**不是**布局约定资产 `advisory` 段的内容——`advisory` 段的职责槽位词汇表只作为 ArchitecturePlanner 的参考输入，不构成门判据；`hard` 段也不复制该白名单。白名单随 validator 一同属于 lineage 控制面（`6.4.8.1`），修改其内容即须新建 lineage，旧批次不得混合比较。`arch_15` 的判定域是每个 `path`/`path_pattern` 分段与每条 `purpose` 文本切出的 token，二者用同一白名单 ∪ 同一 Spec 派生标识符集合判定。
+该白名单的归属需明确，避免与 §5.2.3 的资产分段混淆：**通用职责白名单是版本受控的校验器侧共享实现**（与 D1\.11 命名来源审计同一份），**不是**布局约定资产 `advisory` 段的内容——`advisory` 段的职责槽位词汇表只作为 ArchitecturePlanner 的参考输入，不构成门判据；`hard` 段也不复制该白名单。白名单随 validator 一同属于 lineage 控制面（`6.4.8.1`），另行获准实验若修改其内容，必须使用不同 lineage，旧批次不得混合比较；本次保留现有 validator 与最新架构 bundle，不启动新 lineage 或实验（主文档 10.2.1）。`arch_15` 的判定域是每个 `path`/`path_pattern` 分段与每条 `purpose` 文本切出的 token，二者用同一白名单 ∪ 同一 Spec 派生标识符集合判定。
 
 上述五个子门的判据以本节为准：主文档 `6.4.4` 只保留门编号与摘要，两处表述曾在 `arch_13`（`app` 槽 vs `link_source` 槽）与 `arch_15`（黑名单 vs 白名单）不一致，已按 `11.3` 裁决统一采用本节口径并同步主文档。
 
@@ -486,303 +414,179 @@ compile_delivery_blueprint(constraints, architecture, work_packages, tasks) -> D
 
 ### 5\.4 S5 物化纪元
 
-现行 `6.5` 规定 S5 只有一个首提交。新语义：
+S5 无 LLM，只消费活动 Plan、冻结输入及同一 Delivery Compiler 的重算 Blueprint。输入/receipt/basic lint → Blueprint 一致性 → full lint 是首个 workspace 副作用之前的硬门。生成模板不得按协议名、文件后缀或自由文本推断依赖。
 
-| 项 | 内容 |
-| --- | --- |
-| 目的 | 按当前 active plan 的 Blueprint 使工作区达到期望结构状态 |
-| 触发 | 初始（E0）；或 F3 修订激活后（E1、E2…） |
-| 角色 | 无 LLM，纯确定性模板 |
-| 输出 | 物化检查点提交、重写的 `artifact_manifest.json` / `contract_map.json`、更新的 `file_ledger` |
+物化差异使用前一纪元的结构 Blueprint：新增/变化的 s5_frozen 确定性渲染；新增 s6_owned 创建存根；已有 realized s6_owned 内容保持；退役文件按本文 §3.5 隔离。F2 的 owner 变化不构成重新生成理由。函数存根按 `5.2.1` 的实现槽位及 stub 规则生成；接口头可生成声明，但不能据此把 task-ready provider 标为已就绪。
 
-入口门不变（`6.5` 步 1～3）：核对 receipt 与 Plan hash、用同一纯函数重算 Delivery Constraints/Blueprint 并逐项一致、stage full lint 0 error 后才允许第一个 workspace 副作用；漂移以 `DELIVERY_BLUEPRINT_DRIFT` 受控失败，不进入 LLM 修复。
+- E0：全部默认构建变体零警告零错误，启动 smoke 通过，才允许封存 checkpoint、epoch receipt 和版本 binding。
+- E1+：结构、声明、构建图和 manifest/map 必须一致；仍执行全部默认构建。只允许与迁移闭包完全对应的旧实现不兼容进入 `pending_repair` checkpoint，保存失败构建 refs 和待修复组。不能机械定位到闭包的编译/链接错误，或模板本身无法构建，不能按“已知不兼容”豁免。
+- 同一 Blueprint/epoch 已完成后重入零变更；后续纪元普通提交，不再次 git init。receipt 记录 `materialization_status ∈ {ready,pending_repair}`，pending_repair 不是可执行性通过证明。
+- S5 不调用 Fixer；已提交物化 checkpoint 的恢复锚点是当前 epoch，恢复不得删除更早已验证文件或回到 E0。具体原子发布窗口见 `5.6.7`。
 
-物化算法（幂等，按 Blueprint 差异驱动）：
+S5 完成表示本纪元物化事实已封存；S6 admission 区分 ready 与 pending_repair，后者只能先执行本文 §5.6.1 的组修复。新接口未兼容之前不能运行普通任务或发布新的 done。
 
-```text
-diff = blueprint(P_new) ⊖ blueprint(P_active_prev)     # 首次时 prev = ∅
+### 5\.5 启动 smoke
 
-for slot in diff:
-    case 新增 s5_frozen 槽      → 生成；ledger: slot_only → realized(created_by=s5)
-    case 变更 s5_frozen 槽      → 确定性重生成（内容由模板+输入唯一决定）；标记其 consumer 任务 REVALIDATE/AMEND
-    case 移除 s5_frozen 槽      → 隔离到 _orphan/<epoch>/
-    case 新增 s6_owned 槽       → 生成可构建存根；ledger: slot_only
-    case 已 realized 的 s6_owned → 不触碰（内容属于 S6）
-    case 移除 s6_owned 槽       → realized 则隔离，slot_only 则直接删槽
+smoke 是构建变体级确定性检查，不是 Test Bundle。M1 的 `acceptance.tests=[]`，无 runner/oracle/adapter。每个默认变体独立构建并运行其 Blueprint `build_artifacts[].path` 的可执行输出，禁止按文件名猜入口。
 
-物化后：跑默认构建 → 检查点提交（trailer: NePA-Epoch, NePA-Plan-Version）
-```
+启动无参数，cwd 为 workspace 根，使用沙箱默认环境。启动后驻留 `smoke_dwell_seconds`，期间不得自行退出；随后 SIGTERM，在 `smoke_term_grace_seconds` 内退出，否则 SIGKILL 并失败。退出成功为 0 或 SIGTERM（原始 subprocess 返回值 -15，证据统一归一为 143）；SAN 变体不得有 sanitizer 报告。试验起点 2 s/5 s 只可写显式联调配置，正式值按 `4.7` 冻结。
 
-关键约束：
+执行位置：E0 的 S5 出口；S6 普通任务和 F1/联合修复的提交前；S6 最终 receipt 前。结果绑定 tree、variant、artifact、启动/终止结果与失败原因，进入对应 evidence/receipt。S5 的存根必须进入可终止等待循环；未实现功能返回派生 NOT_IMPLEMENTED 码，禁止 abort/assert/非零 exit 代替存根。
 
-- S5 **永不**修改任何 `state=realized` 的 `s6_owned` 文件。`6.5`"S5 是 scaffold 唯一生产阶段"改述为"**S5 是 `s5_frozen` 的唯一生产者，且是 `s6_owned` 存根的唯一创建者**"；
-- S5 只按本文 §5.2.2 的 `render_rule` 渲染已声明内容：`header` 由绑定 contract 的导出符号与机械命名派生值渲染，`source_stub` 生成返回"未实现"错误枚举常量的可构建空实现，`build_file` 只消费 Blueprint 已展开的三段构建图，`mechanical` 只消费对应机械契约白名单中的输入域。**禁止**从文件后缀或文件名反推链接关系、owner 或 contract；
-- **E0 验收**：默认构建零警告零错误（`6.5` 既有强度不变）\+ 通过本文 §5.5 的启动 smoke 检查；
-- **E1 及后续纪元验收**：结构性验收（Blueprint 与树逐项一致、manifest/map 一致、构建图闭合）\+ 默认构建。若构建因某任务的旧实现与新接口不兼容而失败，**不在 S5 修**：把该任务标记为 `AMEND` 后由 S6 处理，本次检查点允许带已登记的已知不兼容，且该不兼容集合必须与迁移分类结果逐项一致——出现分类未覆盖的失败仍判 S5 失败；
-- `git init` 只在 E0 发生；后续纪元只做普通提交，**禁止**制造第二个首提交；
-- 幂等性要求：同一 Blueprint 重复物化必须产生零变更。
+提交前 smoke 失败属于当前执行单元，可在其剩余 F0/F1 额度内修复；组内失败按组协议处理。S6 最终复核失败记录 `S6_EXIT_VALIDATION_FAILED` 并受控降级，不把终态任务凭空重开。S5 E0 smoke 失败属于模板/工具不能履约，按 internal_error 处理，无 LLM 修复。smoke 自身不是 F3 触发。
 
-resume 语义沿用 `6.5` 的三条 reconciliation 规则，判定基线由"首提交"改为"当前纪元的物化检查点"。失败分层不变：输入/Plan/Blueprint 漂移是受控 `failed`（退出码 20）；模板无法生成合法脚手架、违反内部不变量或确定性工具崩溃属 `internal_error`（退出码 1）。
+### 5\.6 S6 执行
 
-### 5\.5 启动 smoke 检查（M1 的第二条执行真值）
-
-M1 的目标是"S4～S6 的产出项目能直接构建**并能被运行起来**"（`2.3`）。仅有构建真值不能判定后者，因此定义一条确定性启动检查。
-
-**它不是 Test Bundle 测试。** smoke 检查是**构建变体级确定性检查**，`5.3` 的测试资产、runner、oracle、adapter 一概不参与，任务的 `acceptance.tests` 仍为空（`6.4.5` 步 7 与 M2\-0 的边界不变），因此不与 M2\-0 的公开测试边界冲突，也不需要 M2\-0 先裁决。
-
-启动契约（全部机械可判，无协议知识）：
-
-| 项 | 规定 |
-| --- | --- |
-| 目标 | Blueprint 构建图中 `delivery_form` 对应的可执行 artifact 的 `output_path`；**禁止**按文件名猜测 |
-| 调用形态 | 无参数启动，工作目录为 workspace 根，环境变量只含沙箱默认集 |
-| 观察窗口 | 启动后驻留 `smoke_dwell_seconds`（默认 2 s，先测后冻） |
-| 终止方式 | 窗口结束发 SIGTERM；`smoke_term_grace_seconds`（默认 5 s）内未退出则 SIGKILL 并判失败 |
-| 通过条件 | 进程成功启动；驻留窗口内未自行退出；收到 SIGTERM 后在宽限期内退出；退出码 ∈ {0, 128\+SIGTERM}；`SAN=1` 变体下无 sanitizer 报告；stderr 无 sanitizer 摘要行 |
-| 判失败 | 启动即退出（含非零退出与信号崩溃）、驻留窗口内崩溃、宽限期内未响应 SIGTERM、出现 sanitizer 报告 |
-
-运行位置与真值归属：
-
-- **S5 出口**（E0）：对存根工程执行一次，判定脚手架本身可运行。此时全部实现为存根，因此存根**必须**满足"可启动且可干净退出"；
-- **S6 出口**：全部任务达终态后、写 S6 receipt 之前执行一次，作为 M1 的出口真值；
-- smoke 结果写入对应阶段 receipt 的 `smoke_result`，并进入 `9.1` 指标与 S9 报告。
-
-对存根实现的规范（`7.3` 的补充）：
-
-- 未实现的功能路径**必须**返回机械派生错误枚举中的"未实现"常量，**禁止**使用 `abort()`、`assert(false)`、`exit(非零)` 或空指针解引用表达"未实现"；
-- 入口存根**必须**完成最小可观察启动（初始化、进入等待循环）并对 SIGTERM 干净退出，**禁止**立即返回；
-- M1 **不要求**入口存根实现任何协议语义。监听端口、接受连接、解析报文均不属于 M1 验收内容。
-
-`smoke_dwell_seconds` 与 `smoke_term_grace_seconds` 按 `4.7` 口径先测后冻，**禁止**用调大窗口掩盖启动缺陷。
-
-### 5\.6 S6 执行纪元
-
-admission（fresh / resume 两条持久事实驱动的路径）、`execution_state_lint`、单任务循环主体（Coder 首次、Fixer 后续、Diagnoser 只诊断、attempts 先持久化、白名单校验、"证据→提交→state"三段序）、上下文包组装规则与输出契约全部沿用 `6.6`。变化在**任务选择与出口**：
+S6 admission 先完成所有 WAL reconciliation，再校验活动 Plan、当前 binding、epoch receipt、State 与 git/evidence。无 State 且 HEAD 等于 E0 checkpoint 才做 fresh 初始化；其余必须从持久 State 恢复，不从 Plan 猜状态。
 
 ```text
-while 存在可执行任务:
-    task = 拓扑序中第一个 status=pending 且依赖已满足的任务
-    执行 6.6.1 单任务循环（含 F0 重试、F1 修复租约）
-    若任务达到 done      → 更新 file_ledger（realized + 验证证据）
-    若任务耗尽 attempts  → status=blocked；进入触发评估
-    每个任务终态后        → 运行确定性触发评估（本文 §6.1）
-        无触发            → 继续
-        命中 F2/F3        → 挂起执行，进入 S4R（本文 §6.2～§6.4）
-        命中 F4/F5        → 受控降级（本文 §7.3），不在 run 内修
-全部终态后：执行本文 §5.5 的 smoke 检查 → 最终 execution_state_lint → 封存 receipt
+完成待物化 / 待组修复 / 待重验
+while 有可执行任务且全局额度允许:
+    选择拓扑序第一个 pending、外部依赖已验证的任务
+    按 execution_mode 执行 normal / revalidate / amend
+    成功 → 证据、提交、State/ledger 发布；失败 → 回到执行基线并保留候选
+    标记真正依赖失败的节点 blocked_by_dependency
+    在任务边界评估触发；有合法 F2/F3 才暂停进入 S4R
+无可执行任务 → 最终默认构建 + smoke + execution lint → S6 receipt
 ```
 
-Plan State 的状态机（`5.2.4` 规定 `done/blocked` 为终态）需要两个受控扩展：
+在普通 attempt 失败、下一次 Fixer 开始前即可评估 TR-3 并授予 F1，不能等 F0 全耗尽才申请租约；F2/F3 仍只在执行单元结束且无在途验证时激活。普通循环继续采用首次 Coder、后续 Fixer、3×T2+1×T1；AMEND 独立一次 T1 Fixer，REVALIDATE 无 LLM。状态/预算字段与事件由 `5.2.4` 定义。失败代码完整输出、其 tree/错误 refs 和诊断留在既有 attempt 现场；工作区回滚不删除这些数据。Fixer 接收最近失败候选及匹配错误，不能只收到回滚后的旧文件和新报错。上下文不可裁掉待修复文件与对应诊断；必要输入超限在调用前受控退出或按已获准的粒度触发处理，不默默漏文件。
 
-| 新迁移事件 | 合法迁移 | 只能由谁触发 | 关键约束 |
-| --- | --- | --- | --- |
-| `revalidation_passed` | `done → done`（换绑新 commit/证据） | 版本迁移控制器 | 仅当分类为 `REVALIDATE` 且构建门重跑通过；attempts 不变 |
-| `reopened_by_revision` | `done → pending` / `blocked → pending` | 版本迁移控制器 | 仅当分类为 `AMEND`/`REGENERATE`；必须携带 `revision_seq` 与分类证据；attempts 按本文 §6.5 处理 |
-| `amended_under_lease` | `done → done`（换绑新 commit/证据） | F1 租约控制器 | 仅当租约条件成立且双方构建门均重跑通过；owner 不变 |
+### 5\.6.1 F3 受影响组统一验收
 
-**只有版本迁移控制器与 F1 租约控制器**能发这三个事件，且必须在同一次原子更新中写入 `revision_ledger`。Coder/Fixer/Diagnoser 一律无权。这保证 `5.2.4` 的终态语义只被可审计的路径打开。
+**组边界**由控制器确定：签名变化的 provider/consumer、迁移为 AMEND/REGENERATE/REVALIDATE 的任务，沿实际声明与构建依赖求闭包；共享受影响 build artifact 的节点归同组，重叠组合并。边界固定写入激活迁移记录，不由 Diagnoser 临时扩大。不受影响文件禁止修改；外部依赖必须已验证。组内 readiness 临时按候选依赖顺序供上下文使用，不成为正式 provider ready。
 
-`6.6.1` 末段"若执行发现问题来自正式宏计划而非代码，立即以 `PLAN_INVALID_AT_EXECUTION` 结束 S6"改为：进入本文 §6.1 的确定性触发评估；仅当命中 F4/F5、或熔断器触发、或触发评估无命中而任务仍不可推进时，才以 `PLAN_INVALID_AT_EXECUTION` 受控结束。Agent 在 `notes`/`micro_plan` 中声明"计划不合理"仍**不构成**触发（本文 §6.1.1）。
+1. 以当前 epoch checkpoint 为组基线，将成员置为 pending 且带 group_id/mode。按稳定拓扑顺序逐任务调用；AMEND 至多一次 Fixer，REGENERATE 按剩余普通额度，REVALIDATE 不调用模型。候选逐个落盘，累计装配在组工作树，保存每次调用消耗后才能执行副作用。
+2. 每一轮有界遍历后执行整组所有默认构建、适用 acceptance 测试（M1 为空）和 smoke。通过即停止。失败证据按路径/导出符号归属映射到成员，下一轮只调用仍有额度的对应成员；无法定位时整个组为嫌疑集合，不允许超出组或重复给 AMEND 额度。
+3. 中间构建失败及候选不得形成成功 commit 或 done。全部验证通过后，以同一 tree 发布各成员 evidence 与一份联合证据，创建一个带联合证据 trailer 的 commit；由 verification WAL 一次发布成员 State、文件台账和 verification_committed 事件。新 uid 或纯 REVALIDATE 的普通 attempts 可为 0，来源必须由迁移证明，不伪造 Coder 调用。
+4. 整组未通过且不能继续时，回到组基线，成员记 blocked（reason=GROUP_VALIDATION_EXHAUSTED），后继依赖阻塞；保留失败现场和额度。基线本就不可构建时，不声称恢复了可运行项目。仅继续与失败组不共享构建/运行依赖、且能通过自己完整验收的独立分支；默认全工程构建被阻断时直接受控降级。
+5. 崩溃且尚无合法联合 commit：恢复组基线，重新装配 WAL 已登记候选，未完成调用仍消耗额度；有合法 commit 则只前向补记。双方树/证据不符视为工件损坏，不猜测接受。
+
+组执行不是新 Agent 或并行框架，只是既有 S6 串行调用、验证与提交协议的必要多任务事务边界。
 
 ### 5\.7 S7 集成与一致性测试
 
-沿用 `6.7` 全部内容，无语义修改。与本文档相关的三点：
+沿用 `6.7` 的独立 runner 与 accepted round 协议。入口对齐当前 binding/epoch、S6 receipt、活动 Plan 和最近一次版本激活（空历史对齐初始 seal），不是账本最后一个任意事件。S7 测试资产必须先经 M2-0 设计和 M2-1a 独立生成验证，不能由 M1 提前造 runner。全部启用测试重跑；无法构建则记录真实构建失败，不伪造测试 pass。
 
-- 工件完整性 gate 中的"Plan SHA\-256 与 S4 seal/Plan State 一致"改为**与 `active_plan.json` 指向的版本一致**，并额外核对 `revision_ledger` 哈希链完整、`active_plan` 与账本末条目一致；
-- S7 只在 S6 全部任务达终态后进入，因此其基线是最后一个纪元的检查点加各任务提交；
-- 本节执行框架与测试资产仍在 M2 实现，M2\-0 裁决完成前不得启动 S7。
+### 5\.8 S8 有界修复
 
-### 5\.8 S8 有界修复循环
+沿用 `6.8` 单簇修复、快验、单提交、全量回归与回滚。S8 不修改计划或 State 的任务完成事实，不返回 S6，不调用 S4R。S6 receipt 锚定的账本前缀保存在 s6_revision_ledger.json，后续诊断只追加活动账本；S6 file ledger 的验证事实不改写，最终内容由已接受 repair 后代 tree 与 terminal round 证明（5.6.7）。TR-9 及其他模型结构归因只追加诊断事件；预算内继续适用的代码修复，不能修复则保留静态合同和现场、以 degraded 结束。只有静态合同确实失效才使用 PLAN_INVALID_AT_EXECUTION/failed。s5_frozen 以当前 Blueprint 判定，不能由 S8 修改。
 
-沿用 `6.8` 全部内容，无语义修改。与本文档相关的两点：
+### 5\.9 S9 报告
 
-- S8 **禁止**发起计划修订（Q\-5 默认口径）。S8 已有独立的有界修复协议与收敛判据，叠加修订会使两套预算耦合；运行时发现结构性计划缺陷仍按 `PLAN_INVALID_AT_EXECUTION` 记录并受控结束；
-- `s5_frozen` 永不可改这一条在多纪元下仍成立：判定依据是当前纪元 Blueprint 的文件分类。
+主文档 `6.9/9.1` 为报告公共契约。从 revision ledger 的已接受事件、file ledger、各阶段 receipts 和关联 telemetry 确定性计算指标；Reporter 只成文。空账本是 0 次事件/激活，缺账本是 unavailable，不能混用。指针对齐最近 activation；历史证据通过迁移 proof 对齐当前义务；不要求历史 hash 等于新 Plan。planned_stop 不产生 report，但其 S6 构建、smoke 与过程指标可由 M1 指标工具读取。
 
-### 5\.9 S9 报告与证据打包
-
-沿用 `6.9` 全部内容，新增三项汇总来源：
-
-1. `revision_ledger.json`：修订次数、逐级分布、门拒绝分布、保全率、有效性（本文 §9.2）；
-2. `file_ledger.json`：文件级验证事实，用于报告"哪些代码在修订中被保全"；
-3. 各阶段 receipt 的 `smoke_result`。
-
-`artifact_availability` 需要覆盖上述工件：账本缺失时对应指标为 `null + reason`，**禁止**把缺失解释为 0 次修订。交叉自检新增：`active_plan` 指针必须与账本末条目一致，账本哈希链必须完整，已激活版本必须满足 INV\-1/2/3。
-
-## 6\. 修订触发条件与修订流水线
+## 6\. 修订触发与流水线
 
 ### 6\.1 触发登记表
 
-**总原则**：触发条件必须是**确定性谓词 \+ 可重算证据**，且必须在**局部修复额度耗尽之后**才评估。后者是关键的排序纪律——它保证结构性修订只在"局部修复已被证明无效"时发生，而不是在模型第一次遇到困难时发生。
+自动触发必须有可重算机器事实。实现错误先用适用 F0/F1 额度；确定性证明本级无法修复（例如需要新增冻结接口）时记录不适用原因并跳级，禁止为耗完额度制造无意义调用。多触发同一边界时按最低可解决级 F2→F3、再按 TR 编号排序；F1 在任务内优先处理。每次评估的全部命中与选中项均落账。
 
-| id | 名称 | 检测源（真值级别） | 谓词 | 最低级 | 防误报护栏 | M1 可用 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **TR-1** | 接口不足 | 构建输出（4 级） | 链接期 undefined reference 指向的符号，不属于任何 `s5_frozen` 接口文件导出集，且该任务的 `consumes_contracts` 已完整 | F3 | 必须已耗尽该任务全部 attempts；且符号被 ≥ 2 个任务需要，或 Diagnoser 给出该符号可由本任务 context slice 中某条 REQ 直接推出的结构化理由 | 是 |
-| **TR-2** | 就绪死锁 | Plan State 图可达性（1 级） | ∃ contract：其唯一 provider 任务为 `blocked`，且其 consumer 闭包覆盖剩余未完成 primary 任务的 ≥ θ₂ 比例 | F2 | 纯图计算，无误报可能；θ₂ 进配置 | 是 |
-| **TR-3** | 所有权冲突 | 白名单拒绝计数（2 级） | 同一 `(task_uid, path)` 的越界写入拒绝次数 ≥ 2，且该 path 属于同工作包内的另一任务 | F1→F2 | 先尝试 F1 修复租约；租约不适用（path 跨工作包）才升 F2 | 是 |
-| **TR-4** | 粒度溢出 | `finish_reason` / 输出预算（2 级） | 同一任务出现截断 `finish_reason` ≥ 2 次，或 full lint 的输出预算投影超限 | F2 | 截断是机器事实；对应 O\-8 的已登记风险 | 是 |
-| **TR-5** | 责任闭包不可行 | Diagnoser 结构化输出 \+ 图检查（混合） | Diagnoser 声明的必需文件集 ⊄ (`deliverable_files` ∪ 已就绪 `consumes` 接口)，且该文件集属于**其他模块** | F3 | 需连续 2 次独立诊断给出同一模块指向（迟滞）；单次不触发 | 是（只记录，见下） |
-| **TR-6** | 阻塞面积超阈 | Plan State 计数（1 级） | `(blocked + blocked_by_dependency) / \|tasks\| ≥ θ₆` | F2 | 纯计数；每次只允许触发一次修订（签名去重） | 是 |
-| **TR-7** | 未规划产物需求 | 构建诊断（4 级） | 构建因缺少 Blueprint 中不存在的必需输入（如某内部接口头）而失败 | F3 | 缺失项必须能由布局声明的合法形态容纳（本文 §5.2.2）且通过 `arch_11`～`arch_15`；否则升 F4 | 是 |
-| **TR-8** | 契约签名漂移 | 确定性符号比对（1 级） | provider 任务已提交的 `interface_files` 导出符号集 ≠ contract 声明期望 | **提交门** | 优先在 provider 提交时**拒绝**（最便宜级），仅当拒绝后该任务耗尽额度才升 F3 | 是 |
-| **TR-9** | 测试契约不可达 | 测试结果 \+ 覆盖矩阵（5 级） | 某 MUST 的全部关联测试在其 primary/supporting 闭包全部 `done` 后仍失败，且 Diagnoser 归因为结构缺陷而非实现缺陷 | F3 | 需 S8 至少一轮定点修复已失败（避免把实现 bug 当结构 bug） | **否**（M2 起） |
-
-补充规定：
-
-- **启动 smoke 失败不构成结构性触发。** 它是可执行性缺陷，按 F0/F1 处理；连续失败最终表现为任务 `blocked`，再由 TR\-1/TR\-6/TR\-7 的机器谓词决定是否升级；
-- **TR\-5 在 M1/M2 只记录、不自动触发**（Q\-3 默认口径）：它是唯一带模型判断的触发源，其误报率未被测量，先积累样本再决定是否启用；
-- **θ 值必须先测后冻**：θ₂（建议起点 0\.3）、θ₆（建议起点 0\.25）、租约上限 κ 与 ρ\_min 的默认值**禁止**凭直觉设定，须由完整链实测确定后冻结，且**禁止**用调整 θ 来掩盖 prompt 缺陷。
-
-#### 6\.1.1 明确不是触发条件的情形
-
-| 情形 | 为什么不是 | 正确处置 |
-| --- | --- | --- |
-| Agent 在 `notes`/`micro_plan` 中声明"计划不合理" | 无机器证据；且这是 `6.6.3` 已禁止的 Plan amendment 通道 | 记录为**证据候选**，本身不构成触发；仅当同时命中 TR\-1/5/7 的机器谓词才生效 |
-| 单次构建失败 | 这是 F0/F1 的正常输入 | 走单任务修复循环 |
-| 单次 smoke 失败 | 这是 F0/F1 的正常输入 | 走单任务修复循环 |
-| 单次测试失败（M2 起） | 这是 S8 的正常输入 | 走 S8 有界修复 |
-| Coder 想改别的文件 | 越界写入 | 白名单拒绝；累计到 TR\-3 才升级 |
-| 成本接近上限 | 预算问题不是结构问题 | 走 `4.7` 受控出口；**禁止**以"重规划省钱"为由触发修订 |
-| PlanCritic 事后想重审已发布计划 | 会形成无界评审循环，且评审型硬门违反 `9.1.2` | PlanCritic 只在初始发布与修订候选的 delta 上运行 |
-
-### 6\.2 补丁算子集（封闭）
-
-修订**不是**重新生成计划，而是提交一组算子。算子集封闭，且按级分权：
-
-| 算子 | 语义 | 允许级 | 对 uid 的影响 |
+| id | 谓词/来源 | 路由与护栏 | 可用期 |
 | --- | --- | --- | --- |
-| `split_task` | 一任务拆为 n 个，文件与责任在其间重新划分（并集不变） | F2 | 产出新 uid，记 `derived_from` |
-| `merge_tasks` | 同工作包内 n 任务合并（须满足 ≤ 4 文件） | F2 | 产出新 uid，记 `merged_from[]` |
-| `move_responsibility` | 把某 REQ 责任从任务 a 移到同工作包任务 b | F2 | uid 不变 |
-| `move_file_owner` | 同工作包内文件 owner 改判 | F2 | uid 不变，触发 `REVALIDATE` |
-| `rewrite_instructions` | 只改 `instructions`/`goal`/`context_refs` | F2 | uid 不变，只动 `guidance_digest` |
-| `insert_task` | 在工作包内新增任务，文件只能取自该包 `allowed_files` | F2 | 新 uid |
-| `reorder_dependency` | 增加可由 contract 证明的包内依赖边 | F2 | uid 不变 |
-| `re_adopt` | 从 `_orphan/` 重新采纳文件到某任务 | F2 | uid 不变 |
-| `add_contract` | 新增 internal contract（含 owner/provider/interface\_files/ready\_gate） | F3 | 影响 consumer 的 `obligation_digest` |
-| `extend_contract` | 扩充已有 contract 的接口符号集（**只增不减**） | F3 | 同上 |
-| `add_file_slot` | 在模块 `owns_files` 中新增布局槽位（须通过 `arch_11`～`arch_15`） | F3 | 触发重物化 |
-| `add_work_package` | 新增工作包（含责任与文件划分） | F3 | 新 uid 集合 |
-| `move_file_across_wp` | 文件在同模块的工作包之间改判 | F3 | 触发 `REVALIDATE` |
+| TR-1 | undefined reference 的符号不在已声明导出集，同一缺失符号被至少两个任务的构建证据需要；consumes 静态闭包已完整 | F3；单任务 Diagnoser 的 REQ 归因只记录，不自动升级 | M1 |
+| TR-2 | 唯一 task-ready provider blocked，consumer 闭包占剩余未完成 primary 任务比例 ≥ θ₂ | F2；分母为 0 时不命中；图事实只是阻塞证据，不保证补丁能解决 | M1 |
+| TR-3 | 同一 task uid/path 的他属 s6_owned 越界拒绝累计 ≥ 2 | 同工作包或直接 provider 邻域先 F1；不满足租约/租约耗尽且包内可改分工才 F2；其他跨包情况不按本条自动改 owner | M1 |
+| TR-4 | 同任务截断 ≥ 2，或 full lint 输出预算投影超限 | F2；输出预算溢出可直接证明继续原粒度不适用 | M1 |
+| TR-5 | 两次独立 Diagnoser 指向同一跨模块必需文件缺口，图检查确认超出可写/就绪集合 | record_only；不参与自动级别选择 | M1/M2 |
+| TR-6 | 当前 (blocked+blocked_by_dependency)/任务数 ≥ θ₆ | F2；同一问题签名去重，计数可重算 | M1 |
+| TR-7 | 构建缺少 Blueprint 外的输入，布局可容纳并通过结构门 | F3；不满足模块边界/声明规则则 F4 记录并降级 | M1 |
+| TR-8 | provider 提交候选的导出声明与 contract 不一致 | 提交门拒绝，先 F0/F1 修实现；只有同时有 TR-1/7 等结构证据才 F3，额度耗尽本身不是扩接口依据 | M1 |
+| TR-9 | 同 MUST 关联测试在责任闭包曾完成后仍失败，S8 至少一轮失败并被 Diagnoser 归为结构问题 | record_only；S8 不回 S6，本版本不启用自动升级 | M2 |
 
-**禁止存在的算子**：`delete_requirement`、`remove_contract`、`shrink_acceptance`、`delete_realized_file`、`replace_plan`、`rename_file_slot`。前三条由 INV\-1/2/3 排除；`delete_realized_file` 由本文 §3.5 排除；`replace_plan` 由"修订必须是补丁"排除；`rename_file_slot` 被排除是因为改名等价于"删一个槽 \+ 加一个槽"，会使已实现文件失去槽位而被隔离，收益为负——确需改名时走 `add_file_slot` \+ 迁移分类，代价显式可见。
+TR-5/TR-9 以及 TR-1 的单任务模型归因属于混合诊断，不能声称“唯一带模型判断的触发是 TR-5”。θ₂、θ₆、κ、ρ_min、总执行上限及 smoke 窗口按 `4.7` 区分显式试验值和生产冻结值。
 
-**PlanReviser 禁止返回整份 Plan**（与 `6.4.6` 对 PlanCritic 的既有约束同型）。
+#### 6\.1.1 非触发与去重
 
-#### 6\.2.1 角色与调用形态
+Agent notes、单次构建/smoke/测试失败、成本接近上限和 PlanCritic 想重审均不单独触发修订。触发签名只包含 TR code、稳定义务/血缘锚、路径/符号和规整错误类别；不包含时间、日志行号、T-### 重编号或完整证据文件哈希，防止同一问题靠换证据逃过去重；原始 evidence refs 另存并核验。
 
-新增**一个** LLM 角色（不是每级一个，以控制 prompt 面积）：
+同一签名只允许一个候选通过激活。候选拒绝后同级不重试该签名；若存在尚未尝试且适用的更高级，可按 `(signature,level)` 提交一次。已激活签名再出现属于无效修订，不重复激活。记录型命中不消耗版本额度。
 
-| 角色 | 档位 | 输入（新鲜上下文，无历史） | 输出 |
-| --- | --- | --- | --- |
-| `PlanReviser` 计划修订员 | T1 | 触发码与其机器证据（构建/lint/图计算摘录）；**当前版本的相关切片**（命中节点及其 contract 邻域，非全量）；本级允许算子集；承诺层义务清单（只读）；剩余预算 | `{level, patch_ops[], rationale, expected_effect}` |
+### 6\.2 封闭补丁算子集
 
-复用现有 `PlanCritic` 做修订候选审查，输入只含 **delta 及其闭包**（不重审全图）。`ArchitecturePlanner`/`TaskPlanner` 在修订路径中**禁止**被调用——这避免"重新展开等于重新规划"的退化。
-
-`PlanReviser` 与 S4 各角色一样受 `6.4` 协议中立硬约束与 P1 测试可见性边界约束（只可见 Test Manifest 元数据）。它是新 prompt，因此必须按 `6.4.8` 同型的有界开发协议开发（`10.2` 工作项），**禁止**在未校准前进入生产默认。
-
-### 6\.3 修订门（`RG-1`～`RG-5`）
-
-候选在 `_s4r/rev_NNN/` 中预演，**全程不写 workspace**（与 `6.4.1` 的 S4 不变量同构）。五道门按成本升序：
-
-| 门 | 条件 | 真值级别 |
+| 算子 | 层级 | 效果及边界 |
 | --- | --- | --- |
-| `RG-1 TRIGGER` | 触发谓词在当前状态下**仍然成立**；证据文件内容哈希有效；`trigger_signature` 未在账本中出现过 | 1 级 |
-| `RG-2 INVARIANT` | INV\-1/2/3 全部成立；算子集 ⊆ 本级允许；补丁应用后 Linker \+ **full lint 0 error**（`S4-G0`～`S4-G6` 全套）；F3 另需 `arch_11`～`arch_15` 通过；Blueprint 可编译 | 3 级 |
-| `RG-3 BUDGET` | `preservation_rate ≥ ρ_min`（F2 要求 `= 1.0`；F3 起点建议 `≥ 0.85`，先测后冻）；`rework_cost_estimate ≤ 剩余预算 × 0.5`；本级修订次数未超额 | 1 级 |
-| `RG-4 CRITIC` | PlanCritic 对 delta 闭包无 blocker/major | 6 级 |
-| `RG-5 REHEARSAL` | F3 才需：Blueprint 差异物化预演（在临时目录，不动 workspace），确认新增/变更槽位可确定性生成且幂等 | 3 级 |
+| split_task / merge_tasks | F2 | 同包重新划分文件/责任；新 uid、显式血缘；各任务仍非空且 ≤4 文件 |
+| move_responsibility / move_file_owner | F2 | 同包责任或文件转移；保留完整分区和义务映射，不自动宣称 REVALIDATE 已通过 |
+| rewrite_instructions | F2 | 只改 instructions/goal/context_refs，不刷新失败预算 |
+| insert_task | F2 | 同包新增 uid，文件取自 allowed_files；同时从原 owner 移出，不能产生双 owner |
+| reorder_dependency | F2 | 只增加 contract 可证明的包内边，由 Linker 重算排序 |
+| add_contract / extend_contract | F3 | 新增接口或向原 exports 增加声明；原声明不得删除/改签名；同时声明实现槽和 provider/consumer |
+| add_file_slot / add_work_package | F3 | 新增槽/包并同步文件及责任分区；不能新增模块或扩大承诺 |
+| move_file_across_wp | F3 | 同模块跨包迁移文件/责任及其 provider 绑定；闭包整体合法 |
+| retire_file_slot | F3 | 退役槽与全部引用，原义务和已发布符号必须有合法承接；realized 内容隔离不删除 |
+| re_adopt | F3 | 从隔离路径恢复到显式目标槽/owner；包含槽恢复、内容移动和重验 |
 
-任一门失败 ⇒ 丢弃候选，`active_plan` 不变，计入熔断计数（本文 §7.4）。**回滚是零成本的**，因为候选从未接触 workspace。
+F3 可包含完成结构变更所必需的 F2 算子。一个候选整体原子应用后验证，不要求每个中间算子形成可发布 Plan。禁止 delete_requirement、remove_contract、shrink_acceptance、delete_realized_file、replace_plan；不提供隐式 rename_file_slot。所有改路径的引用替换必须在同一补丁显式给出，不由分类器代改计划。
 
-### 6\.4 原子激活
+#### 6\.2.1 角色与调用
 
-全门通过后，按固定跨介质顺序推进（与 `6.6.1` 的"证据→提交→state"同型）：
+仅新增 PlanReviser（T1）：输入机器触发及证据、活动计划相关切片、只读承诺、允许算子、剩余预算；输出 `{level,patch_ops[],rationale,expected_effect}`。禁止整份 Plan、调用 ArchitecturePlanner/TaskPlanner 重新展开或读取测试实现。复用 PlanCritic 审 delta 闭包；它可阻止不合格候选发布，不裁决代码是否完成。开发校准使用主文档 M1-14 的有界协议。
 
-```text
-1. 原子写 plan/versions/plan-<新版本>.json（fsync 文件与目录）
-2. 计算迁移映射（本文 §3.2 四分类），原子写 plan_state 的迁移结果与 file_ledger 的 owner_history
-3. 原子追加 revision_ledger（含 prev_entry_sha256 哈希链）
-4. 原子改名推进 active_plan.json（revision_seq += 1）
-5. 若 level == F3：进入 S5 物化纪元 → 检查点提交
-6. 回到 S6，从新版本的拓扑序继续
-```
+### 6\.3 修订门
 
-崩溃恢复：以 `active_plan.json` 为唯一权威。若 `versions/` 中存在比指针更新的版本文件但账本无对应条目 ⇒ 该候选未激活，隔离即可；若账本有条目而指针未推进 ⇒ 校验版本文件哈希后前向补记（与 `4.8` 的 commit\-before\-state 前向补记同型）。
+| 门 | 条件 |
+| --- | --- |
+| RG-1 TRIGGER | 当前谓词仍成立，证据可核验，当前 signature/level 未尝试，尚无该签名已激活修订 |
+| RG-2 INVARIANT | INV-1/2/3、允许算子、Linker/full lint、Blueprint 和迁移映射全部通过；F3 通过受影响架构门 |
+| RG-3 BUDGET | 实际文件保全率 ≥ 本级冻结 ρ_min；任务/组返工估算 ≤ 剩余成本预算×0.5；本级激活额度和全局执行额度足够 |
+| RG-4 CRITIC | delta 闭包无 blocker/major；不是执行验收门 |
+| RG-5 REHEARSAL | F3 必须在临时目录用现有 workspace 内容与同一 S5 模板预演；结构闭合、幂等，构建失败仅限已登记组；F2 为 not_applicable |
 
-### 6\.5 attempts 与预算的迁移规则
+顺序按廉价筛选后模型评审、再物化预演固定，不声称证据级别等于费用排序。候选现场在 `_s4r`，门通过前不修改 workspace 或正式版本链。拒绝追加 candidate_rejected，active_plan 和正式版本文件不变；拒绝不是“账本无条目”，也不是成功激活。预演和模型调用已消耗的预算不会退款。
 
-这是**防止用修订刷新预算**的关键条款：
+### 6\.4 原子激活及恢复
 
-1. **任务级 attempts**：`INHERIT`/`REVALIDATE` 保持不变；`AMEND` 保留原 attempts（只发一次 Fixer）；`REGENERATE` 允许重置为 0，但受第 2 条约束；
-2. **run 级全局上限**：新增 `s6_total_attempts_cap`（建议起点 = 初始任务数 × (t2\_limit\+1) × 1\.5，先测后冻）。任何 `REGENERATE` 重置都**禁止**突破该全局上限。修订因此最多重新分配预算，**不能创造预算**；
-3. **修订自身成本**计入全局成本预算与 `planning.*` 成本分解，不单开口袋；
-4. `blocked` 任务在修订中被 reopened 时，其原 attempts 记录**必须保留在账本**（供本文 §9 计算真实失败率），不因重开而消失。
+1. 所有门通过后，从相同旧 State 计算迁移快照。INHERIT 带迁移证明；重验/修复任务为 pending 加模式，绝不预写新的成功证据。
+2. 在 candidate 目录写 activation WAL，记录旧/新 pointer、State、file ledger、账本前后完整 refs、候选 Plan、F2 binding 或 F3 待物化信息。持有 run 锁；每次外部调用/写入边界前重读权威状态。
+3. 写不可变版本与 F2 binding（F3 仅规划 binding，待 S5 生成）、迁移 State/ledger、预备 activation entry。最后原子推进 active_plan，这是唯一逻辑提交点；随后补 Run 活动引用及当前工件副本。
+4. F2 进入待重验/AMEND 队列；F3 进入新 S5 epoch，再先执行修复组。后续验证结果追加 verification_committed / revision_evaluated，不回写 activation。
 
-## 7\. 修复阶梯：F0～F5
+恢复必须先于任何 Stage admission：指针仍旧值，无论是否已预写 activation entry，都按 WAL 恢复旧 State/file ledger/账本和副本，隔离未激活版本/binding；这些是未提交事务数据，不是删除已接受历史。指针为新值，校验全部新引用后只前向补 Run/副本并继续 S5 或验证。指针既非旧值也非新值，或所需字节不符，判工件损坏。禁止以“账本看起来已写”越过唯一提交点。主文档 `5.6.7` 给出完整恢复表。
 
-每级有明确作用域、机制、预算与验收真值。级名 `F` 取 Fix。
+### 6\.5 额度迁移
 
-| 级 | 名称 | 作用域（爆炸半径） | 机制 | 预算 | 验收真值 | 是否动计划 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **F0** | 任务内重试 | 单任务 `deliverable_files` | Coder（首次）→ Diagnoser → Fixer；同 `6.6.1` | 3×T2 \+ 1×T1 | 构建门 | 否 |
-| **F1** | 修复租约 | 任务 \+ 其 contract 邻域中**已 done** 的兄弟任务文件 | 控制器授予有界写租约，Fixer 在扩大后的白名单内修 | 每 run ≤ κ 次（起点建议 3，先测后冻），每次 ≤ 2 个外部文件 | 双方任务的构建门均重跑通过 | 否 |
-| **F2** | 分解层修订 | 单个或少数工作包内的任务切分 | `PlanReviser` 产出 F2 算子 → RG 门 → 激活；P 位递增 | ≤ 3 次 / run | full lint \+ 迁移后构建门 | 是（`L\-P`） |
-| **F3** | 结构层修订 | 契约/布局槽位/工作包，含增量重物化 | F3 算子 → RG 门（含 RG\-5）→ 激活 → S5 物化纪元；A 位递增 | ≤ 1 次 / run（M2 起可评估放宽到 2） | full lint \+ 物化构建 \+ 受影响任务重验收 | 是（`L\-A`） |
-| **F4** | 架构改轴 | 模块分解本身错误 | **run 内不做**：受控降级 \+ 完整现场留存 | 0 | — | — |
-| **F5** | 合约重协商 | 目标/测试契约本身错误 | **run 内不做**：外部证伪回路 | 0 | — | — |
+INHERIT/REVALIDATE 不消耗编码 attempts；AMEND 保留旧普通 attempts，每次激活后的 amendment_used 从 0 到 1，固定一次 T1 Fixer；REGENERATE 新一代普通 attempts 从 0 起，历史累计保留。新 uid 不继承虚构的首次调用；纯迁移完成允许 attempts=0 但必须有重验/血缘证明。
 
-### 7\.1 单调升级纪律
+所有 Coder/Fixer（含 F1、AMEND、组修复）开始前先持久化占用 `s6_total_attempts_cap`；F1 是当前任务该次 Fixer 的扩大白名单，不额外创造 F0 额度。Diagnoser/PlanReviser/Schema 纠错也计入全局时间/成本预算，但不冒充代码 attempt。resume 不返还已开始调用，局部预算变化不能突破 run 硬顶。
 
-三条规则，缺一不可：
+## 7\. 修复阶梯与受控出口
 
-1. **自下而上**：任一级的额度未耗尽，**禁止**升级到上一级。这对应 `3.3`"真值取最快可得的那个"——先用构建真值试三次，再考虑动模型级的重规划；
-2. **不回退**：升级到 F2 之后，**禁止**因为 F2 失败而返回 F0 再刷一遍额度（否则总预算不可界定）；
-3. **同一诊断只升一次**：`trigger_signature`（触发码 \+ 命中节点 uid 集合 \+ 证据签名的规整哈希）在账本中出现过，即**禁止**再次以同一签名触发修订。这是 `6.4.6`"相同 issue signature 再次出现即判不收敛"的直接沿用。
+| 层级 | 作用域 | 上限及验收 |
+| --- | --- | --- |
+| F0 | 单任务 | 普通 3×T2+1×T1；构建、适用测试、smoke |
+| F1 | 当前任务 + 有限已 done 邻居文件 | run 内 ≤κ 次，每次 ≤2 外部文件；双方验收和联合提交 |
+| F2 | 分解层 | run 内 ≤3 次成功激活；不物化源码，按迁移分类验收 |
+| F3 | 结构层 | run 内 ≤1 次成功激活；S5 重入与组验收 |
+| F4/F5 | 模块改轴 / 承诺重协商 | run 内 0 次；保存诊断并降级，必须新 run 才能改变承诺 |
+
+### 7\.1 升级纪律
+
+只尝试能解决当前机器证据的级别；不适用级别跳过并记录理由。级别关闭只禁止该级，F2 耗尽仍可处理合法 F3；F3 已耗尽不妨碍新的无关 F2。单调性按同一问题签名而非整个 run：不因升级失败重新给原任务 F0，合法迁移的新执行额度按本文 §6.5 显式分配。
 
 ### 7\.2 F1 修复租约
 
-现实中大量失败形如：任务 B 的实现正确，但它依赖的任务 A 留下一处小缺陷（少一个字段初始化、错一个字节序转换）。当前设计下 A 已是 `done` 终态、其文件不在 B 的白名单内，于是 B 只能耗尽 attempts 后 `blocked`，随后触发结构性修订——**用最贵的手段修最便宜的错**。
+授权条件全部相与：owner 为另一已 done 任务；文件属于 s6_owned；**（同工作包或该 owner 是当前任务直接 contract provider）**；候选不改导出声明；外部文件 ≤2；κ 和当前 Fixer/global 额度尚有剩余。候选路径和签名比对在写入前完成；无法证明声明不变则拒绝，不靠模型自述。
 
-租约的授予条件（全部确定性可判）：
+lease_started 在调用前落账并占用 κ；双方构建、适用测试和 smoke 通过后，逐任务 evidence 与联合证据绑定相同 tree，一个 commit，再以 verification WAL 发布双方 State/ledger 和 lease_finished。原 done 任务保持普通 attempts，当前任务消耗其本次 Fixer attempt；owner_history 不因租约变化。失败恢复双方共同基线，原任务仍 done、当前任务继续剩余额度，lease_finished 记失败。中断使用同一 WAL 对账，不能只接受一方完成。
 
-```text
-grant_lease(task_b, path) iff
-    owner(path) = task_a ∧ state(task_a) = done                    # 只租已完成任务的文件
-  ∧ path ∈ same_work_package(task_b) ∨ ∃contract: a→b 直接 provider # 邻域限制
-  ∧ ¬is_interface_symbol_change(proposed_change)                   # 不得改契约签名（那是 F3）
-  ∧ lease_count(run) < κ
-```
+### 7\.3 降级、失败与 planned-stop
 
-记账与验收：
+静态合同有效但不能完成实现（F4/F5 建议、无合法修订、熔断、组验收失败）记录 `EXECUTION_UNRESOLVED`，阻塞受影响子图，继续有独立可验证构建的分支；无法继续时受控进入 S9/degraded。F4/F5 是对修改层级的诊断，不表示已修改或放宽冻结承诺。
 
-- 修改后**必须**重跑 A 与 B 双方的构建门；A 的状态由 `done` 迁移到 `done`（换绑新 commit 与新证据，事件 `amended_under_lease`）；
-- 租约必须落 `revision_ledger`（`level="F1"` 条目），因此可审计、可计数、可在本文 §9 中报告；
-- 租约**不改变**文件所有权：`owner_history` 不变，只在证据中记录 amender。因此 `5.2.2`"每个 `s6_owned` 文件恰有一个 task owner"不变量保持成立。
+工件链断裂、已发布字节改变、已激活计划违反 INV 才是 failed；PLAN_INVALID_AT_EXECUTION 只用于已证实静态合同失效。NePA 自身模板/工具/状态不变量错误是 internal_error。全局成本、时间或 S6 总执行额度耗尽停止调用并走受控出口。成功完成 `--until s6` 且出口构建/smoke 通过才能 planned_stop；出错不能以 until 掩盖，M1 不进入尚未实现的 S7。
 
-代价与权衡：租约弱化了文件互斥的**写时序**假设（`4.9` E1 任务并行的前提之一）。缓解方式是租约串行执行——v1 本来就不并行，因此当下无实际损失，但启用 `4.9` 的并行扩展前必须重新评估。
+### 7\.4 熔断与有效性
 
-### 7\.3 受控降级交付（F4/F5 的唯一出口）
+| 条件 | 动作 |
+| --- | --- |
+| signature/level 已尝试 | 不重提同级；尚有适用高级可升级 |
+| 同级连续两次候选门失败（不同签名） | 关闭该级，不重置其他预算 |
+| 已激活签名在受影响集合完成一次有界遍历后仍成立 | 追加 revision_evaluated(ineffective=true)，锁定后续修订；保留有效代码，继续可验证独立分支 |
+| F2/F3 激活额度耗尽 | 只关闭对应级；全部修订路径关闭才 revision_locked |
+| 全局执行/成本/时间耗尽 | 停止相应调用，保存现场并受控退出 |
 
-命中 F4/F5 时**禁止**重开计划，处置为：
-
-1. 立即锁定 `active_plan`（`revision_locked=true`），此后禁止任何修订；
-2. 把受影响子图（触发点及其 consumer 闭包）标为 `blocked`/`blocked_by_dependency`；
-3. **继续执行所有独立分支**（`6.6.1` 已有的"blocked 只阻塞下游、无关分支继续"规则），尽量多交付；
-4. 全部任务终态后正常进入 S7/S9，`outcome=degraded`，报告中显式记录 F4/F5 触发码、现场证据与"若要修复需要改哪一层"的机器结论。
-
-这一条是成本上界的保证：**run 内成本被 F0～F3 的额度之和硬性封顶**，F4/F5 不消耗任何 run 内预算，而是转化为外部证伪回路的一条高信息量失败记录。
-
-### 7\.4 振荡熔断
-
-| 熔断器 | 条件 | 动作 |
-| --- | --- | --- |
-| 签名重复 | 同一 `trigger_signature` 二次出现 | 拒绝修订，直接受控降级 |
-| 门连续失败 | 同一级修订连续 2 次 RG 门失败 | 关闭该级，只允许更低级修复 |
-| 无效修订 | 某次修订激活后，`blocked + blocked_by_dependency` 计数在下一次触发评估时**未严格减少** | 标记该修订 `ineffective`；**不回滚工作区**（代码可能仍有价值），但锁定计划并降级 |
-| 级预算耗尽 | F2 ≥ 3 或 F3 ≥ 1 | 锁定计划，继续 best\-effort 执行 |
-
-"未严格减少即停"与 `4.7` 的 S7/S8 收敛判据（失败测试数必须严格递减）是同一条防振荡原则，只是换了度量。此处**不回滚工作区**：与 S8 不同，修订带来的代码变更是增量实现而非替换性修补，回滚会丢掉真实进展。
+评价时点为受影响集合全部终态或已无预算继续时，而非刚重开状态或执行第一个成员之后。`resolved` 只在触发问题的同一义务/血缘锚已取得成功验收、且原问题不再成立时为 true；删除节点、分母改变、计数暂降均不是解决。无预算/无验证结果为 unresolved，实际缺失工件为 unavailable。effectiveness 采用已解决问题数/修订相关实际模型成本，零成本分母输出 null+reason，不以 blocked 数下降作唯一效果证明。
 
 ## 8\. 攻击面与防御矩阵
 
@@ -794,102 +598,54 @@ grant_lease(task_b, path) iff
 | 降低义务 | 减少 `build_variant_ids`、缩小 `acceptance.tests` | INV\-3（`RG-2`） | 1 级 |
 | 造无消费者契约 | 新增无人消费的 contract 以绕过 readiness 检查 | full lint 的 contract provider/consumer 闭包检查（既有 `S4-G4`） | 3 级 |
 | 拆分刷分 | 把一个难任务拆成十个小任务抬高完成率 | `task_completion_rate@r0`（uid 谱系分母）\+ `revision.count_by_level` 上限 | 1 级 |
-| 洗掉阻塞记录 | 修订重开 blocked 任务使其从计数中消失 | 分母取 uid 谱系并集；原 attempts 保留在账本（本文 §6.5 第 4 条） | 1 级 |
+| 洗掉阻塞记录 | 修订重开 blocked 任务使其从计数中消失 | 历史阻塞率单列，以已激活 uid 并集为分母；原 attempts 保留在账本（本文 §6.5 第 4 条） | 1 级 |
 | 刷新预算 | 反复 `REGENERATE` 以重置 attempts | `s6_total_attempts_cap` 全局硬顶（本文 §6.5 第 2 条） | 1 级 |
 | 删证据 | 删除失败任务留下的代码与证据以掩盖失败 | 禁止删除 `realized` 文件；隔离必须落账本；账本哈希链 | 1 级 |
 | 回溯改账 | 事后修改早期版本文件或账本条目 | 版本文件不可变 \+ `prev_entry_sha256` 哈希链 \+ `run.json` 独立锚点 | 1 级 |
 | 布局注入协议先验 | 自由命名文件时复现记忆中的某协议工程惯例，使协议事实绕过冻结输入 | `arch_15 PATH_NEUTRALITY` \+ 协议中立静态扫描 \+ 非 MQTT fixture 审计 | 2 级 |
-| 自审自批 | 用同一模型既提修订又批修订 | `PlanCritic` 绑定与生产者不同型号（既有 `4.6` 规则 3） | 6 级 |
+| 自审自批 | 用同一模型既提修订又批修订 | `PlanCritic` 应绑定与生产者不同型号（既有 `4.6` 规则 3） | 6 级 |
 | 无界重试 | 反复提修订直到某次侥幸过门 | 签名去重 \+ 级预算 \+ 门连续失败熔断（本文 §7.4） | 1 级 |
 
-矩阵中 10/11 条防御落在 1～3 级真值（确定性计算），只有"自审自批"依赖模型层。这符合 `3.3` 的通则：**新硬门必须下推到能判定它的最便宜一级**，而不是新增一层评审。
+矩阵中 10/11 条防御落在 1～3 级真值（确定性计算），“自审自批”的候选审查依赖模型层。这符合 `3.3` 的通则：**新硬门必须下推到能判定它的最便宜一级**，而不是新增一层评审。
 
-**未被消除的残余风险**：TR\-5 依赖 Diagnoser 的结构化输出，是唯一带模型判断的触发源。已用"连续 2 次独立诊断指向同一模块"做迟滞，但其误报率**未被测量**，因此按本文 §6.1 在 M1/M2 只记录不触发。
+**残余风险**：模型结构归因的可靠性尚未实测，TR-5、TR-9 和 TR-1 单任务模型分支只记录；自动路由只接受本文 §6.1 的机器谓词。
 
 ## 9\. 指标
 
-### 9\.1 重新锚定的既有指标
+### 9\.1 指标权威与口径
 
-允许计划在 run 内变化会破坏若干现有指标的分母语义。这是本设计**最重的代价**，必须显式处理。
+公共键名、分母、缺失值和公式只由 `9.1.4` 定义。完成率双报 @final 和 @r0；@r0 以初版任务等权、按显式义务迁移追踪，不按文件数加权。split 的原义务全部验证才计完成；merge 完成且证明覆盖每个前驱时各前驱分别计 1；REGENERATE 成功后可恢复原义务完成计分。责任移出但未验证不计完成。
 
-| 指标 | 现行定义 | 问题 | 新锚点 |
-| --- | --- | --- | --- |
-| `task_completion_rate` | `\|done\| / \|plan.tasks\|` | 分母随修订变化；拆任务会同时抬高分子分母，合并任务会抬高比率 | **双报**：`task_completion_rate@final`（以终版任务集为分母）与 `task_completion_rate@r0`（以初版任务集为分母，用 uid 谱系映射）。里程碑验收用后者 |
-| `first_pass_rate` | `\|attempts=1 且 done\| / \|done\|` | 修订后 `REGENERATE` 重置 attempts 会伪造首过 | 只统计**在其被创建的版本下**首次尝试即 done 的任务；`REGENERATE` 后的首次尝试单列为 `first_pass_rate_after_revision`，不并入主指标 |
-| `blocked_rate` / `incomplete_rate` | 按终态 Plan State 计数 | 被修订重开的 blocked 任务会从计数中消失 | 分母改为**任务 uid 谱系的并集**（含被重开与被合并的历史节点），保证"曾经阻塞"不可被修订抹去 |
-| `req_pass_rate`（M2 起） | 覆盖矩阵 × 终态测试 | 承诺层不可变 ⇒ **不受影响** | 不变。这正是把 REQ 集合放进 `L\-C` 的收益：**里程碑首要指标天然免疫计划修订** |
-| `outcome` 三值 | `9.1.2` | 需要补修订相关的 failed 条件 | 新增 `failed` 条件：修订账本哈希链断裂、`active_plan` 指针与账本不一致、检出违反 INV\-1/2/3 的已激活版本 |
+当前状态比例 `blocked_rate@final/incomplete_rate@final` 与历史 `ever_blocked_rate` 分开，历史分母为全部已激活 task uid 并集，不把未激活候选算进去。首过率以任务创建版本的第一次编码执行事实判断，REGENERATE 后的首次成功单列，不改写历史主指标。M1 使用 `s6_build_ok` 和分阶段 `smoke.pass`；终态 `build_ok` 只从 accepted terminal round 读取。
 
-`task_completion_rate@r0` 的 uid 谱系折算规则必须在实现前定死，**禁止**事后选择有利口径：`split_task` 的子节点全部 done 才计原节点 done；`merge_tasks` 的合并节点 done 时，按被合并节点的 `deliverable_files` 数量加权分摊到各原节点。
+### 9\.2 修订指标
 
-### 9\.2 新增修订指标
+采用 `revision.count_by_level`（F2/F3 激活次数）、`revision.rejected_by_gate`、`revision.trigger_histogram`、`revision.migration_mix`、`revision.preservation_rate`（序列及 mean/min）、`revision.rework_cost_estimate_usd`、`revision.rework_cost_usd`、`revision.effectiveness`、`revision.ineffective_count`，以及 `lease.count/success_rate/external_files_p50/p95`。F1 是租约事件，不称“版本激活”。均按 `9.1.4` 从账本及其关联的实际调用证据重算，不使用 Agent 的 expected_effect 作为实际效果。
 
-全部由 `revision_ledger` \+ `file_ledger` 确定性聚合，进 `report.json` 的 `revision.*`：
+账本每次触发评估各 code 至多计一个命中，同 signature 重现仍可记录观察，但不会重复激活。拒绝数只计 candidate_rejected；激活数只计 revision_activated；租约数只计 lease_started，成功数来自成功 lease_finished；后补观测不改变激活数。缺数据用 availability envelope，空但合法账本的计数是 0。
 
-| 键 | 定义 |
-| --- | --- |
-| `revision.count_by_level` | F1/F2/F3 各级实际激活次数 |
-| `revision.rejected_by_gate` | 按 `RG-1`～`RG-5` 分解的候选拒绝次数 |
-| `revision.preservation_rate_mean` | 各次修订保全率的均值与最小值 |
-| `revision.rework_cost_usd` | 因修订产生的 `AMEND`/`REGENERATE` 实际成本 |
-| `revision.effectiveness` | (修订前 blocked 计数 − 修订后 blocked 计数) / 该次修订总成本（USD） |
-| `revision.ineffective_count` | 被熔断器判定 `ineffective` 的次数 |
-| `revision.trigger_histogram` | 各 `TR-*` 触发码的命中次数 |
-| `lease.count` / `lease.success_rate` | F1 租约使用次数与双方构建门通过率 |
-| `smoke.pass` | S5 出口与 S6 出口的启动 smoke 结果（布尔，分阶段报告） |
+### 9\.3 效度与消融
 
-`revision.effectiveness` 是判断这套机制**是否值得存在**的核心量：若它长期接近 0 或为负，说明修订只是把成本挪了位置，应按 `11.3` 裁决关闭。
+V-8：修订造成刷分风险，以冻结义务、显式血缘和 @r0 验收控制。V-9：分解任务分母变化造成不可比，M2 跨臂首要比较 `req_pass_rate_must/cost_per_req_passed`；M1 比较 `s6_build_ok/smoke.pass/cost`，任务过程指标保留口径说明。
 
-### 9\.3 效度威胁与消融
-
-新增两条效度威胁，编号续 `9.4` 已有的 V\-1～V\-7，登记形式相同：
-
-| id | 威胁 | 对策 |
-| --- | --- | --- |
-| V\-8 | **修订成为刷分手段**：通过拆分任务抬高完成率、通过重开任务洗掉阻塞记录 | INV\-1/2/3；uid 谱系分母；`@r0` 双报；账本哈希链 |
-| V\-9 | **指标不可比**：允许修订的 run 与冻结计划的 run 的 `task_completion_rate` 不同分母 | 跨臂比较**只用** `req_pass_rate_must` 与 `cost_per_req_passed`（承诺层锚定，免疫修订）；分解层指标只在臂内比较 |
-
-**消融实验 A\-REV（计划修订策略）**：本设计是否成立的直接检验，配置为实验臂，其余全部冻结：
-
-| 臂 | 配置 |
-| --- | --- |
-| A0 | 冻结计划：F0 only |
-| A1 | \+ F1 修复租约 |
-| A2 | \+ F2 分解层修订 |
-| A3 | \+ F3 结构层修订 |
-
-主因变量 `req_pass_rate_must` 与 `cost_per_req_passed`（M2 起可测）；M1 期间只能用 `build_ok`、`smoke.pass`、`blocked_rate`（uid 谱系分母）与 `cost`。按 `9.2` 的 N ≥ 5 与"小 N 禁报显著性"执行。
+A-REV 四臂：A0=F0；A1=F0+F1；A2=再加 F2；A3=再加 F3。其余输入/config 与参数冻结，四臂各 N≥5，小样本不报显著性。M1 不强求真实 run 触发修订，注入只能证明机制，不计入自然根因比例。M2 按 `10.3` 评估收益，但本版 TR-5/TR-9 仍只记录；自动启用须另行设计裁决，不能仅改配置越过 S8 阶段边界。
 
 ## 10\. 实施分期
 
-M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因此 F3 在 M1 即启用，但**M1 的 DoD 不以 F2/F3 实际被触发为条件**——目标形态下大概率不需要修改架构，机制存在但可能零次激活。
+唯一任务清单由主文档 `10.2.2` 维护，按编号串行执行：已交付 M1-4d → M1-5 E0 → M1-6 F0 → M1-7 F1/指标 → M1-8 多纪元 → M1-9 联合验证 → M1-10 触发/算子 → M1-11 修订门/激活 → M1-12 熔断/降级 → M1-13 根因研究 → M1-14 PlanReviser 校准 → M1-15 综合验收。每项使用已交付产物和本项冻结 fixture 独立验收，CLI/CI 随项交付，不依赖后项工具或实验。子文档不维护另一套编号或并行顺序。
 
-| 阶段 | 开放内容 | 前置条件 |
-| --- | --- | --- |
-| M1 阶段一 | 三层冻结、`file_ledger`/`revision_ledger`/`active_plan` 基础设施、自由布局规划与 `arch_11`～`arch_15`、启动 smoke 检查、F0、F1 | S4→S5→S6 薄穿刺已跑通 |
-| M1 阶段二 | S5 可重入物化（含幂等测试）、迁移分类与状态机扩展、`@r0` 双报口径 | 阶段一完成 |
-| M1 阶段三 | `PlanReviser` 有界开发与校准、F2、F3、RG\-1～RG\-5、熔断器 | 阶段二完成；`PlanReviser` prompt 按 `6.4.8` 同型协议完成有界开发 |
-| M2 | TR\-9；F3 额度可评估放宽；TR\-5 自动触发的决策 | `req_pass_rate_must` 可测；A\-REV 消融数据可用 |
-| 永不 | F4 / F5 | — |
-
-阶段内在逻辑：**先把不影响指标的部分做完（基础设施 \+ F1），再开放影响指标的部分（F2/F3），且后者上线时 `@r0` 双报口径必须已经就位**，否则 M1 数字不可解释。
-
-三条硬性纪律：
-
-1. `PlanReviser` 未完成校准前，F2/F3 的生产默认额度为 0（机制存在但不启用），**禁止**以"先跑起来看看"为由提前启用；
-2. S5 可重入物化必须先通过幂等测试（同一 Blueprint 重复物化零变更）才允许 F3 激活；
-3. 自由布局规划与既有 M1\-4a 校准线的关系：本文 §5.2 修改了 ArchitectureDraft Schema 与 `ARCH_VALIDATE`，二者均在 `6.4.8.1` 的 `lineage_id` 内，因此**必须新建 lineage**，旧批次数据只能作为可追溯历史证据，**禁止**混入新 lineage 的分母或候选集合。
+M1 保留完整 F2/F3；未校准时生产额度为 0，合成 fixtures 可用显式试验参数验证。启用 F3 前必须通过 D1.12 重入与组修复验证。M1 的成功不要求实际触发 F2/F3。保留 M1-4d 及此前步骤、最新已选 ArchitecturePlanner initial/repair bundle 与既有交接证据；不重新选优、不重开架构 lineage、不追加架构实验。新增契约随主文档 10.2.1 的后续消费者实现；只有具体反例证实原则性阻断才处理最小修正，不把文档差异当作已证实的代码漏洞。需要改变架构提示词或其输入/校验契约时先报告用户，禁止自行重做实验。未来 PlanReviser 校准属于独立角色任务，不是 M1-5 的前置条件。
 
 ## 11\. 开放问题
 
 | id | 问题 | 现行口径 | 复审时机 |
 | --- | --- | --- | --- |
-| PQ\-1 | κ、θ₂、θ₆、ρ\_min、`s6_total_attempts_cap`、`smoke_dwell_seconds`、`smoke_term_grace_seconds` 的取值 | 全部先测后冻，**禁止**凭直觉设定；由完整链实测确定 | M1 联调后 |
-| PQ\-2 | TR\-5 是否启用自动触发 | 只记录不触发，先积累误报率样本 | M2 后 |
-| PQ\-3 | `PlanReviser` 是否需要独立校准批次 | 需要，按 `6.4.8` 同型的有界协议；可复用 M1\-4a1 的 lineage 基础设施 | F2 实现前 |
-| PQ\-4 | 修订能否发生在 S8 | 不能。S8 已有独立的有界修复协议与收敛判据，叠加修订会使两套预算耦合 | M2 后按需 |
-| PQ\-5 | F3 额度是否从 1 放宽到 2 | 保持 1；放宽须有 A\-REV 消融数据支持 | M2 |
-| PQ\-6 | 布局约定 `advisory` 段的内容是否需要按语言分版本演进 | 按 `<language>-<delivery_form>-v<N>` 版本化，新增版本不改旧版本 | M6a 跨协议探针后 |
+| PQ-1 | κ、θ₂、θ₆、分级 ρ_min、s6_total_attempts_cap 和 smoke 时间取值 | 联调显式试验值；真实样本形成生产冻结值；不得提高阈值掩盖缺陷 | M1-13 / M1-15 前 |
+| PQ-2 | TR-5 自动触发 | 只记录；不得用模型归因直接推进计划 | M2 A-REV 后另行裁决 |
+| PQ-3 | PlanReviser 校准 | M1-14 独立有界批次，复用实验基础设施而不混 ArchitecturePlanner 样本 | F2/F3 生产启用前 |
+| PQ-4 | S8 是否可修订 | 本版禁止，TR-9 只记录；改变需要另行设计返回路径与预算 | M2 后按需 |
+| PQ-5 | F3 额度放宽 | 生产上限仍为 1；试验和成功机制验收不等于允许放宽 | A-REV 后 |
+| PQ-6 | 布局 advisory 演进 | 按 language/delivery_form 版本化，旧版本不可改写 | M5-0 后 |
 
 ## 12\. 风险登记（本文档增补）
 
@@ -897,7 +653,7 @@ M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因�
 
 | id | 风险 | 等级 | 缓解 | 触发信号 |
 | --- | --- | --- | --- | --- |
-| R\-20 | **修订振荡**：反复修订而 blocked 面积不降，预算被修订本身吃掉 | 中 | 签名去重、级预算、`ineffective` 熔断（本文 §7.4） | `revision.effectiveness ≤ 0`，或 `revision.rejected_by_gate` 高于激活次数 |
+| R\-20 | **修订振荡**：反复修订而原触发问题未解决，预算被修订本身吃掉 | 中 | 签名去重、级预算、`ineffective` 熔断（本文 §7.4） | `revision.effectiveness ≤ 0`，或 `revision.rejected_by_gate` 高于激活次数 |
 | R\-21 | **身份迁移错绑**：uid 迁移把 A 的完成证据错绑到 B，产生虚假 done | 高 | 迁移映射由算子显式声明而非事后推断；`REVALIDATE` 必须重跑构建门；`execution_state_lint` 扩展到跨版本对账 | 迁移后构建门失败率显著高于迁移前 |
 | R\-22 | **指标可解释性下降**：M1 数字因分解层可变而难以对外陈述 | 中 | `@r0` 双报；F2/F3 上线前 `@r0` 口径必须就位（本文 §10）；论文中显式限定口径 | 同配置方差增大（同 R\-6 信号） |
 | R\-23 | **自由布局注入模型先验**：ArchitecturePlanner 自由命名文件时复现记忆中的某协议工程惯例 | 高 | `arch_15 PATH_NEUTRALITY`；协议中立静态扫描覆盖布局约定资产；非 MQTT fixture 命名来源审计 | 非 MQTT fixture 运行中出现 MQTT 名称/路径残留，或路径 token 不可由冻结输入解释 |
@@ -906,7 +662,9 @@ M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因�
 
 本节记录取舍理由，不构成规范性约束。规范性内容全部在本文 §1～§12。
 
-### 13\.1 原方案为什么必然贵
+### 13\.1 历史方案的成本问题
+
+以下条款仅描述被替代的历史方案，不是现行约束，也不声称当前代码采用它。
 
 若把修订实现为"整体替换计划版本"，成本来自三处结构性绑定：
 
@@ -930,7 +688,7 @@ M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因�
 | 待办清单是可原地增删的活文档 | 人在场，一次错误的代价是一次对话往返 | 计划是可丢弃的脚手架 | **不采纳**（`3.4` 无人在场 \+ 完成率可操纵） |
 | 计划模式一次批准后，执行中的战术调整不再回头请示 | 人批准的是"要达成什么"，不是"分几步" | 承诺与分解分离 | 采纳 → 本文 §2 |
 | 调整表现为编辑某几步，而不是重写整张清单 | 重写会丢掉已完成步骤的上下文 | 补丁语义 \+ 节点身份稳定 | 采纳 → 本文 §3.1、§6.2 |
-| 每次改动后立即跑最便宜的检查 | 反馈越快，错误越便宜 | 与 `3.3` 真值阶梯同构 | 采纳 → 本文 §6.3、§7.1 |
+| 每次改动后立即跑最便宜的检查 | 反馈越快，错误越便宜 | 采用本文 §1.2 的证据来源分类 | 采纳 → 本文 §6.3、§7.1 |
 | 已写下的文件不会因为清单变了而被删 | 文件是工作产物，清单只是索引 | 产物存续独立于计划存续 | 采纳 → 本文 §3.3 |
 
 更硬的依据来自一批**确定性、无人在场**系统对同一问题的既有解法：
@@ -952,26 +710,26 @@ M1 的目标是"产出项目可直接构建并可运行起来"（`2.3`），因�
 | 每任务开分支、修订时三路合并 | `3.3` 的蜂群反面教训；合并冲突解决需要人 |
 | 让 Agent 自由增删任务清单 | `3.4` 无人在场 \+ 完成率可操纵 |
 | 纯反应式（无计划，逐步决定下一步） | 放弃 A9 分层规划这一研究问题本身；且失去覆盖矩阵的静态可判性 |
-| 用 rubric judge 决定是否重规划 | `9.1.2` 要求 outcome 机器可判；评审型硬门违反既有定位 |
+| 用 rubric judge 决定是否重规划 | `9.1.2` 要求 outcome 机器可判；模型评审不能替代执行验收；候选 RG-4 的有限发布检查仍保留 |
 | 提高预算上限以容纳整体重做 | 掩盖问题而非解决；且 `4.7` 明确禁止用预算调整掩盖系统性缺陷 |
-| 每次修订都开新执行纪元 | 分解层补丁不触碰工作区，为其开纪元只增加检查点与账目开销（本文 §4.1） |
+| 每次修订都开新执行纪元 | F2 激活只更新元数据、不重生成源码，为其开物化纪元没有必要（本文 §4.1） |
 | 为每个修复级各设一个 LLM 角色 | prompt 面积与校准成本线性增长；单一 `PlanReviser` 已能按级限制算子集（本文 §6.2.1） |
 | 布局完全自由（含符号命名） | 破坏 `interface_signature_digest` 稳定性与命名来源审计，使 D1\.11 不可判（本文 §5.2.1） |
-| 布局经验写进 ArchitecturePlanner prompt | 违反 `6.4.8.2`（禁止把文件名/接口名写入 prompt）；且 prompt 内容不可哈希核对（本文 §5.2.3） |
+| 布局经验写进 ArchitecturePlanner prompt | 违反 `6.4.8.2`（禁止把 MQTT 专有文件名/接口名写入 prompt；允许协议无关工程说明与抽象示例）；且 prompt 内容不可哈希核对（本文 §5.2.3） |
 | M1 用 Test Bundle 判定"可运行" | 与 M2\-0 的公开测试边界冲突，且把 M1 验收挂在未裁决的资产上（本文 §5.5） |
 
-### 13\.4 建议的先决动作
+### 13\.4 实现与生产启用的区别
 
-按"在为结构性改动写实现之前，先用最小样本给它一次被推翻的机会"的纪律，建议在实现 F2/F3 之前先做一次离线统计（不需要写生产代码，只对既有 trace 与失败现场分类）：
-
-> 在真实失败样本中，失败根因落在 F0/F1/F2/F3/F4 各级的分布是什么？
-
-判据：若 ≥ 70% 的失败根因落在 F0/F1，则 F2/F3 的期望收益不足以支撑其实现与效度成本，应按 `11.3` 重新裁决是否只保留 F1。该动作登记为 `10.2` 的 M1 工作项。
+M1-13 在 F0/F1 实际失败样本上记录各级根因分布、样本量和判定依据，不使用未经验证的“70% 即否决机制”阈值。F2/F3 机制实现与合成测试可先进行；真实收益、阈值和 PlanReviser 质量决定生产启用参数。样本不足必须标为证据不足，不能用合成数据补成自然发生率，也不能据此宣称达到生产启用门。
 
 ## 14\. 修订历史
 
-| 版本 | 日期 | 摘要 |
-| --- | --- | --- |
-| 1\.0\.0 | 2026\-08\-25 | 首版。从方案讨论稿整理为权威子文档：三层冻结 `L\-C`/`L\-A`/`L\-P`、稳定身份与失效闭包、C\.A\.P 版本与执行纪元、S4a/S4b/S4c 分期、S5 可重入物化、S6 触发评估、修订流水线与 `RG-1`～`RG-5`、修复阶梯 F0～F5、攻击面矩阵、指标重锚定。相对讨论稿的实质变更：修复阶梯由 `L0`～`L5` 改名为 `F0`～`F5`（避免与 `4.2` 四层运行时及 `10.3` 测试分层冲突）；S5 固定文件布局改为由 S4b 自由规划并新增 `arch_11`～`arch_15`（本文 §5.2）；新增启动 smoke 检查作为 M1 第二条执行真值（本文 §5.5）；F3 在 M1 即启用（本文 §10）；本文新增的效度威胁编号为 V\-8/V\-9（`9.4` 已占用 V\-7），与主文档保持全局唯一。风险登记同理：讨论稿中的 R\-13～R\-19 有七条已并入主文档 `11.1`（含语义合并），本文 §12 只保留 `11.1` 未覆盖的四条并续编为 R\-20～R\-23。本文所有内容已同步进主文档 4\.0\.0 版。 |
+| 版本 | 日期 | 摘要 | 裁决 |
+| --- | --- | --- | --- |
+| 1\.0\.0 | 2026\-08\-25 | 首版。从方案讨论稿整理为权威子文档：三层冻结 `L\-C`/`L\-A`/`L\-P`、稳定身份与失效闭包、C\.A\.P 版本与执行纪元、S4a/S4b/S4c 分期、S5 可重入物化、S6 触发评估、修订流水线与 `RG-1`～`RG-5`、修复阶梯 F0～F5、攻击面矩阵、指标重锚定。相对讨论稿的实质变更：修复阶梯由 `L0`～`L5` 改名为 `F0`～`F5`（避免与 `4.2` 四层运行时及 `10.3` 测试分层冲突）；S5 固定文件布局改为由 S4b 自由规划并新增 `arch_11`～`arch_15`（本文 §5.2）；新增启动 smoke 检查作为 M1 第二条执行真值（本文 §5.5）；F3 在 M1 即启用（本文 §10）；本文新增的效度威胁编号为 V\-8/V\-9（`9.4` 已占用 V\-7），与主文档保持全局唯一。风险登记同理：讨论稿中的 R\-13～R\-19 有七条已并入主文档 `11.1`（含语义合并），本文 §12 只保留 `11.1` 未覆盖的四条并续编为 R\-20～R\-23。本文所有内容已同步进主文档 4\.0\.0 版。| 负责人 |
 | 1\.1.0 | 2026\-08\-26 | 按 `11.3` 裁决，`arch_13`/`arch_15` 的主/子文档表述冲突一律采用本文 §5.2.4 口径，主文档 `6.4.4` 同步为门编号与摘要（主文档 5\.3.0）。§5.2.4 补充两点归属说明，不改变任何门判据本身：其一，`arch_15` 的通用职责白名单是版本受控的校验器侧共享实现（与主文档 D1.11 命名来源审计同一份、属 lineage 控制面），**不**属于 §5.2.3 布局约定资产的 `advisory` 或 `hard` 段，`advisory` 的职责槽位词汇表仅为 ArchitecturePlanner 参考输入；其二，明确 `arch_15` 的判定域为 `path`/`path_pattern` 分段与 `purpose` 文本 token，二者共用同一白名单与同一 Spec 派生标识符集合。§5.2.2 的字段约束、五个子门的编号与真值级别、`§5.2.3` 的资产分段规则均不变 | 负责人 |
 | 1\.2.0 | 2026\-09\-04 | 裁决 M1\-4b2 的 `layout.files[] → file_rules[]` 转写：新增由 `render_rule`、`class`、`contract_id` 是否非空及 `build_role` 唯一决定 `kind`/`producer` 的八行完整派生表，表外组合一律受控失败，并明确禁止按路径、后缀、模块名或协议身份猜测 | 负责人 |
+| 1\.3.0 | 2026\-09\-04 | 为 M1\-4d 冻结可实现的修订基础设施契约：明确 task uid 编码与截断、contract `exports[]` 和接口签名摘要、逐任务/逐文件迁移证据、`file_ledger.files` 三态字段、零 realized 文件保全率、修订账本创世链值与 activation commit 语义，以及 WAL 驱动的跨文件激活恢复；不改变 M1\-4e 的触发、补丁与 RG 门职责 | 负责人 |
+| 2.0.0 | 2026-09-06 | 按已批准同步计划闭合身份/证据、类型化事件、F2 绑定、纪元与联合修复、触发/预算/出口及双口径指标；主文档统一公共契约与任务顺序，保留历史审查记录 | 负责人批准的实施计划 |
+| 2.0.1 | 2026-09-06 | 同步主文档 8.0.1：保留 M1-4d 及此前基线和最新架构提示词，直接开始 M1-5a；物化预检归 S5，取消自动重开架构 lineage 与前置基线返工 | 用户明确要求 |
+| 2.0.2 | 2026-09-06 | 同步主文档 8.0.2 的串行编号与验收归属；M1-5～15 顺序推进，CLI/CI 随项，架构探针归 M5-0 | 用户明确要求 |
