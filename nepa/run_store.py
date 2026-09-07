@@ -256,6 +256,46 @@ class RunStore:
         self._write_atomic_at(path, data)
         return ArtifactRef(relative_path, sha256_bytes(data))
 
+    def append_state_history(
+        self,
+        state: Mapping[str, Any],
+        *,
+        event_type: str,
+        event: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Append one semantic State snapshot without introducing another hash chain."""
+
+        history_path = self._confined("plan/state_history.json")
+        if history_path.exists():
+            history = self._read_json_artifact("plan/state_history.json", schema_name="state-history.schema.json")
+        else:
+            history = {"schema_version": "1.0", "entries": []}
+        entries = history["entries"]
+        if entries and entries[-1]["state"] == state:
+            return history
+        entry = {
+            "event_seq": len(entries) + 1,
+            "event_type": event_type,
+            "plan_ref": copy.deepcopy(dict(state["plan_ref"])),
+            "event": copy.deepcopy(dict(event or {})),
+            "state": copy.deepcopy(dict(state)),
+        }
+        updated = {"schema_version": "1.0", "entries": [*entries, entry]}
+        self.replace_json("plan/state_history.json", updated, schema_name="state-history.schema.json")
+        return updated
+
+    def replace_plan_state(
+        self,
+        state: Mapping[str, Any],
+        *,
+        event_type: str,
+        event: Mapping[str, Any] | None = None,
+    ) -> ArtifactRef:
+        """Append history before replacing the mutable State projection."""
+
+        self.append_state_history(state, event_type=event_type, event=event)
+        return self.replace_json("plan/plan_state.json", state, schema_name="plan-state.schema.json")
+
     def allocate_s6_attempt(
         self,
         *,
@@ -266,10 +306,14 @@ class RunStore:
         baseline_commit: str,
         baseline_tree: str,
         proof: Mapping[str, Any] | None = None,
+        lease_authorization: Mapping[str, Any] | None = None,
+        lease_authorization_ref: Mapping[str, Any] | None = None,
+        fault_hook: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         """Atomically consume one S6 call and evidence sequence before I/O."""
 
-        from .speclib.plan_state import PlanStateError, plan_state_snapshot_lint, project_state_transition
+        from .speclib.plan_revision import append_lease_started
+        from .speclib.plan_state import PlanStateError, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
 
         state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
         run = self.load_run()
@@ -293,6 +337,25 @@ class RunStore:
         expected_tier = "T2" if next_attempt <= 3 else "T1"
         if role != expected_role or tier != expected_tier:
             raise RunValidationError("S6 attempt role or tier does not match the bounded route")
+        if lease_authorization is not None and (role != "fixer" or next_attempt < 2):
+            raise RunValidationError("F1 lease requires an existing Fixer attempt")
+        if lease_authorization is not None:
+            plan = self._read_json_artifact(state["plan_ref"]["path"], schema_name="plan.schema.json")
+            file_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+            revision_ledger = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+            try:
+                validate_lease_authorization(
+                    lease_authorization,
+                    plan=plan,
+                    state=state,
+                    file_ledger=file_ledger,
+                    revision_ledger=revision_ledger,
+                    config_snapshot=run["config_snapshot"],
+                    baseline_commit=baseline_commit,
+                    baseline_tree=baseline_tree,
+                )
+            except PlanStateError as exc:
+                raise RunValidationError(str(exc)) from exc
         sequence = int(state.get("evidence_counters", {}).get(task_uid, 0)) + 1
         previous_failure_ref = None
         if next_attempt > 1:
@@ -320,17 +383,57 @@ class RunStore:
         )
         if not snapshot_report["valid"]:
             raise PlanStateError("S6 attempt allocation produced invalid State: " + snapshot_report["errors"][0]["message"])
-        self.replace_json("plan/plan_state.json", next_state, schema_name="plan-state.schema.json")
+        lease_record: dict[str, Any] | None = None
+        next_revision = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+        if lease_authorization is not None:
+            if not isinstance(lease_authorization_ref, Mapping):
+                raise RunValidationError("F1 lease requires an authorization artifact reference")
+            lenders = lease_authorization.get("lenders")
+            if not isinstance(lenders, list) or not lenders:
+                raise RunValidationError("F1 lease authorization has no lenders")
+            leased_uids = [str(item["task_uid"]) for item in lenders if isinstance(item, Mapping)]
+            leased_paths = [str(path) for item in lenders if isinstance(item, Mapping) for path in item.get("paths", [])]
+            next_revision = append_lease_started(
+                next_revision,
+                task_uid=task_uid,
+                leased_uids=leased_uids,
+                leased_paths=leased_paths,
+                baseline_commit=baseline_commit,
+                execution_count=next_attempt,
+                authorization_ref=lease_authorization_ref,
+            )
+            lease_id = next_revision["entries"][-1]["payload"]["lease_id"]
+            lease_record = {"lease_id": lease_id, "authorization_ref": dict(lease_authorization_ref), "lenders": [{"task_uid": str(item["task_uid"]), "paths": list(item.get("paths", []))} for item in lenders]}
         attempt = {
             "schema_version": "2.0", "task_id": task_id, "task_uid": task_uid, "execution_mode": "normal",
             "attempt": next_attempt,
             "evidence_seq": sequence, "role": role, "tier": tier, "baseline_commit": baseline_commit,
             "baseline_tree": baseline_tree, "status": "started", "output_ref": None, "failure_ref": None,
         }
-        attempt_ref = self.replace_json(
-            f"attempts/{task_uid}/attempt_{attempt['attempt']:03d}.json", attempt,
-            schema_name="s6-attempt.schema.json",
-        )
+        if lease_record is not None:
+            attempt["lease"] = lease_record
+        attempt_path = f"attempts/{task_uid}/attempt_{attempt['attempt']:03d}.json"
+        if self._confined(attempt_path).exists():
+            existing = self._read_json_artifact(attempt_path, schema_name="s6-attempt.schema.json")
+            identity_fields = ("task_id", "task_uid", "attempt", "evidence_seq", "role", "tier", "baseline_commit", "baseline_tree", "lease")
+            if any(existing.get(key) != attempt.get(key) for key in identity_fields):
+                raise ArtifactConflict("partially published S6 attempt conflicts with the requested allocation")
+            attempt = existing
+            attempt_ref = ArtifactRef(attempt_path, self._json_artifact_hash(attempt_path))
+        else:
+            attempt_ref = self.replace_json(attempt_path, attempt, schema_name="s6-attempt.schema.json")
+        if fault_hook is not None:
+            fault_hook("attempt_persisted")
+        self.append_state_history(next_state, event_type="attempt_started", event=event)
+        if fault_hook is not None:
+            fault_hook("state_history_appended")
+        if lease_record is not None:
+            self.replace_json("plan/revision_ledger.json", next_revision, schema_name="revision-ledger.schema.json")
+            if fault_hook is not None:
+                fault_hook("lease_started_persisted")
+        self.replace_json("plan/plan_state.json", next_state, schema_name="plan-state.schema.json")
+        if fault_hook is not None:
+            fault_hook("state_replaced")
         return {"state": next_state, "attempt": attempt, "attempt_ref": attempt_ref}
 
     @staticmethod
@@ -810,7 +913,7 @@ class RunStore:
             self._call_activation_hook(fault_hook, "wal_written")
             self.publish_immutable_json(new_pointer["path"], candidate, schema_name="plan.schema.json")
             self._call_activation_hook(fault_hook, "version_published")
-            self.replace_json("plan/plan_state.json", state, schema_name="plan-state.schema.json")
+            self.replace_plan_state(state, event_type="revision_projected", event={"revision_seq": new_pointer["revision_seq"]})
             self._call_activation_hook(fault_hook, "state_replaced")
             self.replace_json("plan/file_ledger.json", file_ledger, schema_name="file-ledger.schema.json")
             self._call_activation_hook(fault_hook, "file_ledger_replaced")
@@ -871,7 +974,7 @@ class RunStore:
                 if current_state not in (old_state, new_state) or current_file not in (old_file, new_file):
                     raise RunValidationError("pre-commit recovery found conflicting mutable artifact bytes")
                 if current_state != old_state:
-                    self.replace_json("plan/plan_state.json", old_state, schema_name="plan-state.schema.json")
+                    self.replace_plan_state(old_state, event_type="revision_rollback", event={"revision_seq": revision_seq})
                 if current_file != old_file:
                     self.replace_json("plan/file_ledger.json", old_file, schema_name="file-ledger.schema.json")
                 candidate_path = f"_s4r/rev_{revision_seq:03d}/candidate_plan.json"
@@ -884,7 +987,7 @@ class RunStore:
                     raise RunValidationError("ledger-new recovery found conflicting mutable artifact bytes")
                 self.publish_immutable_json(new_pointer["path"], wal["candidate_plan"], schema_name="plan.schema.json")
                 if current_state != new_state:
-                    self.replace_json("plan/plan_state.json", new_state, schema_name="plan-state.schema.json")
+                    self.replace_plan_state(new_state, event_type="revision_projected", event={"revision_seq": revision_seq})
                 if current_file != new_file:
                     self.replace_json("plan/file_ledger.json", new_file, schema_name="file-ledger.schema.json")
                 self.replace_json("plan/active_plan.json", new_pointer, schema_name="active-plan.schema.json")

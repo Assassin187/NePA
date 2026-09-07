@@ -221,10 +221,42 @@ def test_s6_fault_boundaries_reconcile_without_duplicate_first_task(tmp_path, fa
     assert store._confined("plan/s6_receipt.json").is_file()
 
 
+@pytest.mark.s6_execution
+@pytest.mark.parametrize("fault_point", ["attempt_persisted", "state_history_appended"])
+def test_attempt_allocation_replays_partial_persistence_without_refund(tmp_path, fault_point):
+    from nepa.stages.s6_execution import S6ExecutionController, _git
+    from nepa.tools.build import _tree_sha256
+
+    store, _config = _ready_store(tmp_path)
+    controller = S6ExecutionController(_CurrentFilesAgent(), FakeExecutor())
+    _run, plan, _active, _blueprint, _constraints, _epoch = controller._admit(store)
+    task = plan["tasks"][0]
+    baseline_commit = _git(store._confined("workspace"), "rev-parse", "HEAD")
+    baseline_tree = _tree_sha256(store._confined("workspace"))
+
+    def crash(point):
+        if point == fault_point:
+            raise CrashInjected(point)
+
+    with pytest.raises(CrashInjected):
+        store.allocate_s6_attempt(
+            task_id=task["id"], task_uid=task["task_uid"], role="coder", tier="T2",
+            baseline_commit=baseline_commit, baseline_tree=baseline_tree, fault_hook=crash,
+        )
+    replay = store.allocate_s6_attempt(
+        task_id=task["id"], task_uid=task["task_uid"], role="coder", tier="T2",
+        baseline_commit=baseline_commit, baseline_tree=baseline_tree,
+    )
+    assert replay["attempt"]["attempt"] == 1
+    assert replay["state"]["s6_attempts_used"] == 1
+    history = store._read_json_artifact("plan/state_history.json", schema_name="state-history.schema.json")
+    assert [entry["event_type"] for entry in history["entries"]].count("attempt_started") == 1
+
+
 @pytest.mark.parametrize(
     "bound_field",
     [
-        "active_plan_ref", "binding_ref", "plan_state_ref", "file_ledger_ref", "revision_ledger_ref",
+        "active_plan_ref", "binding_ref", "plan_state_ref", "state_history_ref", "file_ledger_ref", "revision_ledger_ref",
         "build_result_refs", "smoke_result_refs", "workspace_head",
     ],
 )

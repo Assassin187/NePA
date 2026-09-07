@@ -671,19 +671,50 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
     activation_by_seq: dict[int, Mapping[str, Any]] = {}
     verification_ids: set[str] = set()
     verification_evidence: set[tuple[str, str]] = set()
+    lease_starts: dict[str, Mapping[str, Any]] = {}
+    lease_finishes: set[str] = set()
     for entry in ledger.get("entries", []):
         if entry["event_seq"] != expected_seq or entry["prev_entry_sha256"] != previous:
             raise PlanRevisionError("revision ledger event sequence or predecessor hash is invalid")
         if entry["event_type"] not in _EVENT_TYPES:
             raise PlanRevisionError("revision ledger event type is unsupported")
         payload = entry["payload"]
+        if entry["event_type"] == "lease_started":
+            payload = entry["payload"]
+            lease_id = payload["lease_id"]
+            if lease_id != f"lease-{entry['event_seq']}" or lease_id in lease_starts:
+                raise PlanRevisionError("lease identity is not deterministic or is duplicated")
+            if payload.get("task_uid") in payload.get("leased_uids", []):
+                raise PlanRevisionError("lease current task is also listed as a lender")
+            if payload.get("leased_uids") != sorted(set(payload.get("leased_uids", [])), key=lambda item: str(item).encode("utf-8")):
+                raise PlanRevisionError("lease lender uids are not sorted and unique")
+            if payload.get("leased_paths") != sorted(set(payload.get("leased_paths", [])), key=lambda item: str(item).encode("utf-8")):
+                raise PlanRevisionError("lease paths are not sorted and unique")
+            if not payload.get("leased_paths") or len(payload["leased_paths"]) > 2:
+                raise PlanRevisionError("lease external file count is outside the bounded range")
+            lease_starts[lease_id] = payload
+        if entry["event_type"] == "lease_finished":
+            payload = entry["payload"]
+            lease_id = payload["lease_id"]
+            if lease_id not in lease_starts or lease_id in lease_finishes:
+                raise PlanRevisionError("lease finish does not pair uniquely with a start")
+            lease_finishes.add(lease_id)
+            if payload.get("success") and (payload.get("joint_evidence_ref") is None or payload.get("commit_sha") is None or payload.get("reason") is not None):
+                raise PlanRevisionError("successful lease finish is missing its joint proof")
+            if not payload.get("success") and (not payload.get("reason") or payload.get("joint_evidence_ref") is not None or payload.get("commit_sha") is not None):
+                raise PlanRevisionError("failed lease finish has an invalid conditional payload")
         if entry["event_type"] == "verification_committed":
             verification_id = payload["verification_id"]
             if verification_id in verification_ids:
                 raise PlanRevisionError("revision ledger contains a duplicate verification identity")
             verification_ids.add(verification_id)
-            if payload.get("kind") != "normal" or len(payload.get("member_uids", [])) != 1 or len(payload.get("evidence_refs", [])) != 1:
+            kind = payload.get("kind")
+            if kind == "normal" and (len(payload.get("member_uids", [])) != 1 or len(payload.get("evidence_refs", [])) != 1):
                 raise PlanRevisionError("ordinary verification must bind exactly one member and evidence")
+            if kind == "lease" and (len(payload.get("member_uids", [])) < 2 or len(payload.get("member_uids", [])) != len(payload.get("evidence_refs", []))):
+                raise PlanRevisionError("lease verification must bind every member and evidence")
+            if payload.get("member_uids") != sorted(set(payload.get("member_uids", [])), key=lambda item: str(item).encode("utf-8")):
+                raise PlanRevisionError("verification members are not sorted and unique")
             task_uid = payload["member_uids"][0]
             evidence_ref = payload["evidence_refs"][0]
             expected_id = f"v-{task_uid}-{_evidence_sequence(evidence_ref)}"
@@ -695,6 +726,12 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
             verification_evidence.add(evidence_key)
             if payload.get("revision_seq") != latest_revision:
                 raise PlanRevisionError("verification revision sequence disagrees with latest activation")
+            if kind == "lease":
+                matching = [start for lease_id, start in lease_starts.items() if lease_id == payload.get("lease_id") and start.get("task_uid") == task_uid and set(start.get("leased_uids", [])) | {task_uid} == set(payload["member_uids"])]
+                if len(matching) != 1:
+                    raise PlanRevisionError("lease verification members do not match an accepted lease start")
+                if payload.get("joint_evidence_ref") is None:
+                    raise PlanRevisionError("lease verification is missing its joint evidence reference")
         if entry["event_type"] in {"candidate_rejected", "epoch_materialized", "revision_activated"}:
             ref_events = []
             for key in ("trigger_event_seq",):
@@ -804,26 +841,43 @@ def append_revision_entry(ledger: Mapping[str, Any], entry: Mapping[str, Any]) -
 def append_verification_committed(
     ledger: Mapping[str, Any],
     *,
-    task_uid: str,
-    evidence_ref: Mapping[str, Any],
+    task_uid: str | None = None,
+    evidence_ref: Mapping[str, Any] | None = None,
     commit_sha: str,
     revision_seq: int = 0,
+    kind: str = "normal",
+    members: list[Mapping[str, Any]] | None = None,
+    lease_id: str | None = None,
+    joint_evidence_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Append one idempotent ordinary F0 verification fact."""
+    """Append one idempotent normal or lease verification fact."""
 
     if ledger.get("schema_version") != "2.0":
         raise PlanRevisionError("ordinary verification requires a v2 revision ledger")
     current = copy.deepcopy(dict(ledger))
     validate_revision_ledger(current)
-    verification_id = f"v-{task_uid}-" + str(_evidence_sequence(evidence_ref))
+    if members is None:
+        if task_uid is None or evidence_ref is None:
+            raise PlanRevisionError("normal verification requires task_uid and evidence_ref")
+        members = [{"task_uid": task_uid, "evidence_ref": dict(evidence_ref)}]
+    normalized = sorted(({"task_uid": item["task_uid"], "evidence_ref": dict(item["evidence_ref"])} for item in members), key=lambda item: str(item["task_uid"]).encode("utf-8"))
+    if kind not in {"normal", "lease"} or (kind == "normal" and len(normalized) != 1) or (kind == "lease" and len(normalized) < 2):
+        raise PlanRevisionError("verification kind and member cardinality are invalid")
+    verification_id = f"v-{normalized[0]['task_uid']}-" + str(_evidence_sequence(normalized[0]["evidence_ref"]))
     payload = {
         "verification_id": verification_id,
-        "kind": "normal",
-        "member_uids": [task_uid],
-        "evidence_refs": [dict(evidence_ref)],
+        "kind": kind,
+        "member_uids": [item["task_uid"] for item in normalized],
+        "evidence_refs": [item["evidence_ref"] for item in normalized],
         "commit_sha": commit_sha,
         "revision_seq": revision_seq,
     }
+    if kind == "lease":
+        if not lease_id or joint_evidence_ref is None:
+            raise PlanRevisionError("lease verification requires lease_id and joint_evidence_ref")
+        payload.update({"lease_id": lease_id, "joint_evidence_ref": dict(joint_evidence_ref)})
+    elif lease_id is not None or joint_evidence_ref is not None:
+        raise PlanRevisionError("normal verification cannot carry lease bindings")
     for entry in current["entries"]:
         if entry.get("event_type") != "verification_committed":
             continue
@@ -833,6 +887,60 @@ def append_verification_committed(
                 raise PlanRevisionError("conflicting verification identity")
             return current
     current["entries"].append(build_event_entry(current, "verification_committed", payload))
+    validate_revision_ledger(current)
+    return current
+
+
+def append_lease_started(
+    ledger: Mapping[str, Any],
+    *,
+    task_uid: str,
+    leased_uids: list[str],
+    leased_paths: list[str],
+    baseline_commit: str,
+    execution_count: int,
+    authorization_ref: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Append or replay the deterministic lease start event."""
+    current = copy.deepcopy(dict(ledger))
+    validate_revision_ledger(current)
+    event_seq = len(current.get("entries", [])) + 1
+    payload = {"lease_id": f"lease-{event_seq}", "task_uid": task_uid, "leased_uids": sorted(set(leased_uids), key=lambda item: item.encode("utf-8")), "leased_paths": sorted(set(leased_paths), key=lambda item: item.encode("utf-8")), "baseline_commit": baseline_commit, "execution_count": execution_count, "authorization_ref": dict(authorization_ref)}
+    for entry in current["entries"]:
+        if entry.get("event_type") != "lease_started":
+            continue
+        existing = entry.get("payload", {})
+        if existing.get("lease_id") == payload["lease_id"]:
+            if existing != payload:
+                raise PlanRevisionError("conflicting lease identity")
+            return current
+        if all(existing.get(key) == payload.get(key) for key in ("task_uid", "leased_uids", "leased_paths", "baseline_commit", "execution_count", "authorization_ref")):
+            return current
+    current["entries"].append(build_event_entry(current, "lease_started", payload))
+    validate_revision_ledger(current)
+    return current
+
+
+def append_lease_finished(
+    ledger: Mapping[str, Any],
+    *,
+    lease_id: str,
+    success: bool,
+    reason: str | None,
+    joint_evidence_ref: Mapping[str, Any] | None,
+    commit_sha: str | None,
+    call_refs: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Append or replay the unique conditional lease finish event."""
+    current = copy.deepcopy(dict(ledger))
+    validate_revision_ledger(current)
+    payload = {"lease_id": lease_id, "success": success, "reason": reason, "joint_evidence_ref": dict(joint_evidence_ref) if joint_evidence_ref is not None else None, "commit_sha": commit_sha, "call_refs": [dict(ref) for ref in call_refs]}
+    for entry in current["entries"]:
+        if entry.get("event_type") == "lease_finished" and entry.get("payload", {}).get("lease_id") == lease_id:
+            if entry.get("payload") != payload:
+                raise PlanRevisionError("conflicting lease finish identity")
+            return current
+    current["entries"].append(build_event_entry(current, "lease_finished", payload))
     validate_revision_ledger(current)
     return current
 
@@ -864,5 +972,5 @@ def build_revision_entry(
 
 
 __all__ = [
-    "PlanRevisionError", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_file_ledger", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
+    "PlanRevisionError", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_file_ledger", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
 ]

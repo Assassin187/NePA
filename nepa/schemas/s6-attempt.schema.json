@@ -8,12 +8,20 @@
     "schema_version": {"const": "2.0"}, "task_id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
     "execution_mode": {"enum": ["normal", "revalidate", "amend"]}, "attempt": {"type": "integer", "minimum": 1, "maximum": 4}, "evidence_seq": {"type": "integer", "minimum": 1},
     "role": {"enum": ["coder", "fixer"]}, "tier": {"enum": ["T1", "T2"]}, "baseline_commit": {"$ref": "#/$defs/commit"}, "baseline_tree": {"$ref": "#/$defs/sha256"},
-    "status": {"enum": ["started", "failed", "succeeded", "exhausted"]}, "output_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "failure_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}
+    "status": {"enum": ["started", "failed", "succeeded", "exhausted"]}, "output_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "failure_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "lease": {"$ref": "#/$defs/lease"}
   },
   "allOf": [
     {"if": {"properties": {"status": {"const": "started"}}}, "then": {"properties": {"output_ref": {"type": "null"}, "failure_ref": {"type": "null"}}}},
     {"if": {"properties": {"status": {"enum": ["failed", "exhausted"]}}}, "then": {"properties": {"output_ref": {"type": "null"}, "failure_ref": {"$ref": "#/$defs/ref"}}}},
     {"if": {"properties": {"status": {"const": "succeeded"}}}, "then": {"properties": {"output_ref": {"$ref": "#/$defs/ref"}, "failure_ref": {"type": "null"}}}}
+    ,{"if": {"required": ["lease"]}, "then": {"properties": {"execution_mode": {"const": "normal"}, "role": {"const": "fixer"}, "attempt": {"minimum": 2}}}}
   ],
-  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}}}
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "lease": {"type": "object", "additionalProperties": false, "required": ["lease_id", "authorization_ref", "lenders"], "properties": {"lease_id": {"type": "string", "pattern": "^lease-[1-9][0-9]*$"}, "authorization_ref": {"$ref": "#/$defs/ref"}, "lenders": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"$ref": "#/$defs/lender"}}}},
+    "lender": {"type": "object", "additionalProperties": false, "required": ["task_uid", "paths"], "properties": {"task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "paths": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "string", "minLength": 1}}}}
+  }
 }

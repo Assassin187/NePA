@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 93
+    assert len(schema_paths) == 96
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -168,6 +168,9 @@ def test_schema_contract_audit():
         "task-evidence.schema.json",
         "verification-pending.schema.json",
         "s6-receipt.schema.json",
+        "lease-authorization.schema.json",
+            "joint-evidence.schema.json",
+            "state-history.schema.json",
     }
     assert {path.name for path in SCHEMA_DIR.glob("*.schema.json")} == expected
 

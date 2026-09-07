@@ -6,13 +6,16 @@
   "required": ["schema_version", "event", "task_id"],
   "properties": {
     "schema_version": {"const": "2.0"},
-    "event": {"enum": ["attempt_started", "attempt_succeeded", "attempts_exhausted", "dependency_blocked", "reconciled_commit"]},
+    "event": {"enum": ["attempt_started", "attempt_succeeded", "attempts_exhausted", "dependency_blocked", "reconciled_commit", "amended_under_lease"]},
     "task_id": {"type": "string", "pattern": "^T-[0-9]{3}$"},
     "attempt": {"type": "integer", "minimum": 1, "maximum": 4},
     "previous_error": {"type": "string", "minLength": 1},
     "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "evidence_ref": {"$ref": "#/$defs/ref"},
     "error": {"type": "string", "minLength": 1},
+    "member_task_ids": {"type": "array", "minItems": 2, "items": {"type": "string", "pattern": "^T-[0-9]{3}$"}},
+    "member_evidence_refs": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/ref"}},
+    "verification_id": {"type": "string", "minLength": 1},
     "notes": {"type": "string"},
     "proof": {
       "type": "object", "additionalProperties": false, "minProperties": 1,
@@ -27,11 +30,19 @@
         "file_ledger_ref": {"$ref": "#/$defs/ref"},
         "revision_ledger_ref": {"$ref": "#/$defs/ref"},
         "event_ref": {"type": "object", "additionalProperties": false, "required": ["event_seq"], "properties": {"event_seq": {"type": "integer", "minimum": 1}}},
-        "kind": {"type": "string", "minLength": 1}
+        "kind": {"type": "string", "minLength": 1},
+        "verification_id": {"type": "string", "minLength": 1},
+        "workspace_tree": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "parent_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "member_uids": {"type": "array", "minItems": 2, "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}},
+        "member_evidence_refs": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/ref"}}
       }
     }
   },
   "$defs": {
     "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
-  }
+  },
+  "allOf": [
+    {"if": {"properties": {"event": {"const": "amended_under_lease"}}}, "then": {"required": ["member_task_ids", "member_evidence_refs", "commit_sha", "verification_id", "evidence_ref", "proof"], "properties": {"proof": {"required": ["kind", "commit_sha", "verification_id", "workspace_tree", "parent_sha", "member_uids", "member_evidence_refs"]}}}}
+  ]
 }

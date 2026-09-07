@@ -79,6 +79,7 @@ class BudgetConfig(_Model):
     coder_context_max_tokens: int = Field(gt=0)
     task_fix_attempts: int = Field(ge=0)
     s6_total_attempts_cap: int = Field(gt=0)
+    s6_lease_limit: int = Field(ge=0)
     repair_rounds: int = Field(ge=0)
 
 
@@ -176,6 +177,7 @@ _DEFAULTS: dict[str, Any] = {
         "coder_context_max_tokens": 24000,
         "task_fix_attempts": 3,
         "s6_total_attempts_cap": 8,
+        "s6_lease_limit": 1,
         "repair_rounds": 3,
     },
     "planning": {"strategy": "layered", "max_task_files": 4, "context_safety_margin_ratio": 0.15},

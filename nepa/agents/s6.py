@@ -19,6 +19,7 @@ CODER_INPUTS = (
     "interface_files", "language_guidance", "current_files",
 )
 FIXER_INPUTS = CODER_INPUTS + ("execution_mode", "failed_candidate", "validation_feedback", "diagnosis")
+LEASE_FIXER_INPUTS = FIXER_INPUTS + ("lease_authorization", "leased_files")
 
 
 class S6AgentError(ValueError):
@@ -63,6 +64,8 @@ def project_s6_context(
     failed_candidate: Any | None = None,
     validation_feedback: Any | None = None,
     diagnosis: Any | None = None,
+    lease_authorization: Mapping[str, Any] | None = None,
+    leased_files: Mapping[str, str] | None = None,
     max_tokens: int = 24000,
 ) -> tuple[dict[str, str], dict[str, int]]:
     """Build the exact prompt inputs and deterministic token accounting.
@@ -81,9 +84,12 @@ def project_s6_context(
         "language_guidance": _json(language_guidance),
         "current_files": _json({key: current_files[key] for key in sorted(current_files, key=lambda item: item.encode("utf-8"))}),
     }
+    if lease_authorization is not None:
+        required["lease_authorization"] = _json(lease_authorization)
+        required["leased_files"] = _json({key: leased_files[key] for key in sorted(leased_files or {}, key=lambda item: item.encode("utf-8"))})
     if any(not isinstance(value, str) for value in required.values()):
         raise S6AgentError("S6 context values must be serializable")
-    is_fixer = execution_mode != "normal" or failed_candidate is not None or validation_feedback is not None or diagnosis is not None
+    is_fixer = execution_mode != "normal" or failed_candidate is not None or validation_feedback is not None or diagnosis is not None or lease_authorization is not None
     optional = {
         "execution_mode": execution_mode,
         "failed_candidate": _json(failed_candidate or {}),
@@ -114,11 +120,17 @@ def project_s6_context(
     return merged, {"required_tokens": required_total, "total_tokens": sum(tokens(value) for value in merged.values()), "limit": max_tokens}
 
 
-def normalize_candidate(value: Any, task: Mapping[str, Any], file_ledger: Mapping[str, Any] | None = None) -> dict[str, bytes]:
+def normalize_candidate(
+    value: Any,
+    task: Mapping[str, Any],
+    file_ledger: Mapping[str, Any] | None = None,
+    *,
+    leased_paths: tuple[str, ...] | list[str] = (),
+) -> dict[str, bytes]:
     """Admit a response only when every returned path is task-owned."""
 
     response = validate_coding_response(value)
-    allowed = set(task.get("deliverable_files", []))
+    allowed = set(task.get("deliverable_files", [])) | set(leased_paths)
     frozen = {row.get("path") for row in (file_ledger or {}).get("files", []) if row.get("class") == "s5_frozen"}
     result: dict[str, bytes] = {}
     for item in response["files"]:
@@ -149,4 +161,4 @@ def candidate_tree_hash(files: Mapping[str, bytes]) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["CODER_INPUTS", "FIXER_INPUTS", "S6AgentError", "candidate_tree_hash", "coding_contract", "normalize_candidate", "project_s6_context", "validate_coding_response"]
+__all__ = ["CODER_INPUTS", "FIXER_INPUTS", "LEASE_FIXER_INPUTS", "S6AgentError", "candidate_tree_hash", "coding_contract", "normalize_candidate", "project_s6_context", "validate_coding_response"]

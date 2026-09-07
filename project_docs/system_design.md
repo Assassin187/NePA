@@ -285,6 +285,7 @@ S4 仍以 deliverable→build artifact→link source set 三段结构生成 Deli
 | 计划版本   | `plan/versions/plan-<C.A.P>.json`        | S4、S4R               | S5～S9（只读）     | **5\.2**    |
 | 活动计划指针 | `plan/active_plan.json`                | S4、S4R               | S5～S9、resume     | **5\.2**    |
 | 计划状态   | `plan/plan_state.json`                   | 编排器（S6 admission） | S6～S9、resume/eval | **5\.2**  |
+| 状态历史   | `plan/state_history.json`                | 编排器、S6、S4R       | resume/eval、S9     | **5\.2**  |
 | 文件实现台账 | `plan/file_ledger.json`                | S4、S5、S6、S4R       | S4R、S9、审计      | **5\.2**    |
 | 修订账本   | `plan/revision_ledger.json`              | S4R、F1 租约控制器    | S9、审计           | **5\.2**    |
 | S4 检查点  | `plan/_s4/`、`plan/_s4r/rev_NNN/`        | S4、S4R               | S4/S4R 恢复、审计  | **5\.6**    |
@@ -319,6 +320,7 @@ runs/20260726T1432Z_mqtt-min_spec-run/
 │   │   └── plan-1.0.0.json   # 初始密封的 Plan v5
 │   ├── active_plan.json      # 原子指针：{version, path, sha256, revision_seq, epoch}
 │   ├── plan_state.json       # S6 入口初始化、执行中原子更新
+│   ├── state_history.json    # 按序追加的已接受 State 转换与快照
 │   ├── file_ledger.json      # 以文件为键的实现台账，跨版本存活
 │   ├── revision_ledger.json  # 哈希链修订账本（含 F1 租约）
 │   ├── _s4/                  # S4 可恢复内部草稿；不供下游作为事实源
@@ -646,6 +648,7 @@ P3 在 NePA 中由两个职责互斥的工件实现：
 
 - `plan/versions/plan-<C.A.P>.json` 是 S4（初始）或 S4R（修订）原子发布的**不可变静态合同**。它冻结架构、文件布局、工作包、宏任务、依赖、文件所有权、需求覆盖与机器验收；S5～S9 只能读取，禁止原地修改。`plan/active_plan.json` 是指向当前生效版本的唯一原子指针。
 - `plan/plan_state.json` 是编排器在 S6 admission 的第一步确定性初始化、由 S6 原子更新的**可变执行账本**。它保存任务状态、尝试次数、备注、提交与验收证据，不得反向改变 Plan。
+- `plan/state_history.json` 是按 `event_seq` 单调追加的 State 历史。每项保存活动 Plan 引用、转换事件及转换后的完整 State；它不建立额外哈希链。稳定状态下 `plan_state.json` 与历史尾项语义相同，尝试分配或 verification WAL 恢复期间允许前者暂时落后。S6 receipt 通过既有 ArtifactRef 封存 `plan/s6_state_history.json`。
 
 这里的"自包含"是指 Plan 对三项**语义输入**的显式哈希引用闭包封闭，而不是复制 Spec/Target Profile/Test Bundle 内容；系统内置后端是当前 NePA 代码路径的一部分，不作为独立资产引用。测试启停等运行策略仍属于 `run.json.config_snapshot`，其 canonical hash 由 S4 seal receipt 绑定，不扩充 `input_refs`。不可变性口径为"**版本文件不可变 \+ 版本链只能追加**"：每个 `plan/versions/plan-<C.A.P>.json` 发布后到 run 结束逐字节不可变；版本推进只能通过 `active_plan.json` 指针，且必须原子、必须单调（`revision_seq` 严格加一）、必须同时追加 `revision_ledger.json` 的哈希链条目。S4 seal 时由 `run.json.stages.s4.output_refs.plan.sha256` 独立锚定初始版本 1\.0\.0，`output_refs.active_plan` 由修订控制器原子更新；`plan_state.plan_ref.sha256` 必须引用当前活动版本的封存值而非重新信任当前文件。任何回溯篡改都会打断账本哈希链，因此审计强度不低于单文件不可变。修订机制的完整规定见 `pipeline_design_s4_s9.md` §4、§6。只要 S5 已完成并准备进入 S6，即使预算使 S6 不执行任何任务，编排器也必须先初始化 Plan State。
 

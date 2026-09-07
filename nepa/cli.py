@@ -32,11 +32,23 @@ def _run_status(store: RunStore, exit_code: int | None) -> dict:
     if state_path.exists():
         state = store._read_json_artifact("plan/plan_state.json")
     rows = state.get("tasks", []) if isinstance(state, dict) else []
+    leases = {"started": 0, "finished": 0, "pending": 0, "ids": []}
+    revision_path = store._confined("plan/revision_ledger.json")
+    if revision_path.exists():
+        try:
+            revision = store._read_json_artifact("plan/revision_ledger.json")
+            entries = revision.get("entries", []) if isinstance(revision, dict) else []
+            starts = [item for item in entries if isinstance(item, dict) and item.get("event_type") == "lease_started"]
+            finishes = {item.get("payload", {}).get("lease_id") for item in entries if isinstance(item, dict) and item.get("event_type") == "lease_finished"}
+            ids = [str(item.get("payload", {}).get("lease_id")) for item in starts]
+            leases = {"started": len(starts), "finished": sum(lease_id in finishes for lease_id in ids), "pending": sum(lease_id not in finishes for lease_id in ids), "ids": ids}
+        except (OSError, ValueError, TypeError):
+            leases = {"started": 0, "finished": 0, "pending": 0, "ids": [], "error": "LEASE_LEDGER_UNAVAILABLE"}
     return {
         "run_id": run["run_id"], "run_dir": str(store.root), "exit_code": exit_code,
         "termination_kind": run.get("termination_kind"), "stages": {key: value["status"] for key, value in run["stages"].items()},
         "budget_used": run["budget_used"], "s6": {
-            "tasks": rows, "attempts_used": state.get("s6_attempts_used", 0) if isinstance(state, dict) else 0,
+            "tasks": rows, "attempts_used": state.get("s6_attempts_used", 0) if isinstance(state, dict) else 0, "leases": leases,
         },
     }
 

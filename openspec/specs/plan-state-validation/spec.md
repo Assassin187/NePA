@@ -27,8 +27,15 @@ The system SHALL provide a closed draft-2020-12 Plan State v2 Schema and conform
 - **WHEN** a new S6 path receives an older State contract or evidence from another major version
 - **THEN** validation rejects the run without an automatic migration
 
+### Requirement: Accepted State transitions have sequential history
+The controller SHALL append each accepted State transition and resulting complete State to `plan/state_history.json` with a monotonic event sequence. The history SHALL not introduce an additional hash chain. In stable execution the mutable State SHALL agree semantically with the history tail; recovery MAY complete a lagging State projection from a durable attempt or WAL fact. S6 SHALL bind an immutable history snapshot in its receipt. (Design: §5.2; M1-7 repair.)
+
+#### Scenario: Attempt publication is interrupted
+- **WHEN** the attempt intent exists but history, lease event or current State publication is incomplete
+- **THEN** resume completes the same attempt allocation without refunding or duplicating its attempt, evidence sequence or lease
+
 ### Requirement: State transitions are derived from the closed event table
-Transition validation SHALL accept only the design-defined event types and SHALL derive the unique legal next task state from complete old State and event. Starting a normal attempt SHALL increment its task attempts and global `s6_attempts_used` exactly once before external execution. Success SHALL require matching accepted commit and Task Evidence; exhaustion SHALL require final failed-attempt evidence; dependency blocking SHALL require the current Plan graph and blocking State; reconciliation SHALL require complete verification-WAL proof. Revision projection SHALL consume a validated migration report as one complete task-set operation: `INHERIT` rewrites position ids while preserving state/attempts/commit/evidence, `REVALIDATE` requires typed successful build evidence and preserves attempts, `AMEND` reopens a completed unexhausted task while preserving attempts, and `REGENERATE` creates a clean pending/0 row. Removed tasks SHALL leave active State but remain auditable in the ledger. Arbitrary caller-authored replacement State or per-task migration without the complete report SHALL be rejected. (Design 7.2.0: §5.2.4-§5.2.5, §5.6.7; pipeline design 1.3.0 §3.2, §6.4-§6.5; D1.6; M1-4d/M1-6.)
+Transition validation SHALL accept only the design-defined event types and SHALL derive the unique legal next task state from complete old State and event. Starting a normal attempt SHALL increment its task attempts and global `s6_attempts_used` exactly once before external execution. Success SHALL require matching accepted commit and Task Evidence; exhaustion SHALL require final failed-attempt evidence; dependency blocking SHALL require the current Plan graph and blocking State; reconciliation SHALL require complete verification-WAL proof. `amended_under_lease` SHALL be one atomic multi-row transition from a current in-progress normal task and one or more lending done tasks to all done rows, preserving each lender's attempts and owner history while binding every member to one joint tree, commit and evidence set. Revision projection SHALL consume a validated migration report as one complete task-set operation: `INHERIT` rewrites position ids while preserving state/attempts/commit/evidence, `REVALIDATE` requires typed successful build evidence and preserves attempts, `AMEND` reopens a completed unexhausted task while preserving attempts, and `REGENERATE` creates a clean pending/0 row. Removed tasks SHALL leave active State but remain auditable in the ledger. Arbitrary caller-authored replacement State, partial lease-member transition or per-task migration without the complete proof SHALL be rejected. (Design: §5.2.4-§5.2.5, §5.6.7; pipeline §3.2, §6.4-§7.2; D1.6; M1-4d/M1-6/M1-7.)
 
 #### Scenario: Legal attempt succeeds
 - **WHEN** an in-progress task receives `attempt_succeeded` with valid current-attempt commit and evidence bindings
@@ -55,11 +62,15 @@ Transition validation SHALL accept only the design-defined event types and SHALL
 - **THEN** transition validation rejects the event without changing State
 
 #### Scenario: Reconciliation proof covers only part of a transaction
-- **WHEN** a legal task commit exists but the proposed State omits or disagrees with its evidence, ledger or event binding
+- **WHEN** a legal task or joint commit exists but the proposed State omits or disagrees with any required member evidence, ledger or event binding
 - **THEN** the reconciled transition is rejected as incomplete
 
+#### Scenario: Lease result covers every member
+- **WHEN** a valid joint proof names the current task and every lending done task under one accepted commit/tree and per-member evidence set
+- **THEN** `amended_under_lease` derives all member rows together, preserves lender attempt counts and changes no owner
+
 ### Requirement: Execution lint verifies external evidence separately from snapshot shape
-Before writing an attempt artifact the system SHALL monotonically allocate an evidence sequence per task uid and persist it in State; gaps caused by interruption SHALL remain legal and sequences SHALL never be reused. Execution-state lint SHALL validate each done task's Plan/version/epoch/task/uid/attempt/sequence, evidence path/content SHA-256, commit existence and ancestry, required commit trailers, changed-file whitelist, realized file-ledger rows, Plan acceptance, S5 anchors, E0 ancestry, workspace relation, active pointer and revision lineage. For a same-version or newly completed task, commit/evidence SHALL bind the current task id and Plan. For `INHERIT` or `REVALIDATE`, an older task id, commit or evidence binding MAY be accepted only when the validated ledger proves the old/new uid lineage and the classification permits preservation; a bare id or hash match SHALL NOT suffice. It SHALL reject an in-progress or blocked row whose immutable attempt history contradicts its counters or last-error reference. Complete execution validation SHALL combine snapshot and execution checks; JSON-only validation SHALL NOT claim filesystem or git verification. (Design 7.2.0: §4.8, §5.2.4-§5.2.5, §5.6.7; pipeline design 1.3.0 §3.1-§3.3, §4.3; D1.1/D1.2/D1.8; M1-4d/M1-6.)
+Before writing an attempt artifact the system SHALL monotonically allocate an evidence sequence per task uid and persist it in State; gaps caused by interruption SHALL remain legal and sequences SHALL never be reused. Execution-state lint SHALL validate each done task's Plan/version/epoch/task/uid/attempt/sequence, evidence path/content SHA-256, commit existence and ancestry, required commit trailers, changed-file whitelist, realized file-ledger rows, Plan acceptance, S5 anchors, E0 ancestry, workspace relation and revision lineage. For an F1 result it SHALL additionally validate every member's newly allocated lease evidence, sorted Joint Evidence membership, shared tree/commit, joint-only trailers, accepted lease start/finish and verification events, exact external paths, unchanged owner history and preserved lender attempts. For a same-version or newly completed task, commit/evidence SHALL bind the current task id and Plan. For `INHERIT` or `REVALIDATE`, an older task id, commit or evidence binding MAY be accepted only when the validated ledger proves the old/new uid lineage and the classification permits preservation; a bare id or hash match SHALL NOT suffice. It SHALL reject an in-progress or blocked row whose immutable attempt history contradicts its counters or last-error reference. Complete execution validation SHALL combine snapshot and execution checks; JSON-only validation SHALL NOT claim filesystem or git verification. (Design: §4.8, §5.2.4-§5.2.5, §5.4, §5.6.7; pipeline §3.1-§3.3, §7.2; D1.1/D1.2/D1.8; M1-4d/M1-6/M1-7.)
 
 #### Scenario: Done task evidence is current
 - **WHEN** a done task's state, evidence, commit tree, trailers, active Plan acceptance and stage anchors agree
@@ -88,6 +99,18 @@ Before writing an attempt artifact the system SHALL monotonically allocate an ev
 #### Scenario: Task evidence points at a different tree
 - **WHEN** a done row's evidence, commit or file hashes disagree
 - **THEN** execution lint rejects the State rather than trusting the done label
+
+#### Scenario: Lease evidence is complete
+- **WHEN** every lease member row, evidence ref, joint evidence member, commit trailer, file-ledger row and accepted event agrees on one tree and verification id
+- **THEN** execution lint accepts the lender's retained done state and current task's new done state
+
+#### Scenario: Lease evidence is only partially bound
+- **WHEN** one member retains an older proof, is absent from Joint Evidence, or disagrees on tree, commit, lease path, attempt or evidence sequence
+- **THEN** execution lint rejects the complete State rather than accepting the other members
+
+#### Scenario: Snapshot-only validation is requested
+- **WHEN** only Plan and State JSON are supplied without workspace, Git and evidence stores
+- **THEN** snapshot lint reports only structural/state results and does not claim external execution validity
 
 ### Requirement: Validation is deterministic and side-effect free
 Snapshot, transition, and execution validation SHALL return canonically ordered issues and SHALL not mutate Plan, State, workspace, evidence, receipts, or configuration. Repeating a validation with identical inputs SHALL produce an identical result. These validators SHALL not initialize S6, write Plan State, reconcile commits, advance active Plan, or append revision ledgers. (Design 7.1.0: §5.2.5, §6.4.5; M1-4b non-scope.)

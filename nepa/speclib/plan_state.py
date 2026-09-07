@@ -73,6 +73,118 @@ def _plan_tasks(plan: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {task["id"]: task for task in plan.get("tasks", []) if isinstance(task, Mapping) and isinstance(task.get("id"), str)}
 
 
+def validate_lease_authorization(
+    authorization: Mapping[str, Any],
+    *,
+    plan: Mapping[str, Any],
+    state: Mapping[str, Any],
+    file_ledger: Mapping[str, Any],
+    revision_ledger: Mapping[str, Any],
+    config_snapshot: Mapping[str, Any],
+    baseline_commit: str,
+    baseline_tree: str,
+) -> dict[str, Any]:
+    """Validate and return an immutable, controller-ready F1 authorization.
+
+    The function is deliberately pure: all inputs are copied before returning and
+    no State, ledger, workspace, or budget object is modified.
+    """
+    errors = _schema_report(authorization, "lease-authorization.schema.json")
+    if errors:
+        raise PlanStateError("lease authorization failed Schema validation: " + errors[0]["message"])
+    value = copy.deepcopy(dict(authorization))
+    if value.get("active_plan_ref") != state.get("plan_ref"):
+        raise PlanStateError("lease authorization Plan binding does not match State")
+    if value.get("active_plan_ref", {}).get("sha256") != _sha(plan):
+        raise PlanStateError("lease authorization Plan hash does not match active Plan")
+    if not re.fullmatch(r"[0-9a-f]{40}", baseline_commit) or not re.fullmatch(r"[0-9a-f]{64}", baseline_tree):
+        raise PlanStateError("lease authorization baseline is not a canonical commit/tree")
+    if value.get("baseline_commit") != baseline_commit or value.get("baseline_tree") != baseline_tree:
+        raise PlanStateError("lease authorization baseline does not match the accepted execution baseline")
+
+    tasks = _plan_tasks(plan)
+    rows = {row.get("id"): row for row in state.get("tasks", []) if isinstance(row, Mapping)}
+    current_id = value["current_task_id"]
+    current_uid = value["current_task_uid"]
+    current = tasks.get(current_id)
+    current_row = rows.get(current_id)
+    if not isinstance(current, Mapping) or current.get("task_uid") != current_uid:
+        raise PlanStateError("lease current task is not in the active Plan")
+    if not isinstance(current_row, Mapping) or current_row.get("task_uid") != current_uid:
+        raise PlanStateError("lease current task is not in Plan State")
+    if current_row.get("status") != "in_progress" or current_row.get("execution_mode") != "normal":
+        raise PlanStateError("lease requires an in-progress normal task")
+    if not isinstance(current_row.get("attempts"), int) or current_row["attempts"] < 1 or current_row["attempts"] >= _total_attempt_limit(config_snapshot):
+        raise PlanStateError("lease requires an available Fixer attempt")
+
+    budgets = config_snapshot.get("budgets", {})
+    if not isinstance(budgets, Mapping):
+        raise PlanStateError("lease budget configuration is missing")
+    cap = budgets.get("s6_total_attempts_cap")
+    if not isinstance(cap, int) or isinstance(cap, bool) or state.get("s6_attempts_used", 0) >= cap:
+        raise PlanStateError("global S6 attempt capacity is exhausted")
+    lease_limit = budgets.get("s6_lease_limit", 0)
+    if not isinstance(lease_limit, int) or isinstance(lease_limit, bool) or lease_limit <= 0:
+        raise PlanStateError("F1 lease capacity is exhausted")
+    starts = [entry for entry in revision_ledger.get("entries", []) if isinstance(entry, Mapping) and entry.get("event_type") == "lease_started"]
+    if len(starts) >= lease_limit:
+        raise PlanStateError("F1 lease capacity is exhausted")
+
+    plan_by_uid = {task.get("task_uid"): task for task in tasks.values()}
+    ledger_files = {row.get("path"): row for row in file_ledger.get("files", []) if isinstance(row, Mapping)}
+    seen_uids: set[str] = set()
+    seen_paths: set[str] = set()
+    total_paths = 0
+
+    def directly_related(lender: Mapping[str, Any]) -> bool:
+        if lender.get("work_package") == current.get("work_package"):
+            return True
+        consumed = set(current.get("consumes_contracts", []))
+        contracts = plan.get("architecture", {}).get("contracts", [])
+        for contract in contracts:
+            if not isinstance(contract, Mapping) or contract.get("id") not in consumed:
+                continue
+            if contract.get("provider_task_id") == lender.get("id"):
+                return True
+        return False
+
+    for lender in value["lenders"]:
+        uid = lender["task_uid"]
+        if uid in seen_uids or uid == current_uid:
+            raise PlanStateError("lease lenders must be unique and exclude the current task")
+        seen_uids.add(uid)
+        lender_task = plan_by_uid.get(uid)
+        lender_row = next((row for row in rows.values() if row.get("task_uid") == uid), None)
+        if not isinstance(lender_task, Mapping) or lender_task.get("id") != lender.get("task_id"):
+            raise PlanStateError("lease lender is not bound to the active Plan")
+        if not isinstance(lender_row, Mapping) or lender_row.get("status") != "done":
+            raise PlanStateError("lease lender must already be done")
+        accepted_ref = lender_row.get("acceptance_evidence", {}).get("task_evidence_ref") if isinstance(lender_row.get("acceptance_evidence"), Mapping) else None
+        if isinstance(accepted_ref, Mapping) and accepted_ref not in lender.get("evidence_refs", []):
+            raise PlanStateError("lease lender evidence does not bind its accepted done proof")
+        if not directly_related(lender_task):
+            raise PlanStateError("lease lender is outside the same-package/provider neighborhood")
+        for path in lender["paths"]:
+            if not path or path.startswith("/") or "\\" in path or ".." in PurePath(path).parts:
+                raise PlanStateError("lease path is unsafe")
+            if path in seen_paths:
+                raise PlanStateError("lease paths must be unique")
+            seen_paths.add(path)
+            total_paths += 1
+            row = ledger_files.get(path)
+            history = row.get("owner_history", []) if isinstance(row, Mapping) else []
+            owner_uid = history[-1].get("task_uid") if isinstance(history, list) and history and isinstance(history[-1], Mapping) else None
+            if not isinstance(row, Mapping) or row.get("class") != "s6_owned" or owner_uid != uid:
+                raise PlanStateError("lease path is not an owned realized lender file")
+            if path not in lender_task.get("deliverable_files", []):
+                raise PlanStateError("lease path is not a lender deliverable")
+    if total_paths == 0 or total_paths > 2:
+        raise PlanStateError("lease external file count must be between one and two")
+    if [item["task_uid"] for item in value["lenders"]] != sorted(seen_uids, key=lambda item: item.encode("utf-8")):
+        raise PlanStateError("lease lenders must be sorted by task uid")
+    return value
+
+
 def _version_from_plan_ref(ref: Mapping[str, Any]) -> str:
     version = ref.get("version")
     return version if isinstance(version, str) and version else "1.0.0"
@@ -301,6 +413,21 @@ def validate_state_transition(
             errors.append(_issue("STATE_DEPENDENCY_PROOF_INVALID", f"/tasks/{task_id}", "dependency_blocked requires a blocked transitive dependency"))
         else:
             derived.update({"status": "blocked_by_dependency", "last_error": event_value["error"], "commit_sha": None, "acceptance_evidence": {"task_evidence_ref": None}})
+    elif name == "amended_under_lease":
+        member_ids = event_value.get("member_task_ids")
+        member_refs = event_value.get("member_evidence_refs")
+        member_uids_for_ids = [old_by_id.get(member_id, {}).get("task_uid") for member_id in member_ids] if isinstance(member_ids, list) else []
+        if not isinstance(member_ids, list) or len(member_ids) < 2 or len(member_ids) != len(set(member_ids)) or task_id not in member_ids or any(uid is None for uid in member_uids_for_ids) or member_uids_for_ids != sorted(member_uids_for_ids, key=lambda value: str(value).encode("utf-8")):
+            errors.append(_issue("STATE_LEASE_MEMBERS_INVALID", f"/tasks/{task_id}", "lease transition must name a unique complete member set"))
+        elif not isinstance(member_refs, list) or len(member_refs) != len(member_ids) or len({canonical_json_bytes(ref) for ref in member_refs}) != len(member_refs) or not isinstance(event_value.get("commit_sha"), str) or not isinstance(event_value.get("verification_id"), str) or proof.get("member_uids") != member_uids_for_ids or proof.get("member_evidence_refs") != member_refs:
+            errors.append(_issue("STATE_LEASE_PROOF_INVALID", f"/tasks/{task_id}", "lease transition requires commit, verification and one evidence ref per member"))
+        else:
+            member_rows = [old_by_id.get(member_id) for member_id in member_ids]
+            lender_rows = [row for row in member_rows if isinstance(row, Mapping) and row.get("id") != task_id]
+            if any(not isinstance(row, Mapping) for row in member_rows) or current.get("status") != "in_progress" or any(row.get("status") != "done" for row in lender_rows):
+                errors.append(_issue("STATE_LEASE_STATE_INVALID", f"/tasks/{task_id}", "lease transition requires current in-progress and lender done rows"))
+            else:
+                derived.update({"status": "done", "commit_sha": event_value["commit_sha"], "last_error": None, "acceptance_evidence": {"task_evidence_ref": copy.deepcopy(member_refs[member_ids.index(task_id)])}})
     else:
         errors.append(_issue("STATE_EVENT_INVALID", "/event", "event is not in the closed ordinary transition table"))
     if errors:
@@ -314,6 +441,17 @@ def validate_state_transition(
     for index, row in enumerate(candidate["tasks"]):
         if row["id"] == task_id:
             candidate["tasks"][index] = derived
+    if name == "amended_under_lease" and isinstance(event_value.get("member_task_ids"), list) and isinstance(event_value.get("member_evidence_refs"), list):
+        refs_by_id = dict(zip(event_value["member_task_ids"], event_value["member_evidence_refs"], strict=False))
+        for index, row in enumerate(candidate["tasks"]):
+            if row["id"] not in refs_by_id or row["id"] == task_id:
+                continue
+            if row.get("status") == "done":
+                updated = copy.deepcopy(row)
+                updated["acceptance_evidence"] = {"task_evidence_ref": copy.deepcopy(refs_by_id[row["id"]])}
+                updated["commit_sha"] = event_value["commit_sha"]
+                updated["last_error"] = None
+                candidate["tasks"][index] = updated
     if new is not None and candidate != new:
         errors.append(_issue("STATE_DERIVED_MISMATCH", f"/tasks/{task_id}", "new State is not derived from old State and event"))
     return {**_report(errors), "state": candidate if not errors else None}
@@ -348,7 +486,7 @@ def _commit_info(workspace: Any, commit: str | None) -> Mapping[str, Any] | None
             return None
         parents = subprocess.run(["git", "-C", str(root), "show", "-s", "--format=%P", commit], capture_output=True, text=True, check=True).stdout.strip().split()
         trailers = {}
-        for key in ("NePA-Task", "NePA-Task-UID", "NePA-Plan", "NePA-Epoch", "NePA-Attempt", "NePA-Evidence-Seq", "NePA-Evidence-SHA256"):
+        for key in ("NePA-Task", "NePA-Task-UID", "NePA-Plan", "NePA-Epoch", "NePA-Attempt", "NePA-Evidence-Seq", "NePA-Evidence-SHA256", "NePA-Verification-ID", "NePA-Joint-Evidence-SHA256"):
             value = subprocess.run(["git", "-C", str(root), "show", "-s", f"--format=%(trailers:key={key},valueonly)", commit], capture_output=True, text=True, check=True).stdout.strip()
             if value:
                 trailers[key] = value
@@ -507,7 +645,15 @@ def _attempt_history_errors(root: Path, state: Mapping[str, Any]) -> list[dict[s
         if row.get("status") == "done":
             record = records.get(row.get("attempts"))
             evidence_ref = row.get("acceptance_evidence", {}).get("task_evidence_ref") if isinstance(row.get("acceptance_evidence"), Mapping) else None
-            if not isinstance(record, Mapping) or record.get("status") != "succeeded" or record.get("output_ref") != evidence_ref:
+            lease_projection = False
+            if isinstance(evidence_ref, Mapping):
+                raw_evidence = _evidence_bytes(root, evidence_ref)
+                if raw_evidence is not None:
+                    try:
+                        lease_projection = json.loads(raw_evidence).get("execution_kind") == "lease"
+                    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                        lease_projection = False
+            if not isinstance(record, Mapping) or record.get("status") != "succeeded" or (record.get("output_ref") != evidence_ref and not lease_projection):
                 errors.append(_issue("EXEC_ATTEMPT_STATE_INVALID", f"/tasks/{task_id}", "done State has no matching succeeded attempt record"))
         elif row.get("status") == "blocked":
             record = records.get(row.get("attempts"))
@@ -561,6 +707,33 @@ def execution_state_lint(
         candidate = evidence_store.get("plan/file_ledger.json")
         if isinstance(candidate, Mapping):
             file_ledger = candidate
+    accepted_evidence_by_id: dict[str, Mapping[str, Any]] = {}
+    lease_joint_by_id: dict[str, Mapping[str, Any]] = {}
+    lease_joint_ref_by_uid: dict[str, Mapping[str, Any]] = {}
+    lease_id_by_uid: dict[str, str] = {}
+    if isinstance(ledger, Mapping):
+        for entry in ledger.get("entries", []):
+            if not isinstance(entry, Mapping) or entry.get("event_type") != "lease_finished":
+                continue
+            payload = entry.get("payload", {}) if isinstance(entry.get("payload"), Mapping) else {}
+            joint_ref = payload.get("joint_evidence_ref") if payload.get("success") else None
+            if not isinstance(joint_ref, Mapping):
+                continue
+            raw_joint = _evidence_bytes(evidence_store, joint_ref)
+            if raw_joint is None or hashlib.sha256(raw_joint).hexdigest() != joint_ref.get("sha256"):
+                continue
+            try:
+                joint_value = json.loads(raw_joint)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(joint_value, Mapping):
+                continue
+            verification_id = str(joint_value.get("verification_id"))
+            lease_joint_by_id[verification_id] = joint_value
+            for member in joint_value.get("members", []):
+                if isinstance(member, Mapping) and member.get("task_uid"):
+                    lease_joint_ref_by_uid[str(member["task_uid"])] = joint_ref
+                    lease_id_by_uid[str(member["task_uid"])] = str(payload.get("lease_id"))
     for row in state_value.get("tasks", []):
         if row.get("status") != "done":
             continue
@@ -578,14 +751,39 @@ def execution_state_lint(
         except (UnicodeDecodeError, json.JSONDecodeError):
             errors.append(_issue("EXEC_EVIDENCE_INVALID", f"/tasks/{task_id}", "task evidence is not JSON"))
             continue
+        lease_evidence = False
         legacy_evidence = isinstance(evidence, Mapping) and evidence.get("schema_version") == "1.0"
         if not legacy_evidence:
             errors.extend(_schema_report(evidence, "task-evidence.schema.json", f"/tasks/{task_id}/evidence"))
         if isinstance(evidence, Mapping):
+            accepted_evidence_by_id[task_id] = evidence
             if evidence.get("task_id") != task_id or evidence.get("attempt") != row.get("attempts") or (not legacy_evidence and evidence.get("task_uid") != row.get("task_uid")):
                 errors.append(_issue("EXEC_EVIDENCE_IDENTITY_INVALID", f"/tasks/{task_id}", "task evidence identity does not match State"))
             if evidence.get("plan_sha256") != _sha(plan_value):
                 errors.append(_issue("EXEC_EVIDENCE_BINDING_INVALID", f"/tasks/{task_id}", "task evidence Plan/commit binding does not match"))
+            lease_evidence = not legacy_evidence and evidence.get("execution_kind") == "lease"
+            if lease_evidence:
+                joint_ref = evidence.get("joint_evidence_ref") or lease_joint_ref_by_uid.get(str(evidence.get("task_uid")))
+                joint_raw = _evidence_bytes(evidence_store, joint_ref)
+                if not isinstance(joint_ref, Mapping) or joint_raw is None or hashlib.sha256(joint_raw).hexdigest() != joint_ref.get("sha256"):
+                    errors.append(_issue("EXEC_JOINT_EVIDENCE_INVALID", f"/tasks/{task_id}", "lease evidence is missing Joint Evidence"))
+                else:
+                    try:
+                        joint_value = json.loads(joint_raw)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        joint_value = None
+                    if not isinstance(joint_value, Mapping):
+                        errors.append(_issue("EXEC_JOINT_EVIDENCE_INVALID", f"/tasks/{task_id}", "Joint Evidence is not JSON"))
+                    else:
+                        lease_joint_by_id[str(joint_value.get("verification_id"))] = joint_value
+                        members = joint_value.get("members", [])
+                        member = next((item for item in members if isinstance(item, Mapping) and item.get("task_uid") == evidence.get("task_uid")), None)
+                        if member is None:
+                            errors.append(_issue("EXEC_JOINT_EVIDENCE_INVALID", f"/tasks/{task_id}", "Joint Evidence omits the accepted member"))
+                        elif member.get("task_evidence_ref") != evidence_ref or member.get("changed_files") != [{**item, "owner_uid": evidence.get("task_uid")} for item in evidence.get("changed_files", [])]:
+                            errors.append(_issue("EXEC_JOINT_EVIDENCE_INVALID", f"/tasks/{task_id}", "Joint Evidence member reference or changed files disagree"))
+                        if joint_value.get("workspace_tree") != evidence.get("workspace_tree"):
+                            errors.append(_issue("EXEC_JOINT_EVIDENCE_INVALID", f"/tasks/{task_id}", "Joint Evidence tree disagrees with member evidence"))
             if not legacy_evidence:
                 if evidence.get("plan_ref") != state_value.get("plan_ref") or evidence.get("plan_version") != state_value.get("plan_ref", {}).get("version") or evidence.get("epoch") != state_value.get("plan_ref", {}).get("epoch"):
                     errors.append(_issue("EXEC_EVIDENCE_BINDING_INVALID", f"/tasks/{task_id}", "task evidence Plan version or epoch binding does not match State"))
@@ -616,6 +814,11 @@ def execution_state_lint(
                     errors.append(_issue("EXEC_RESULT_FAILED", f"/tasks/{task_id}", "accepted task evidence references a failed result"))
             if not legacy_evidence:
                 declared = set(tasks.get(task_id, {}).get("deliverable_files", [])) if isinstance(tasks.get(task_id), Mapping) else set()
+                if lease_evidence:
+                    member_uids = set(evidence.get("lease_member_uids", []))
+                    for candidate_task in tasks.values():
+                        if isinstance(candidate_task, Mapping) and candidate_task.get("task_uid") in member_uids:
+                            declared.update(candidate_task.get("deliverable_files", []))
                 changed = evidence.get("changed_files", [])
                 for item in changed:
                     relative = item.get("path") if isinstance(item, Mapping) else None
@@ -633,13 +836,25 @@ def execution_state_lint(
             errors.append(_issue("EXEC_COMMIT_MISSING", f"/tasks/{task_id}", "task commit is missing"))
         else:
             trailers = commit_info.get("trailers", {})
-            expected = {"NePA-Task": task_id, "NePA-Attempt": str(row.get("attempts"))}
-            if not legacy_evidence:
+            lease_evidence = not legacy_evidence and evidence.get("execution_kind") == "lease"
+            if lease_evidence:
+                joint_ref = evidence.get("joint_evidence_ref") or lease_joint_ref_by_uid.get(str(row.get("task_uid"))) or {}
+                expected = {
+                    "NePA-Verification-ID": str(next((item.get("verification_id") for item in lease_joint_by_id.values() if any(isinstance(member, Mapping) and member.get("task_uid") == row.get("task_uid") for member in item.get("members", []))), "")),
+                    "NePA-Joint-Evidence-SHA256": str(joint_ref.get("sha256", "")),
+                }
+                if any(trailers.get(key) != value for key, value in expected.items()):
+                    errors.append(_issue("EXEC_COMMIT_TRAILER_INVALID", f"/tasks/{task_id}", "joint commit trailers do not match lease evidence"))
+                if any(key in trailers for key in ("NePA-Task", "NePA-Task-UID", "NePA-Attempt", "NePA-Evidence-Seq", "NePA-Evidence-SHA256")):
+                    errors.append(_issue("EXEC_COMMIT_TRAILER_INVALID", f"/tasks/{task_id}", "joint commit contains ordinary task trailers"))
+            else:
+                expected = {"NePA-Task": task_id, "NePA-Attempt": str(row.get("attempts"))}
+            if not legacy_evidence and not lease_evidence:
                 expected.update({"NePA-Task-UID": row.get("task_uid"), "NePA-Plan": state_value.get("plan_ref", {}).get("version"), "NePA-Epoch": state_value.get("plan_ref", {}).get("epoch"), "NePA-Evidence-Seq": str(evidence.get("evidence_seq"))})
             for key, value in expected.items():
                 if trailers.get(key) != value:
                     errors.append(_issue("EXEC_COMMIT_TRAILER_INVALID", f"/tasks/{task_id}", f"commit trailer {key} does not match"))
-            if trailers.get("NePA-Evidence-SHA256") != evidence_ref.get("sha256"):
+            if not lease_evidence and trailers.get("NePA-Evidence-SHA256") != evidence_ref.get("sha256"):
                 errors.append(_issue("EXEC_COMMIT_TRAILER_INVALID", f"/tasks/{task_id}", "commit evidence trailer does not match"))
             if anchor is not None and not _commit_ancestor(workspace, row.get("commit_sha"), anchor):
                 errors.append(_issue("EXEC_COMMIT_ANCESTRY_INVALID", f"/tasks/{task_id}", "task commit is not descended from E0"))
@@ -657,10 +872,24 @@ def execution_state_lint(
             entry.get("payload", {}) for entry in ledger.get("entries", [])
             if isinstance(entry, Mapping) and entry.get("event_type") == "verification_committed"
         ]
+        lease_groups: dict[str, set[str]] = {}
         for row in state_value.get("tasks", []):
             if row.get("status") != "done":
                 continue
             evidence_ref = row.get("acceptance_evidence", {}).get("task_evidence_ref", {})
+            evidence = accepted_evidence_by_id.get(row.get("id"), {})
+            if isinstance(evidence, Mapping) and evidence.get("execution_kind") == "lease":
+                joint_ref = evidence.get("joint_evidence_ref") or lease_joint_ref_by_uid.get(str(row.get("task_uid"))) or {}
+                joint_raw = _evidence_bytes(evidence_store, joint_ref)
+                if isinstance(joint_raw, bytes):
+                    try:
+                        joint = json.loads(joint_raw)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        joint = {}
+                    if isinstance(joint, Mapping):
+                        verification_id = str(joint.get("verification_id"))
+                        lease_groups.setdefault(verification_id, set()).add(str(row.get("task_uid")))
+                continue
             sequence = re.search(r"evidence_(\d+)\.json$", str(evidence_ref.get("path", "")))
             expected_id = f"v-{row.get('task_uid')}-{int(sequence.group(1))}" if sequence else None
             expected = {
@@ -671,6 +900,16 @@ def execution_state_lint(
             }
             if sum(payload == expected for payload in verification_payloads) != 1:
                 errors.append(_issue("EXEC_VERIFICATION_EVENT_INVALID", f"/tasks/{row.get('id')}", "accepted task does not have exactly one complete matching verification event"))
+        for verification_id, members in lease_groups.items():
+            matches = [payload for payload in verification_payloads if payload.get("verification_id") == verification_id and payload.get("kind") == "lease"]
+            joint = lease_joint_by_id.get(verification_id, {})
+            joint_members = joint.get("members", []) if isinstance(joint, Mapping) else []
+            expected_refs = [item.get("task_evidence_ref") for item in joint_members if isinstance(item, Mapping)]
+            first_uid = next(iter(members), "")
+            expected_joint_ref = lease_joint_ref_by_uid.get(first_uid)
+            expected_lease_id = lease_id_by_uid.get(first_uid)
+            if len(matches) != 1 or set(matches[0].get("member_uids", [])) != members or matches[0].get("evidence_refs") != expected_refs or matches[0].get("joint_evidence_ref") != expected_joint_ref or matches[0].get("lease_id") != expected_lease_id or matches[0].get("commit_sha") != next((row.get("commit_sha") for row in state_value.get("tasks", []) if row.get("task_uid") in members), None):
+                errors.append(_issue("EXEC_VERIFICATION_EVENT_INVALID", "/revision_ledger", "lease members do not have exactly one complete verification event"))
     if isinstance(evidence_store, (str, Path)):
         errors.extend(_attempt_history_errors(Path(evidence_store), state_value))
     return _report(errors)
@@ -680,4 +919,4 @@ def complete_execution_lint(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return execution_state_lint(*args, **kwargs)
 
 
-__all__ = ["PlanStateError", "complete_execution_lint", "execution_state_lint", "initialize_plan_state", "plan_state_snapshot_lint", "project_state_transition", "validate_state_transition"]
+__all__ = ["PlanStateError", "complete_execution_lint", "execution_state_lint", "initialize_plan_state", "plan_state_snapshot_lint", "project_state_transition", "validate_lease_authorization", "validate_state_transition"]

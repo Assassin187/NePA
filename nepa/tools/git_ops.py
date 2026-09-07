@@ -201,4 +201,66 @@ def publish_task_commit(workspace: str | Path, paths: Iterable[str], prepared: M
     return {"commit_sha": prepared["commit_sha"], "tree_sha": prepared["tree_sha"]}
 
 
-__all__ = ["GitOperationError", "checkpoint_workspace", "commit_task", "prepare_task_commit", "publish_task_commit", "verify_checkpoint"]
+def prepare_joint_commit(
+    workspace: str | Path,
+    files: Mapping[str, bytes],
+    *,
+    verification_id: str,
+    joint_evidence_sha256: str,
+) -> dict[str, str]:
+    """Prepare one commit for a complete F1 member change set."""
+    root = Path(workspace).resolve()
+    selected = sorted(files, key=lambda value: value.encode("utf-8"))
+    if not selected or any(not value or Path(value).is_absolute() or ".." in Path(value).parts for value in selected):
+        raise GitOperationError("joint commit requires a non-empty safe changed set")
+    parent = _run(root, ["rev-parse", "HEAD"])
+    fd, index_name = tempfile.mkstemp(prefix="nepa-s6-joint-index-")
+    os.close(fd)
+    os.unlink(index_name)
+    env = dict(os.environ)
+    env["GIT_INDEX_FILE"] = index_name
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    env.update({"GIT_AUTHOR_NAME": "NePA S6 Executor", "GIT_AUTHOR_EMAIL": "executor@nepa.invalid", "GIT_COMMITTER_NAME": "NePA S6 Executor", "GIT_COMMITTER_EMAIL": "executor@nepa.invalid", "GIT_AUTHOR_DATE": timestamp, "GIT_COMMITTER_DATE": timestamp})
+    message = f"Execute joint lease {verification_id}\n\nNePA-Verification-ID: {verification_id}\nNePA-Joint-Evidence-SHA256: {joint_evidence_sha256}\n"
+    try:
+        _run(root, ["read-tree", parent], env=env)
+        for relative in selected:
+            proc = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=root, input=files[relative], capture_output=True, check=False)
+            if proc.returncode != 0:
+                raise GitOperationError(f"git hash-object failed: {proc.stderr.decode(errors='replace').strip()}")
+            _run(root, ["update-index", "--add", "--cacheinfo", "100644", proc.stdout.decode("ascii").strip(), relative], env=env)
+        tree = _run(root, ["write-tree"], env=env)
+        result = subprocess.run(["git", "commit-tree", tree, "-p", parent], cwd=root, input=message, capture_output=True, text=True, check=False, env=env)
+        if result.returncode != 0:
+            raise GitOperationError(f"git commit-tree failed: {result.stderr.strip()}")
+        commit = result.stdout.strip()
+    finally:
+        try:
+            os.unlink(index_name)
+        except FileNotFoundError:
+            pass
+    return {"commit_sha": commit, "tree_sha": tree, "parent_sha": parent, "message": message, "timestamp": timestamp}
+
+
+def publish_joint_commit(workspace: str | Path, paths: Iterable[str], prepared: Mapping[str, str]) -> dict[str, str]:
+    """Publish a prepared joint commit after checking the exact live tree."""
+    root = Path(workspace).resolve()
+    selected = sorted(set(paths), key=lambda value: value.encode("utf-8"))
+    if not selected or _run(root, ["rev-parse", "HEAD"]) != prepared["parent_sha"]:
+        raise GitOperationError("prepared joint commit parent or changed set drifted")
+    if _run(root, ["diff", "--cached", "--name-only"]):
+        raise GitOperationError("workspace contains unrelated staged changes before joint commit")
+    _run(root, ["add", "--", *selected])
+    if _run(root, ["write-tree"]) != prepared["tree_sha"]:
+        raise GitOperationError("live staged tree disagrees with prepared joint commit")
+    _run(root, ["update-ref", "HEAD", prepared["commit_sha"], prepared["parent_sha"]])
+    if _run(root, ["rev-parse", "HEAD^{tree}"]) != prepared["tree_sha"]:
+        raise GitOperationError("published joint commit tree drifted")
+    for key in ("NePA-Verification-ID", "NePA-Joint-Evidence-SHA256"):
+        expected = prepared["message"].split(f"{key}: ", 1)[1].splitlines()[0]
+        if _run(root, ["show", "-s", f"--format=%(trailers:key={key},valueonly)", "HEAD"]).splitlines() != [expected]:
+            raise GitOperationError("joint commit trailers are incomplete")
+    return {"commit_sha": prepared["commit_sha"], "tree_sha": prepared["tree_sha"]}
+
+
+__all__ = ["GitOperationError", "checkpoint_workspace", "commit_task", "prepare_joint_commit", "prepare_task_commit", "publish_joint_commit", "publish_task_commit", "verify_checkpoint"]

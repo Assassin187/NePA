@@ -186,6 +186,7 @@ plan/
 ├── versions/plan-<C.A.P>.json             # 不可变计划
 ├── active_plan.json                     # version/path/sha256/revision_seq/epoch
 ├── plan_state.json                      # 活动执行快照
+├── state_history.json                   # 顺序式已接受 State 转换历史
 ├── file_ledger.json
 ├── s6_revision_ledger.json               # S6 封存的不可变事件前缀
 ├── revision_ledger.json                  # 类型化事件哈希链
@@ -568,7 +569,7 @@ INHERIT/REVALIDATE 不消耗编码 attempts；AMEND 保留旧普通 attempts，�
 
 授权条件全部相与：owner 为另一已 done 任务；文件属于 s6_owned；**（同工作包或该 owner 是当前任务直接 contract provider）**；候选不改导出声明；外部文件 ≤2；κ 和当前 Fixer/global 额度尚有剩余。候选路径和签名比对在写入前完成；无法证明声明不变则拒绝，不靠模型自述。
 
-lease_started 在调用前落账并占用 κ；双方构建、适用测试和 smoke 通过后，逐任务 evidence 与联合证据绑定相同 tree，一个 commit，再以 verification WAL 发布双方 State/ledger 和 lease_finished。原 done 任务保持普通 attempts，当前任务消耗其本次 Fixer attempt；owner_history 不因租约变化。失败恢复双方共同基线，原任务仍 done、当前任务继续剩余额度，lease_finished 记失败。中断使用同一 WAL 对账，不能只接受一方完成。
+lease_started 在调用前落账并占用 κ；尝试记录、State 历史、lease_started 与当前 State 按此前后顺序持久化，resume 可由已存在的尝试记录补齐后续项而不退款或重复 κ。双方构建、适用测试和 smoke 通过后，逐任务 evidence 与联合证据绑定相同 tree，一个 commit，再以 verification WAL 发布双方 State/ledger 和 lease_finished。原 done 任务保持普通 attempts，当前任务消耗其本次 Fixer attempt；owner_history 不因租约变化。失败恢复双方共同基线，原任务仍 done、当前任务继续剩余额度，lease_finished 记失败。中断使用同一 WAL 对账，不能只接受一方完成。调用关联使用 trace 中稳定的 `output_path`，不增加调用哈希字段。
 
 ### 7\.3 降级、失败与 planned-stop
 

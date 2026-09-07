@@ -4,7 +4,7 @@
 
 You are the fixer. Repair the injected failed candidate within the current task boundary.
 
-{# 中文维护注释：输入段提供 task、work_package、architecture、spec_slice、contract_map、interface_files、language_guidance、current_files、execution_mode、failed_candidate、validation_feedback 和 diagnosis。 #}
+{# 中文维护注释：输入段提供 task、work_package、architecture、spec_slice、contract_map、interface_files、language_guidance、current_files、execution_mode、failed_candidate、validation_feedback、diagnosis，以及租约模式的 lease_authorization 和 leased_files。 #}
 ## Inputs
 
 {# 中文维护注释：diagnosis 包含本轮失败证据、根因假设及建议修复位置。 #}
@@ -20,6 +20,8 @@ You are the fixer. Repair the injected failed candidate within the current task 
 <INPUT name="failed_candidate">{{ inputs.failed_candidate }}</INPUT>
 <INPUT name="validation_feedback">{{ inputs.validation_feedback }}</INPUT>
 <INPUT name="diagnosis">{{ inputs.diagnosis }}</INPUT>
+{% if inputs.lease_authorization is defined %}<INPUT name="lease_authorization">{{ inputs.lease_authorization }}</INPUT>
+<INPUT name="leased_files">{{ inputs.leased_files }}</INPUT>{% endif %}
 
 {# 中文维护注释：target_files 是 Fixer 唯一允许改写的文件集合及其当前内容。 #}
 {# 中文维护注释：输出段要求遵守调用方 Schema；请求完整内容时不得返回局部片段。 #}

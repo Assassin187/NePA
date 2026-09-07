@@ -9,11 +9,16 @@
     "evidence_seq": {"type": "integer", "minimum": 1}, "execution_kind": {"enum": ["normal", "revalidate", "amend", "lease", "group"]},
     "attempt": {"type": "integer", "minimum": 1, "maximum": 4}, "amendment_used": {"type": "integer", "enum": [0, 1]}, "plan_ref": {"$ref": "#/$defs/planRef"}, "plan_version": {"const": "1.0.0"}, "epoch": {"const": "E0"}, "binding_ref": {"$ref": "#/$defs/ref"}, "input_refs": {"type": "object", "additionalProperties": false, "required": ["spec", "target_profile", "test_bundle"], "properties": {"spec": {"$ref": "#/$defs/ref"}, "target_profile": {"$ref": "#/$defs/ref"}, "test_bundle": {"$ref": "#/$defs/ref"}}}, "plan_sha256": {"$ref": "#/$defs/sha256"}, "workspace_tree": {"$ref": "#/$defs/sha256"},
     "build_result_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ref"}}, "smoke_result_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ref"}}, "test_summary_refs": {"type": "array", "maxItems": 0},
-    "changed_files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/file"}}, "accepted": {"const": true}, "migration_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}
+    "lease_id": {"type": "string", "pattern": "^lease-[1-9][0-9]*$"}, "lease_authorization_ref": {"$ref": "#/$defs/ref"}, "joint_evidence_ref": {"$ref": "#/$defs/ref"}, "lease_member_uids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}},
+    "changed_files": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/file"}}, "accepted": {"const": true}, "migration_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "planRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "version", "revision_seq", "epoch"], "properties": {"path": {"type": "string", "pattern": "^plan/versions/plan-1\\.[0-9]+\\.[0-9]+\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}, "version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "revision_seq": {"type": "integer", "minimum": 0}, "epoch": {"type": "string", "pattern": "^E[0-9]+$"}}},
     "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
     "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}}
-  }
+  },
+  "allOf": [
+    {"if": {"properties": {"execution_kind": {"const": "lease"}}}, "then": {"required": ["lease_id", "lease_authorization_ref", "lease_member_uids"]}},
+    {"if": {"properties": {"execution_kind": {"enum": ["normal", "revalidate", "amend", "group"]}}}, "then": {"properties": {"changed_files": {"minItems": 1}}, "not": {"anyOf": [{"required": ["lease_id"]}, {"required": ["lease_authorization_ref"]}, {"required": ["joint_evidence_ref"]}, {"required": ["lease_member_uids"]}]}}}
+  ]
 }
