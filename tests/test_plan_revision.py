@@ -159,6 +159,38 @@ def test_f1_is_rejected_by_entry_builder_and_ledger_validator():
         validate_revision_ledger({"schema_version": "1.0", "entries": [entry]})
 
 
+def test_activation_migration_extensions_are_canonical_and_f3_only():
+    plan, *_ = _linked()
+    old = _ref(plan)
+    new = _ref(plan, "1.1.0", 1, "E1")
+    state = initialize_plan_state(plan, plan_ref=old)
+    report = classify_migration(plan, plan, state, {"schema_version": "1.0", "files": []}, to_version="1.1.0")
+    task = report["tasks"][0]
+    report["pending_groups"] = [{
+        "group_id": "g-1-1",
+        "member_task_uids": [task["new_task_uid"]],
+        "affected_paths": ["src/codec/codec.c"],
+        "affected_symbols": [],
+        "build_artifact_ids": ["application"],
+    }]
+    trigger = {"code": "test", "evidence_refs": []}
+    gates = {f"RG-{i}": "pass" for i in range(1, 6)}
+    entry = build_revision_entry(old, new, "F3", trigger, [], report, gates=gates, activated_at_commit="a" * 40)
+    assert entry["migration"]["pending_groups"] == report["pending_groups"]
+    validate_revision_ledger({"schema_version": "1.0", "entries": [entry]})
+
+    with pytest.raises(PlanRevisionError, match="F2 migration"):
+        build_revision_entry(old, _ref(plan, "1.0.1", 1, "E0"), "F2", trigger, [], report, gates=gates, activated_at_commit="a" * 40)
+    aliased = copy.deepcopy(report)
+    aliased["repair_groups"] = aliased.pop("pending_groups")
+    with pytest.raises(PlanRevisionError, match="Schema"):
+        build_revision_entry(old, new, "F3", trigger, [], aliased, gates=gates, activated_at_commit="a" * 40)
+    wrong_id = copy.deepcopy(report)
+    wrong_id["pending_groups"][0]["group_id"] = "g-2-1"
+    with pytest.raises(PlanRevisionError, match="canonical"):
+        build_revision_entry(old, new, "F3", trigger, [], wrong_id, gates=gates, activated_at_commit="a" * 40)
+
+
 @pytest.mark.parametrize("lineage", [
     {"tasks": []},
     {"task_mappings": [{"new_uid": "a" * 16, "old_task_uid": "b" * 16}]},
