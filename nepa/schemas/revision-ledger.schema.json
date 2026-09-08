@@ -130,10 +130,11 @@
     "verification": {
       "type": "object", "additionalProperties": false,
       "required": ["verification_id", "kind", "member_uids", "evidence_refs", "commit_sha", "revision_seq"],
-      "properties": {"verification_id": {"type": "string"}, "kind": {"enum": ["normal", "lease"]}, "member_uids": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "evidence_refs": {"$ref": "#/$defs/refs"}, "commit_sha": {"$ref": "#/$defs/commit"}, "revision_seq": {"type": "integer", "minimum": 0}, "lease_id": {"type": "string", "pattern": "^lease-[1-9][0-9]*$"}, "joint_evidence_ref": {"$ref": "#/$defs/ref"}},
+      "properties": {"verification_id": {"type": "string"}, "kind": {"enum": ["normal", "lease", "group"]}, "member_uids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}, "evidence_refs": {"$ref": "#/$defs/refs"}, "commit_sha": {"$ref": "#/$defs/commit"}, "revision_seq": {"type": "integer", "minimum": 0}, "lease_id": {"type": "string", "pattern": "^lease-[1-9][0-9]*$"}, "group_id": {"type": "string", "pattern": "^g-[1-9][0-9]*-[1-9][0-9]*$"}, "joint_evidence_ref": {"$ref": "#/$defs/ref"}},
       "allOf": [
-        {"if": {"properties": {"kind": {"const": "lease"}}}, "then": {"required": ["lease_id", "joint_evidence_ref"]}},
-        {"if": {"properties": {"kind": {"const": "normal"}}}, "then": {"not": {"anyOf": [{"required": ["lease_id"]}, {"required": ["joint_evidence_ref"]}]}}}
+        {"if": {"properties": {"kind": {"const": "lease"}}}, "then": {"required": ["lease_id", "joint_evidence_ref"], "properties": {"member_uids": {"minItems": 2}, "evidence_refs": {"minItems": 2}}, "not": {"required": ["group_id"]}}},
+        {"if": {"properties": {"kind": {"const": "group"}}}, "then": {"required": ["group_id", "joint_evidence_ref"], "not": {"required": ["lease_id"]}}},
+        {"if": {"properties": {"kind": {"const": "normal"}}}, "then": {"not": {"anyOf": [{"required": ["lease_id"]}, {"required": ["group_id"]}, {"required": ["joint_evidence_ref"]}]}}}
       ]
     },
     "evaluation": {

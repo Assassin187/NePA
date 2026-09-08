@@ -9,8 +9,8 @@ import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
-from typing import Any, Callable, Mapping
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
@@ -22,10 +22,10 @@ from ..run_store import ArtifactRef, RunStore, RunStoreError, sha256_bytes
 from ..schemas import load_schema
 from ..speclib.lint import canonical_json_bytes
 from ..speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints
-from ..speclib.materialization import build_artifact_manifest, build_contract_map, derive_rendering_view, parse_c99_declaration, render_e0_files
+from ..speclib.materialization import MaterializationError, attribute_pending_repair, build_artifact_manifest, build_contract_map, derive_rendering_view, parse_c99_declaration, render_e0_files, validate_completed_epoch
 from ..speclib.plan import blueprint_task_semantic_projection
 from ..speclib.plan_state import PlanStateError, execution_state_lint, initialize_plan_state, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
-from ..speclib.plan_revision import append_lease_finished, append_verification_committed, validate_file_ledger, validate_revision_ledger
+from ..speclib.plan_revision import append_lease_finished, append_verification_committed, latest_activation, validate_file_ledger, validate_revision_ledger
 from ..tools.build import _tree_sha256, run_build_variants, run_smoke_checks
 from ..tools.git_ops import GitOperationError, prepare_joint_commit, prepare_task_commit, publish_joint_commit, publish_task_commit
 from ..tools.sandbox import SandboxExecutor
@@ -280,6 +280,42 @@ def _archive_candidate_response(store: RunStore, task_uid: str, attempt: int, va
     )
 
 
+def _candidate_from_manifest(
+    store: RunStore,
+    task_uid: str,
+    attempt: int,
+    task: Mapping[str, Any],
+    allowed_paths: set[str],
+) -> dict[str, bytes] | None:
+    manifest_path = f"attempts/{task_uid}/attempt_{attempt:03d}/candidate_manifest.json"
+    if not store._confined(manifest_path).is_file():
+        return None
+    manifest = _load(store, manifest_path)
+    rows = manifest.get("files") if isinstance(manifest, Mapping) else None
+    if not isinstance(rows, list):
+        raise S6ExecutionError("persisted candidate manifest is malformed")
+    files: dict[str, bytes] = {}
+    frozen = {
+        row.get("path")
+        for row in _load(store, "plan/file_ledger.json", "file-ledger.schema.json").get("files", [])
+        if row.get("class") == "s5_frozen"
+    }
+    for row in rows:
+        if not isinstance(row, Mapping) or not isinstance(row.get("path"), str) or not isinstance(row.get("content_ref"), Mapping):
+            raise S6ExecutionError("persisted candidate manifest row is malformed")
+        store.verify_ref(row["content_ref"])
+        path = str(row["path"])
+        pure = PurePosixPath(path)
+        if pure.is_absolute() or ".." in pure.parts or "\\" in path or not path.strip() or path in frozen or path not in allowed_paths or path in files:
+            raise S6ExecutionError(f"persisted candidate manifest contains an illegal path: {path}")
+        data = store._confined(row["content_ref"]["path"]).read_bytes()
+        data.decode("utf-8")
+        files[path] = data
+    if not files:
+        raise S6ExecutionError("persisted candidate manifest is empty")
+    return files
+
+
 def _candidate_workspace(workspace: Path, store: RunStore, task_uid: str, attempt: int, files: Mapping[str, bytes]) -> Path:
     target = store._confined(f"_scratch/s6/{task_uid}/attempt_{attempt:03d}")
     if target.exists():
@@ -324,14 +360,18 @@ def _validate_candidate_bindings(
     blueprint: Mapping[str, Any],
     contract_map: Mapping[str, Any],
     lease_tasks: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    written_paths: set[str] | None = None,
+    allowed_paths: set[str] | None = None,
 ) -> None:
     rules = {str(item.get("path_pattern")): item for item in blueprint.get("file_rules", []) if isinstance(item, Mapping)}
     owner_by_path = {path: task.get("id") for path in task.get("deliverable_files", [])}
     for lender in (lease_tasks or {}).values():
         for path in lender.get("deliverable_files", []):
             owner_by_path[path] = lender.get("id")
-    allowed = set(owner_by_path)
-    for path in files:
+    allowed = set(owner_by_path) if allowed_paths is None else set(allowed_paths)
+    writes = set(files) if written_paths is None else set(written_paths)
+    for path in writes:
         rule = rules.get(path)
         if path not in allowed or not isinstance(rule, Mapping) or rule.get("mutability") != "s6_owned" or rule.get("owner_task_id") != owner_by_path.get(path):
             raise S6ExecutionError(f"candidate path is not owned by the current task: {path}")
@@ -372,6 +412,66 @@ def _validate_candidate_bindings(
                     raise S6ExecutionError(f"candidate declaration drifts for sealed export {symbol}")
 
 
+def _attribute_group_members(
+    builds: list[Mapping[str, Any]],
+    descriptor: Mapping[str, Any],
+    blueprint: Mapping[str, Any],
+    contract_map: Mapping[str, Any],
+) -> set[str]:
+    """Map strict frozen path/symbol/artifact diagnostics to group members."""
+
+    members = list(descriptor["members"])
+    uid_by_id = {str(task["id"]): str(task["task_uid"]) for task in members}
+    affected_paths = set(descriptor["affected_paths"])
+    affected_symbols = set(descriptor["affected_symbols"])
+    symbols_by_uid: dict[str, set[str]] = {uid: set() for uid in uid_by_id.values()}
+    for contract in contract_map.get("contracts", []):
+        if not isinstance(contract, Mapping):
+            continue
+        provider = uid_by_id.get(str(contract.get("provider_task_id")))
+        for export in contract.get("exports", []):
+            if not isinstance(export, Mapping) or str(export.get("symbol")) not in affected_symbols:
+                continue
+            owner = uid_by_id.get(str(export.get("owner_task_id"))) or provider
+            if owner is not None:
+                symbols_by_uid[owner].add(str(export["symbol"]))
+    diagnostic_groups = [
+        {
+            "group_id": str(task["task_uid"]),
+            "affected_paths": sorted(set(task.get("deliverable_files", [])) & affected_paths),
+            "affected_symbols": sorted(symbols_by_uid[str(task["task_uid"])]),
+        }
+        for task in members
+    ]
+    parsed = attribute_pending_repair(builds, {"pending_groups": diagnostic_groups})
+    if parsed.get("publishable"):
+        return set(parsed["group_ids"])
+
+    diagnostics = "\n".join(
+        f"{item.get('stdout', '')}\n{item.get('stderr', '')}"
+        for item in builds
+        if item.get("status") != "passed"
+    )
+    frozen_artifacts = set(descriptor["build_artifact_ids"])
+    source_sets = {str(item.get("id")): set(item.get("file_rule_ids", [])) for item in blueprint.get("link_source_sets", []) if isinstance(item, Mapping)}
+    rules = {str(item.get("id")): item for item in blueprint.get("file_rules", []) if isinstance(item, Mapping)}
+    artifact_owners: list[set[str]] = []
+    for artifact in blueprint.get("build_artifacts", []):
+        if not isinstance(artifact, Mapping) or str(artifact.get("id")) not in frozen_artifacts:
+            continue
+        owners = {
+            uid_by_id[str(rules[rule_id]["owner_task_id"])]
+            for rule_id in source_sets.get(str(artifact.get("link_source_set_id")), set())
+            if rule_id in rules and str(rules[rule_id].get("owner_task_id")) in uid_by_id
+        }
+        tokens = (str(artifact.get("id")), str(artifact.get("path")))
+        if any(token and token in diagnostics for token in tokens):
+            artifact_owners.append(owners)
+    if len(artifact_owners) == 1:
+        return artifact_owners[0]
+    return set()
+
+
 def _publish_results(store: RunStore, prefix: str, build: list[Mapping[str, Any]], smoke: list[Mapping[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     build_refs: list[dict[str, str]] = []
     for index, result in enumerate(build):
@@ -390,24 +490,29 @@ def _file_ledger_after(
     task: Mapping[str, Any],
     changed: Mapping[str, bytes],
     commit_sha: str,
-    build_refs: list[Mapping[str, Any]],
+    build_refs: Sequence[Mapping[str, Any]],
     evidence_ref: Mapping[str, Any],
     plan_version: str,
+    *,
+    epoch: str,
+    verified_paths: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     result = copy.deepcopy(dict(ledger))
     by_path = {row["path"]: row for row in result["files"]}
     owner = {"plan_version": plan_version, "task_uid": task["task_uid"], "task_id": task["id"]}
     verified = {"build_variant_ids": [str(ref["path"]).split("build_")[-1].removesuffix(".json") for ref in build_refs], "evidence_ref": dict(evidence_ref)}
-    for relative, content in changed.items():
+    paths = set(changed) | set(verified_paths)
+    for relative in sorted(paths, key=lambda value: value.encode("utf-8")):
+        content = changed.get(relative)
         row = by_path.get(relative)
-        if row is None or row.get("class") != "s6_owned":
+        if row is None or row.get("class") != "s6_owned" or (content is None and row.get("state") != "realized"):
             raise S6ExecutionError(f"accepted file is not an S6-owned ledger row: {relative}")
         history = row.get("owner_history", [])
         if not history or history[-1] != owner:
             history = [*history, owner]
         by_path[relative] = {
-            "path": relative, "class": "s6_owned", "state": "realized", "created_in_epoch": "E0",
-            "content_sha256": sha256_bytes(content), "last_commit_sha": commit_sha,
+            "path": relative, "class": "s6_owned", "state": "realized", "created_in_epoch": row.get("created_in_epoch", epoch),
+            "content_sha256": sha256_bytes(content) if content is not None else row["content_sha256"], "last_commit_sha": commit_sha,
             "verified_by": verified, "owner_history": history,
         }
     result["files"] = [by_path[path] for path in sorted(by_path, key=lambda value: value.encode("utf-8"))]
@@ -436,14 +541,29 @@ def _state_after_success(
     )
 
 
+def _state_after_migration_success(
+    state: Mapping[str, Any], task_id: str, commit_sha: str,
+    evidence_ref: Mapping[str, Any], mode: str, notes: str,
+) -> dict[str, Any]:
+    event_name = "revalidation_passed" if mode == "revalidate" else "amendment_succeeded"
+    return project_state_transition(
+        state,
+        {
+            "schema_version": "2.0", "event": event_name, "task_id": task_id,
+            "commit_sha": commit_sha, "evidence_ref": dict(evidence_ref), "notes": notes,
+        },
+    )
+
+
 def _joint_file_ledger_after(
     ledger: Mapping[str, Any],
     tasks_by_path: Mapping[str, Mapping[str, Any]],
     changed: Mapping[str, bytes],
     commit_sha: str,
-    build_refs: list[Mapping[str, Any]],
+    build_refs: Sequence[Mapping[str, Any]],
     evidence_by_uid: Mapping[str, Mapping[str, Any]],
     plan_version: str,
+    epoch: str,
 ) -> dict[str, Any]:
     result = copy.deepcopy(dict(ledger))
     by_path = {row["path"]: row for row in result["files"]}
@@ -466,7 +586,7 @@ def _joint_file_ledger_after(
         elif history[-1] != owner:
             history = [*history, owner]
         updated = {
-            "path": relative, "class": "s6_owned", "state": "realized", "created_in_epoch": str(row.get("created_in_epoch", "E0")),
+            "path": relative, "class": "s6_owned", "state": "realized", "created_in_epoch": str(row.get("created_in_epoch", epoch)),
             "content_sha256": sha256_bytes(content), "last_commit_sha": commit_sha, "verified_by": verified, "owner_history": history,
         }
         by_path[relative] = updated
@@ -530,6 +650,44 @@ class S6ExecutionController:
         store.replace_json(path, record, schema_name="s6-attempt.schema.json")
 
     @staticmethod
+    def _finish_revalidation(store: RunStore, task_uid: str, evidence_seq: int, evidence_ref: Mapping[str, Any]) -> None:
+        path = f"validations/{task_uid}/validation_{evidence_seq:03d}.json"
+        record = _load(store, path, "s6-validation.schema.json")
+        if record.get("status") == "succeeded":
+            if record.get("evidence_ref") != evidence_ref:
+                raise S6ExecutionError("revalidation record has conflicting terminal facts")
+            return
+        evidence = _load(store, str(evidence_ref["path"]), "task-evidence.schema.json")
+        record.update({
+            "status": "succeeded", "evidence_ref": dict(evidence_ref), "failure_ref": None,
+            "build_result_refs": list(evidence["build_result_refs"]),
+            "smoke_result_refs": list(evidence["smoke_result_refs"]),
+        })
+        store.replace_json(path, record, schema_name="s6-validation.schema.json")
+
+    @staticmethod
+    def _finish_amendment(
+        store: RunStore,
+        task_uid: str,
+        *,
+        status: str,
+        output_ref: Mapping[str, Any] | None = None,
+        failure_ref: Mapping[str, Any] | None = None,
+    ) -> None:
+        path = f"attempts/{task_uid}/amendment.json"
+        record = _load(store, path, "s6-attempt.schema.json")
+        if record.get("status") in {"failed", "succeeded"}:
+            if record.get("status") != status or record.get("output_ref") != output_ref or record.get("failure_ref") != failure_ref:
+                raise S6ExecutionError("S6 amendment record has conflicting terminal facts")
+            return
+        record.update({
+            "status": status,
+            "output_ref": dict(output_ref) if output_ref is not None else None,
+            "failure_ref": dict(failure_ref) if failure_ref is not None else None,
+        })
+        store.replace_json(path, record, schema_name="s6-attempt.schema.json")
+
+    @staticmethod
     def _record_failure(store: RunStore, task: Mapping[str, Any], attempt: int, error: Mapping[str, Any]) -> ArtifactRef:
         failure_ref = _failure_ref(store, task["task_uid"], attempt, error)
         state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
@@ -559,7 +717,7 @@ class S6ExecutionController:
         return failure_ref
 
     @staticmethod
-    def _finish_failed_lease(store: RunStore, lease_id: str | None, reason: str, call_refs: list[Mapping[str, Any]] | None = None) -> None:
+    def _finish_failed_lease(store: RunStore, lease_id: str | None, reason: str, call_refs: Sequence[Mapping[str, Any]] | None = None) -> None:
         if lease_id is None:
             return
         revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
@@ -588,8 +746,8 @@ class S6ExecutionController:
         changed: Mapping[str, bytes],
         candidate_tree: str,
         candidate_refs: Mapping[str, ArtifactRef],
-        build_refs: list[Mapping[str, Any]],
-        smoke_refs: list[Mapping[str, Any]],
+        build_refs: Sequence[Mapping[str, Any]],
+        smoke_refs: Sequence[Mapping[str, Any]],
         parsed: Mapping[str, Any],
         baseline_commit: str,
     ) -> None:
@@ -661,7 +819,16 @@ class S6ExecutionController:
         new_revision = append_lease_finished(new_revision, lease_id=lease_id, success=True, reason=None, joint_evidence_ref=joint_ref.as_dict(), commit_sha=prepared["commit_sha"], call_refs=_call_refs_for_attempt(store, task["id"], attempt))
         evidence_by_uid = {uid: ref for uid, ref in evidence_refs.items()}
         task_by_path = {path: member for member in members for path in member.get("deliverable_files", [])}
-        new_file = _joint_file_ledger_after(old_file, task_by_path, changed, prepared["commit_sha"], build_refs, evidence_by_uid, evidence_state["plan_ref"]["version"])
+        new_file = _joint_file_ledger_after(
+            old_file,
+            task_by_path,
+            changed,
+            prepared["commit_sha"],
+            build_refs,
+            evidence_by_uid,
+            evidence_state["plan_ref"]["version"],
+            evidence_state["plan_ref"]["epoch"],
+        )
         new_state = _state_after_lease(evidence_state, current_task_id=task["id"], member_task_ids=member_ids, commit_sha=prepared["commit_sha"], evidence_refs=[evidence_refs[uid] for uid in member_uids], verification_id=verification_id, workspace_tree=candidate_tree, parent_sha=baseline_commit)
         wal = {
             "schema_version": "2.0", "kind": "lease", "task_id": task["id"], "task_uid": task["task_uid"], "attempt": attempt, "evidence_seq": sequences[str(task["task_uid"])],
@@ -708,70 +875,82 @@ class S6ExecutionController:
         store.verify_ref(binding_ref, schema_name="binding-receipt.schema.json")
         epoch = store._read_json_artifact(epoch_ref.path, schema_name="epoch-receipt.schema.json")
         binding = store._read_json_artifact(binding_ref.path, schema_name="binding-receipt.schema.json")
-        if epoch.get("materialization_status") != "ready" or epoch.get("epoch") != "E0":
-            raise S6AdmissionError("S6 accepts only ready E0")
+        if epoch.get("materialization_status") not in {"ready", "pending_repair"}:
+            raise S6AdmissionError("S6 requires a ready or registered pending-repair epoch")
         active = _load(store, "plan/active_plan.json", "active-plan.schema.json")
         plan = _load(store, active["path"], "plan.schema.json")
-        blueprint = _load(store, "plan/_s4/delivery_blueprint.json", "delivery-blueprint.schema.json")
         constraints = _load(store, "plan/_s4/delivery_constraints.json")
         ledger = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
         revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
         manifest = _load(store, "plan/artifact_manifest.json", "artifact-manifest.schema.json")
         contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
-        immutable_manifest = _load(store, "plan/bindings/1.0.0/artifact_manifest.json", "artifact-manifest.schema.json")
-        immutable_contract_map = _load(store, "plan/bindings/1.0.0/contract_map.json", "contract-map.schema.json")
+        immutable_manifest_path = f"plan/bindings/{active['version']}/artifact_manifest.json"
+        immutable_contract_map_path = f"plan/bindings/{active['version']}/contract_map.json"
+        immutable_manifest = _load(store, immutable_manifest_path, "artifact-manifest.schema.json")
+        immutable_contract_map = _load(store, immutable_contract_map_path, "contract-map.schema.json")
         validate_file_ledger(ledger)
         validate_revision_ledger(revision)
+        activation = latest_activation(revision)
+        if active.get("revision_seq", 0) == 0:
+            if activation is not None:
+                raise S6AdmissionError("initial Plan cannot have a revision activation")
+        elif (
+            not isinstance(activation, Mapping)
+            or activation.get("revision_seq") != active.get("revision_seq")
+            or activation.get("to_plan_ref") != {"path": active["path"], "sha256": active["sha256"]}
+            or activation.get("to_version") != active.get("version")
+            or activation.get("epoch_after") != active.get("epoch")
+        ):
+            raise S6AdmissionError("latest activation does not bind the active Plan")
         if binding.get("plan_ref") != {"path": active["path"], "sha256": active["sha256"]}:
-            raise S6AdmissionError("E0 binding does not reference the active Plan")
+            raise S6AdmissionError("current binding does not reference the active Plan")
         if binding.get("epoch_receipt_ref") != output["epoch_receipt"]:
-            raise S6AdmissionError("E0 binding does not reference the accepted epoch receipt")
+            raise S6AdmissionError("current binding does not reference the accepted epoch receipt")
         if active.get("sha256") != store._json_artifact_hash(active["path"]):
             raise S6AdmissionError("active Plan pointer hash is drifted")
-        if active.get("version") != "1.0.0" or active.get("revision_seq") != 0 or active.get("epoch") != "E0":
-            raise S6AdmissionError("S6 requires the active 1.0.0/E0/0 pointer")
         if manifest != immutable_manifest or contract_map != immutable_contract_map:
-            raise S6AdmissionError("current E0 manifest/map copies drifted from immutable bindings")
-        if binding.get("manifest_ref") != {"path": "plan/bindings/1.0.0/artifact_manifest.json", "sha256": _hash(immutable_manifest)} or binding.get("contract_map_ref") != {"path": "plan/bindings/1.0.0/contract_map.json", "sha256": _hash(immutable_contract_map)}:
-            raise S6AdmissionError("E0 binding does not reference the immutable manifest/map")
-        if epoch.get("materialized_plan_ref") != {"path": active["path"], "sha256": active["sha256"]} or epoch.get("blueprint_sha256") != _hash(blueprint):
-            raise S6AdmissionError("E0 receipt Plan or Blueprint binding drifted")
+            raise S6AdmissionError("current manifest/map copies drifted from immutable bindings")
+        if binding.get("manifest_ref") != {"path": immutable_manifest_path, "sha256": _hash(immutable_manifest)} or binding.get("contract_map_ref") != {"path": immutable_contract_map_path, "sha256": _hash(immutable_contract_map)}:
+            raise S6AdmissionError("current binding does not reference the immutable manifest/map")
         if _git(store._confined("workspace"), "rev-parse", f"{epoch['checkpoint_commit']}^{{tree}}") != epoch["checkpoint_tree"]:
-            raise S6AdmissionError("E0 checkpoint tree is not stable")
-        if _hash(blueprint) != run["stages"]["s4"]["output_refs"]["delivery_blueprint_sha256"] or plan.get("delivery_blueprint_sha256") != _hash(blueprint):
-            raise S6AdmissionError("sealed Delivery Blueprint binding drifted")
+            raise S6AdmissionError("epoch checkpoint tree is not stable")
         try:
             spec = _load(store, "spec/spec.json")
             target = _load(store, "inputs/target.json")
             derived_constraints = compile_delivery_constraints(spec, target)
-            derived_blueprint = compile_delivery_blueprint(derived_constraints, plan["architecture"], plan["work_packages"], blueprint_task_semantic_projection(plan["tasks"]))
+            blueprint = compile_delivery_blueprint(derived_constraints, plan["architecture"], plan["work_packages"], blueprint_task_semantic_projection(plan["tasks"]))
         except Exception as exc:
-            raise S6AdmissionError(f"frozen E0 delivery inputs cannot be recomputed: {exc}") from exc
-        if derived_constraints != constraints or derived_blueprint != blueprint:
-            raise S6AdmissionError("sealed E0 delivery inputs do not recompute")
-        rendering_view = derive_rendering_view(plan, spec, target, blueprint, constraints)
-        rendered_files = render_e0_files(rendering_view, spec, target, blueprint, constraints)
-        plan_anchor = {"path": active["path"], "sha256": active["sha256"]}
-        expected_manifest = build_artifact_manifest(plan_anchor, blueprint, {**rendering_view, "rendered_files": rendered_files}, "E0")
-        expected_contract_map = build_contract_map(plan_anchor, blueprint, {**rendering_view, "rendered_files": rendered_files}, "E0")
-        if immutable_manifest != expected_manifest or immutable_contract_map != expected_contract_map:
-            raise S6AdmissionError("immutable E0 manifest/map do not recompute")
+            raise S6AdmissionError(f"frozen delivery inputs cannot be recomputed: {exc}") from exc
+        if derived_constraints != constraints or plan.get("delivery_blueprint_sha256") != _hash(blueprint):
+            raise S6AdmissionError("current delivery inputs do not recompute")
+        if active.get("revision_seq") == 0 and _hash(blueprint) != run["stages"]["s4"]["output_refs"]["delivery_blueprint_sha256"]:
+            raise S6AdmissionError("initial sealed Delivery Blueprint binding drifted")
+        active_plan_ref = {"path": active["path"], "sha256": active["sha256"]}
+        if epoch.get("materialized_plan_ref") == active_plan_ref and epoch.get("blueprint_sha256") != _hash(blueprint):
+            raise S6AdmissionError("epoch receipt Blueprint binding drifted")
+        if epoch.get("materialized_plan_ref") != active_plan_ref and (
+            not isinstance(activation, Mapping)
+            or activation.get("level") != "F2"
+            or activation.get("epoch_after") != epoch.get("epoch")
+            or binding.get("epoch_receipt_ref") != output["epoch_receipt"]
+        ):
+            raise S6AdmissionError("only the latest same-epoch F2 activation may reuse an older epoch receipt")
         _validate_contract_map(plan, immutable_contract_map)
         for ref in epoch.get("build_result_refs", []) + epoch.get("smoke_result_refs", []):
             schema = "smoke-result.schema.json" if "/smoke/" in str(ref.get("path", "")) else "build-result.schema.json"
             store.verify_ref(ref, schema_name=schema)
             result = _load(store, ref["path"], schema)
-            if result.get("status") != "passed":
-                raise S6AdmissionError("E0 receipt contains a failed validation result")
+            if epoch.get("materialization_status") == "ready" and result.get("status") != "passed":
+                raise S6AdmissionError("ready epoch receipt contains a failed validation result")
         workspace = store._confined("workspace")
         if not workspace.is_dir() or not _clean(workspace):
-            raise S6AdmissionError("S6 workspace must be a clean E0 workspace")
+            raise S6AdmissionError("S6 workspace must be clean at admission")
         head = _git(workspace, "rev-parse", "HEAD")
         state_path = store._confined("plan/plan_state.json")
-        if not state_path.exists() and head != epoch["checkpoint_commit"]:
-            raise S6AdmissionError("Plan State is missing after the accepted E0 baseline")
+        if not state_path.exists() and (active.get("revision_seq") != 0 or epoch.get("epoch") != "E0" or epoch.get("materialization_status") != "ready" or head != epoch["checkpoint_commit"]):
+            raise S6AdmissionError("Plan State is missing outside the unique fresh ready-E0 baseline")
         if state_path.exists() and not _commit_descends(workspace, head, epoch["checkpoint_commit"]):
-            raise S6AdmissionError("S6 workspace is not descended from its accepted E0 checkpoint")
+            raise S6AdmissionError("S6 workspace is not descended from its accepted epoch checkpoint")
         if not state_path.exists() and _git(workspace, "rev-parse", "HEAD^{tree}") != epoch["checkpoint_tree"]:
             raise S6AdmissionError("workspace is not the accepted E0 checkpoint")
         if not state_path.exists():
@@ -788,6 +967,45 @@ class S6ExecutionController:
         else:
             state = initialize_plan_state(plan, plan_ref=active)
             store.replace_plan_state(state, event_type="state_initialized")
+        if epoch.get("materialization_status") == "pending_repair":
+            activation_groups = (
+                activation.get("migration", {}).get("pending_groups", [])
+                if isinstance(activation, Mapping)
+                else []
+            )
+            accepted_group_ids = sorted(
+                (str(group["group_id"]) for group in activation_groups),
+                key=lambda value: value.encode("utf-8"),
+            )
+            receipt_group_ids = sorted(
+                (str(group_id) for group_id in epoch.get("pending_group_ids", [])),
+                key=lambda value: value.encode("utf-8"),
+            )
+            state_group_ids = sorted(
+                {
+                    str(row["group_id"])
+                    for row in state["tasks"]
+                    if row.get("status") in {"pending", "in_progress"} and row.get("group_id") is not None
+                },
+                key=lambda value: value.encode("utf-8"),
+            )
+            verified_groups = {
+                str(entry.get("payload", {}).get("group_id")): str(entry.get("payload", {}).get("commit_sha"))
+                for entry in revision.get("entries", [])
+                if isinstance(entry, Mapping)
+                and entry.get("event_type") == "verification_committed"
+                and isinstance(entry.get("payload"), Mapping)
+                and entry["payload"].get("kind") == "group"
+            }
+            resolved_group_ids = set(receipt_group_ids) - set(state_group_ids)
+            if (
+                not receipt_group_ids
+                or receipt_group_ids != accepted_group_ids
+                or not set(state_group_ids) <= set(receipt_group_ids)
+                or not resolved_group_ids <= set(verified_groups)
+                or any(not _commit_descends(workspace, head, verified_groups[group_id]) for group_id in resolved_group_ids)
+            ):
+                raise S6AdmissionError("pending-repair groups disagree across activation, epoch receipt and State")
         return run, plan, active, blueprint, constraints, epoch
 
     def reconcile_verification_wal(self, store: RunStore) -> None:
@@ -799,6 +1017,9 @@ class S6ExecutionController:
         if wal.get("kind") == "lease":
             self._reconcile_lease_wal(store, wal)
             return
+        if wal.get("kind") == "group":
+            self._reconcile_group_wal(store, wal)
+            return
         workspace = store._confined("workspace")
         head = _git(workspace, "rev-parse", "HEAD")
         if wal["phase"] != "committed":
@@ -807,21 +1028,33 @@ class S6ExecutionController:
                 dirty = _status_paths(workspace)
                 if not dirty.issubset(allowed):
                     raise S6ExecutionError("pre-commit verification WAL found unrelated workspace changes")
-                if dirty:
-                    for relative in dirty:
-                        ref = wal.get("candidate_file_refs", {}).get(relative)
-                        if not isinstance(ref, Mapping):
-                            raise S6ExecutionError("pre-commit WAL is missing a candidate file reference")
-                        store.verify_ref(ref)
-                        if (workspace / relative).read_bytes() != store._confined(ref["path"]).read_bytes():
-                            raise S6ExecutionError("pre-commit workspace bytes disagree with the candidate")
-                    selected = sorted(dirty, key=lambda value: value.encode("utf-8"))
-                    _git(workspace, "restore", "--source", wal["expected_parent"], "--staged", "--worktree", "--", *selected)
-                path.unlink()
-                self._fault("s6_wal_removed")
-                return
+                candidate_files: dict[str, bytes] = {}
+                for relative in sorted(allowed, key=lambda value: value.encode("utf-8")):
+                    ref = wal.get("candidate_file_refs", {}).get(relative)
+                    if not isinstance(ref, Mapping):
+                        raise S6ExecutionError("pre-commit WAL is missing a candidate file reference")
+                    store.verify_ref(ref)
+                    candidate_files[relative] = store._confined(ref["path"]).read_bytes()
+                for relative in dirty:
+                    if (workspace / relative).read_bytes() != candidate_files[relative]:
+                        raise S6ExecutionError("pre-commit workspace bytes disagree with the candidate")
+                self._publish_wal_task_evidence(store, wal)
+                for relative, data in candidate_files.items():
+                    target = workspace / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                prepared = {
+                    "commit_sha": wal["expected_commit"], "tree_sha": wal["expected_git_tree"],
+                    "parent_sha": wal["expected_parent"], "message": wal["commit_message"],
+                    "timestamp": wal["commit_timestamp"],
+                }
+                commit = publish_task_commit(workspace, candidate_files, prepared, allow_empty=not candidate_files)
+                wal = {**dict(wal), "phase": "committed", "commit_sha": commit["commit_sha"]}
+                store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
             if not self._legal_task_commit(workspace, wal, head):
-                raise S6ExecutionError("pre-commit verification WAL found a conflicting workspace commit")
+                head = _git(workspace, "rev-parse", "HEAD")
+                if not self._legal_task_commit(workspace, wal, head):
+                    raise S6ExecutionError("pre-commit verification WAL found a conflicting workspace commit")
             wal = self._complete_wal_commit(store, wal, head)
             store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
         commit_sha = wal.get("commit_sha")
@@ -848,16 +1081,58 @@ class S6ExecutionController:
         if current_revision != wal["new_revision_ledger"]:
             store.replace_json("plan/revision_ledger.json", wal["new_revision_ledger"], schema_name="revision-ledger.schema.json")
             self._fault("s6_event_published")
-        self._finish_attempt(
-            store,
-            wal["task_uid"],
-            int(wal["attempt"]),
-            status="succeeded",
-            output_ref=wal["evidence_ref"],
-        )
+        evidence = _load(store, wal["evidence_ref"]["path"], "task-evidence.schema.json")
+        if evidence["execution_kind"] == "revalidate":
+            self._finish_revalidation(store, wal["task_uid"], int(wal["evidence_seq"]), wal["evidence_ref"])
+        elif evidence["execution_kind"] == "amend":
+            self._finish_amendment(store, wal["task_uid"], status="succeeded", output_ref=wal["evidence_ref"])
+        else:
+            self._finish_attempt(
+                store,
+                wal["task_uid"],
+                int(wal["attempt"]),
+                status="succeeded",
+                output_ref=wal["evidence_ref"],
+            )
         self._fault("s6_attempt_terminal_published")
         path.unlink()
         self._fault("s6_wal_removed")
+
+    @staticmethod
+    def _publish_wal_task_evidence(store: RunStore, wal: Mapping[str, Any]) -> None:
+        ref = wal.get("evidence_ref")
+        if not isinstance(ref, Mapping):
+            raise S6ExecutionError("verification WAL is missing its Task Evidence reference")
+        target = store._confined(str(ref["path"]))
+        if target.is_file():
+            store.verify_ref(ref, schema_name="task-evidence.schema.json")
+            return
+        state = wal["old_state"]
+        row = next((item for item in state["tasks"] if item["id"] == wal["task_id"]), None)
+        if not isinstance(row, Mapping):
+            raise S6ExecutionError("verification WAL task is absent from its allocated State")
+        run = store.load_run()
+        plan = store._read_json_artifact(state["plan_ref"]["path"], schema_name="plan.schema.json")
+        execution_kind = "revalidate" if int(wal["attempt"]) == 0 else ("amend" if row.get("execution_mode") == "amend" else "normal")
+        evidence = {
+            "schema_version": "2.0", "task_uid": wal["task_uid"], "task_id": wal["task_id"],
+            "evidence_seq": wal["evidence_seq"], "execution_kind": execution_kind,
+            "attempt": wal["attempt"], "amendment_used": 1 if execution_kind == "amend" else 0,
+            "plan_ref": copy.deepcopy(state["plan_ref"]), "plan_version": state["plan_ref"]["version"],
+            "epoch": state["plan_ref"]["epoch"],
+            "binding_ref": copy.deepcopy(run["stages"]["s5"]["output_refs"]["binding_receipt"]),
+            "input_refs": {key: {"path": path, "sha256": run["inputs"][key]["sha256"]} for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))},
+            "plan_sha256": _hash(plan), "workspace_tree": wal["expected_tree"],
+            "build_result_refs": copy.deepcopy(wal["build_result_refs"]),
+            "smoke_result_refs": copy.deepcopy(wal["smoke_result_refs"]), "test_summary_refs": [],
+            "changed_files": copy.deepcopy(wal["changed_files"]), "accepted": True,
+            "migration_ref": copy.deepcopy(row.get("migration_ref")),
+        }
+        if _hash(evidence) != ref.get("sha256"):
+            raise S6ExecutionError("verification WAL cannot reconstruct its exact Task Evidence")
+        published = store.publish_immutable_json(str(ref["path"]), evidence, schema_name="task-evidence.schema.json")
+        if published.as_dict() != dict(ref):
+            raise S6ExecutionError("reconstructed Task Evidence disagrees with the WAL")
 
     def _reconcile_lease_wal(self, store: RunStore, wal: Mapping[str, Any]) -> None:
         """Reconcile a lease WAL without replaying provider or validation work."""
@@ -947,6 +1222,174 @@ class S6ExecutionController:
         path.unlink()
         self._fault("s6_wal_removed")
 
+    def _reconcile_group_wal(self, store: RunStore, wal: Mapping[str, Any]) -> None:
+        workspace = store._confined("workspace")
+        path = store._confined("plan/verification_pending.json")
+        active = _load(store, "plan/active_plan.json", "active-plan.schema.json")
+        state = wal["allocated_state"]
+        if state.get("plan_ref") != active:
+            raise S6ExecutionError("group WAL is not bound to the current active Plan")
+        activation_entries = [
+            entry
+            for entry in wal["old_revision_ledger"].get("entries", [])
+            if entry.get("event_type") == "revision_activated"
+        ]
+        if not activation_entries:
+            raise S6ExecutionError("group WAL has no accepted activation")
+        activation_entry = activation_entries[-1]
+        activation = activation_entry.get("payload", {})
+        if (
+            activation.get("revision_seq") != active["revision_seq"]
+            or wal.get("activation_ref") != {"event_seq": activation_entry.get("event_seq")}
+        ):
+            raise S6ExecutionError("group WAL activation reference is not current")
+        groups = [
+            item
+            for item in activation.get("migration", {}).get("pending_groups", [])
+            if isinstance(item, Mapping) and item.get("group_id") == wal.get("group_id")
+        ]
+        if len(groups) != 1 or groups[0].get("member_task_uids") != wal.get("member_uids"):
+            raise S6ExecutionError("group WAL membership is not frozen by the current activation")
+        rows = {str(row["task_uid"]): row for row in state.get("tasks", [])}
+        modes = wal.get("member_modes", [])
+        if [item.get("task_uid") for item in modes] != wal.get("member_uids"):
+            raise S6ExecutionError("group WAL member modes do not cover the exact group")
+        for item in modes:
+            row = rows.get(str(item["task_uid"]), {})
+            if (
+                row.get("group_id") != wal.get("group_id")
+                or row.get("execution_mode") != item.get("execution_mode")
+                or row.get("migration_ref") != item.get("migration_ref")
+                or state.get("evidence_counters", {}).get(item["task_uid"]) != item.get("evidence_seq")
+                or item.get("migration_ref", {}).get("event_seq") != activation_entry.get("event_seq")
+                or item.get("migration_ref", {}).get("revision_seq") != active["revision_seq"]
+            ):
+                raise S6ExecutionError("group WAL member allocation disagrees with activation State")
+        epoch = _load(store, f"plan/epochs/{active['epoch']}/receipt.json", "epoch-receipt.schema.json")
+        if (
+            wal.get("epoch_checkpoint_commit") != epoch.get("checkpoint_commit")
+            or wal.get("epoch_checkpoint_tree") != epoch.get("checkpoint_tree")
+            or _git(workspace, "rev-parse", f"{wal['epoch_checkpoint_commit']}^{{tree}}") != wal.get("epoch_checkpoint_tree")
+            or wal.get("expected_parent") != wal.get("baseline_commit")
+            or not _commit_descends(workspace, str(wal.get("baseline_commit")), str(wal.get("epoch_checkpoint_commit")))
+        ):
+            raise S6ExecutionError("group WAL epoch anchor or transaction baseline is invalid")
+        for ref in wal.get("build_result_refs", []):
+            store.verify_ref(ref, schema_name="build-result.schema.json")
+            if _load(store, ref["path"], "build-result.schema.json").get("status") != "passed":
+                raise S6ExecutionError("group WAL references a failed build result")
+        for ref in wal.get("smoke_result_refs", []):
+            store.verify_ref(ref, schema_name="smoke-result.schema.json")
+            if _load(store, ref["path"], "smoke-result.schema.json").get("status") != "passed":
+                raise S6ExecutionError("group WAL references a failed smoke result")
+        head = _git(workspace, "rev-parse", "HEAD")
+        changed_paths = {item["path"] for item in wal.get("changed_files", [])}
+        candidate_files: dict[str, bytes] = {}
+        for relative in sorted(changed_paths, key=lambda value: value.encode("utf-8")):
+            ref = wal.get("candidate_file_refs", {}).get(relative)
+            if not isinstance(ref, Mapping):
+                raise S6ExecutionError("group WAL changed file has no persisted candidate")
+            store.verify_ref(ref)
+            data = store._confined(ref["path"]).read_bytes()
+            expected = next(item["sha256"] for item in wal["changed_files"] if item["path"] == relative)
+            if sha256_bytes(data) != expected:
+                raise S6ExecutionError("group WAL candidate bytes drifted")
+            candidate_files[relative] = data
+        if wal["phase"] != "committed" and head == wal["expected_parent"]:
+            dirty = _status_paths(workspace)
+            if not dirty.issubset(changed_paths):
+                raise S6ExecutionError("pre-commit group WAL found unrelated workspace changes")
+            for relative in dirty:
+                if (workspace / relative).read_bytes() != candidate_files[relative]:
+                    raise S6ExecutionError("pre-commit group workspace bytes disagree with persisted candidates")
+            self._publish_group_wal_evidence(store, wal)
+            for relative, data in candidate_files.items():
+                target = workspace / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+            prepared = {
+                "commit_sha": wal["expected_commit"], "tree_sha": wal["expected_git_tree"],
+                "parent_sha": wal["expected_parent"], "message": wal["commit_message"], "timestamp": wal["commit_timestamp"],
+            }
+            commit = publish_joint_commit(workspace, candidate_files, prepared, allow_empty=not candidate_files)
+            wal = {**dict(wal), "phase": "committed", "commit_sha": commit["commit_sha"]}
+            store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+            head = commit["commit_sha"]
+        if not self._legal_task_commit(workspace, wal, head):
+            raise S6ExecutionError("group WAL does not match its legal joint commit")
+        self._publish_group_wal_evidence(store, wal)
+        current_state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        current_file = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+        current_revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        if current_state not in (wal["allocated_state"], wal["new_state"]) or current_file not in (wal["old_file_ledger"], wal["new_file_ledger"]) or current_revision not in (wal["old_revision_ledger"], wal["new_revision_ledger"]):
+            raise S6ExecutionError("group WAL found partial or conflicting accepted projections")
+        if current_state != wal["new_state"]:
+            store.replace_plan_state(wal["new_state"], event_type="verification_committed", event={"kind": "group", "group_id": wal["group_id"], "commit_sha": head})
+            self._fault("s6_group_state_published")
+        if current_file != wal["new_file_ledger"]:
+            store.replace_json("plan/file_ledger.json", wal["new_file_ledger"], schema_name="file-ledger.schema.json")
+            self._fault("s6_group_file_ledger_published")
+        if current_revision != wal["new_revision_ledger"]:
+            store.replace_json("plan/revision_ledger.json", wal["new_revision_ledger"], schema_name="revision-ledger.schema.json")
+            self._fault("s6_group_event_published")
+        modes = {item["task_uid"]: item for item in wal["member_modes"]}
+        for member in wal["member_evidence"]:
+            mode = modes[member["task_uid"]]["execution_mode"]
+            if mode == "revalidate":
+                self._finish_revalidation(store, member["task_uid"], int(member["evidence_seq"]), member["evidence_ref"])
+            elif mode == "amend":
+                self._finish_amendment(store, member["task_uid"], status="succeeded", output_ref=member["evidence_ref"])
+            else:
+                row = next(item for item in wal["new_state"]["tasks"] if item["task_uid"] == member["task_uid"])
+                self._finish_attempt(store, member["task_uid"], int(row["attempts"]), status="succeeded", output_ref=member["evidence_ref"])
+        self._fault("s6_group_terminals_published")
+        path.unlink()
+        self._fault("s6_wal_removed")
+
+    @staticmethod
+    def _publish_group_wal_evidence(store: RunStore, wal: Mapping[str, Any]) -> None:
+        run = store.load_run()
+        state = wal["allocated_state"]
+        plan = store._read_json_artifact(state["plan_ref"]["path"], schema_name="plan.schema.json")
+        modes = {item["task_uid"]: item["execution_mode"] for item in wal["member_modes"]}
+        joint_members: list[dict[str, Any]] = []
+        for member in wal["member_evidence"]:
+            ref = member["evidence_ref"]
+            row = next(item for item in state["tasks"] if item["task_uid"] == member["task_uid"])
+            evidence = {
+                "schema_version": "2.0", "task_uid": member["task_uid"], "task_id": member["task_id"],
+                "evidence_seq": member["evidence_seq"], "execution_kind": "group",
+                "attempt": 0 if modes[member["task_uid"]] == "revalidate" else row["attempts"],
+                "amendment_used": row["amendment_used"], "plan_ref": copy.deepcopy(state["plan_ref"]),
+                "plan_version": state["plan_ref"]["version"], "epoch": state["plan_ref"]["epoch"],
+                "binding_ref": copy.deepcopy(run["stages"]["s5"]["output_refs"]["binding_receipt"]),
+                "input_refs": {key: {"path": path, "sha256": run["inputs"][key]["sha256"]} for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))},
+                "plan_sha256": _hash(plan), "workspace_tree": wal["expected_tree"],
+                "build_result_refs": copy.deepcopy(wal["build_result_refs"]), "smoke_result_refs": copy.deepcopy(wal["smoke_result_refs"]),
+                "test_summary_refs": [], "group_id": wal["group_id"], "group_member_uids": list(wal["member_uids"]),
+                "changed_files": copy.deepcopy(member["changed_files"]), "accepted": True,
+                "migration_ref": copy.deepcopy(row["migration_ref"]),
+            }
+            if _hash(evidence) != ref["sha256"]:
+                raise S6ExecutionError("group WAL cannot reconstruct exact member evidence")
+            store.publish_immutable_json(ref["path"], evidence, schema_name="task-evidence.schema.json")
+            joint_members.append({
+                "task_uid": member["task_uid"], "task_id": member["task_id"], "evidence_seq": member["evidence_seq"],
+                "task_evidence_ref": ref,
+                "changed_files": [{**item, "owner_uid": member["task_uid"]} for item in member["changed_files"]],
+                "execution_kind": modes[member["task_uid"]], "migration_ref": copy.deepcopy(row["migration_ref"]),
+            })
+        joint_ref = wal["joint_evidence_ref"]
+        joint = {
+            "schema_version": "2.0", "verification_id": wal["expected_trailers"]["NePA-Verification-ID"],
+            "kind": "group", "plan_ref": copy.deepcopy(state["plan_ref"]), "plan_sha256": _hash(plan),
+            "workspace_tree": wal["expected_tree"], "parent_sha": wal["expected_parent"],
+            "group_id": wal["group_id"], "members": joint_members,
+        }
+        if _hash(joint) != joint_ref["sha256"]:
+            raise S6ExecutionError("group WAL cannot reconstruct exact Joint Evidence")
+        store.publish_immutable_json(joint_ref["path"], joint, schema_name="joint-evidence.schema.json")
+
     @staticmethod
     def _legal_task_commit(workspace: Path, wal: Mapping[str, Any], commit: str) -> bool:
         try:
@@ -987,8 +1430,10 @@ class S6ExecutionController:
             if _load(store, ref["path"], "smoke-result.schema.json").get("status") != "passed":
                 raise RunStoreError("verification WAL references a failed smoke result")
         old_state = wal["old_state"]
-        task = next((row for row in old_state["tasks"] if row["id"] == wal["task_id"]), None)
-        if not isinstance(task, Mapping):
+        state_task = next((row for row in old_state["tasks"] if row["id"] == wal["task_id"]), None)
+        plan = store._read_json_artifact(old_state["plan_ref"]["path"], schema_name="plan.schema.json")
+        task = next((row for row in plan["tasks"] if row["id"] == wal["task_id"]), None)
+        if not isinstance(state_task, Mapping) or not isinstance(task, Mapping):
             raise S6ExecutionError("verification WAL task is not in old State")
         changed: dict[str, bytes] = {}
         for item in wal.get("changed_files", []):
@@ -1000,30 +1445,595 @@ class S6ExecutionController:
             if sha256_bytes(data) != item["sha256"]:
                 raise S6ExecutionError("verification WAL candidate hash drifted")
             changed[relative] = data
-        new_file = _file_ledger_after(wal["old_file_ledger"], task, changed, commit_sha, evidence["build_result_refs"], wal["evidence_ref"], old_state["plan_ref"]["version"])
+        new_file = _file_ledger_after(wal["old_file_ledger"], task, changed, commit_sha, evidence["build_result_refs"], wal["evidence_ref"], old_state["plan_ref"]["version"], epoch=old_state["plan_ref"]["epoch"], verified_paths=tuple(task.get("deliverable_files", [])) if evidence.get("execution_kind") == "revalidate" else ())
         new_revision = append_verification_committed(wal["old_revision_ledger"], task_uid=wal["task_uid"], evidence_ref=wal["evidence_ref"], commit_sha=commit_sha, revision_seq=old_state["plan_ref"]["revision_seq"])
-        new_state = _state_after_success(old_state, wal["task_id"], commit_sha, wal["evidence_ref"], new_file, new_revision, str(wal.get("notes", "")))
+        if evidence.get("execution_kind") in {"revalidate", "amend"}:
+            new_state = _state_after_migration_success(old_state, wal["task_id"], commit_sha, wal["evidence_ref"], str(evidence["execution_kind"]), str(wal.get("notes", "")))
+        else:
+            new_state = _state_after_success(old_state, wal["task_id"], commit_sha, wal["evidence_ref"], new_file, new_revision, str(wal.get("notes", "")))
         if new_state != wal.get("new_state") or new_file != wal.get("new_file_ledger") or new_revision != wal.get("new_revision_ledger"):
             raise RunStoreError("verification WAL projected snapshots are incomplete or conflicting")
         result = copy.deepcopy(dict(wal))
         result.update({"commit_sha": commit_sha, "phase": "committed"})
         return result
 
-    def _choose(self, plan: Mapping[str, Any], state: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    def _choose(self, plan: Mapping[str, Any], state: Mapping[str, Any], *, pending_group_ids: list[str] | None = None) -> Mapping[str, Any] | None:
         rows = {row["id"]: row for row in state["tasks"]}
-        for task in sorted(plan.get("tasks", []), key=lambda value: value["id"].encode("utf-8")):
+        tasks = sorted(
+            plan.get("tasks", []),
+            key=lambda value: (
+                0 if rows[value["id"]].get("group_id") is not None else 1,
+                0 if rows[value["id"]].get("migration_ref") is not None else 1,
+                value["id"].encode("utf-8"),
+            ),
+        )
+        required_groups = set(pending_group_ids or [])
+        for task in tasks:
             row = rows[task["id"]]
             if row["status"] not in {"pending", "in_progress"}:
+                continue
+            if required_groups and row.get("group_id") not in required_groups:
                 continue
             dependencies = task.get("depends_on", [])
             if all(rows.get(dependency, {}).get("status") == "done" for dependency in dependencies):
                 return task
         return None
 
+    def _group_descriptor(
+        self,
+        store: RunStore,
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        state: Mapping[str, Any],
+        epoch: Mapping[str, Any],
+        group_id: str,
+    ) -> dict[str, Any]:
+        revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        activation = latest_activation(revision)
+        groups = activation.get("migration", {}).get("pending_groups", []) if isinstance(activation, Mapping) else []
+        matches = [item for item in groups if isinstance(item, Mapping) and item.get("group_id") == group_id]
+        if len(matches) != 1:
+            raise S6AdmissionError("repair group is not uniquely frozen by the accepted activation")
+        frozen = copy.deepcopy(dict(matches[0]))
+        member_uids = list(frozen.get("member_task_uids", []))
+        if not member_uids or member_uids != sorted(set(member_uids), key=lambda value: str(value).encode("utf-8")):
+            raise S6AdmissionError("repair group must contain a canonical non-empty member set")
+        tasks_by_uid = {str(item["task_uid"]): item for item in plan.get("tasks", []) if isinstance(item, Mapping)}
+        rows_by_uid = {str(item["task_uid"]): item for item in state.get("tasks", []) if isinstance(item, Mapping)}
+        if any(uid not in tasks_by_uid or uid not in rows_by_uid for uid in member_uids):
+            raise S6AdmissionError("repair group references a task absent from current Plan State")
+        if any(rows_by_uid[uid].get("group_id") != group_id or rows_by_uid[uid].get("migration_ref") is None or rows_by_uid[uid].get("status") not in {"pending", "in_progress"} for uid in member_uids):
+            raise S6AdmissionError("repair group members are not exact unresolved migration rows")
+        member_ids = {str(tasks_by_uid[uid]["id"]) for uid in member_uids}
+        ordered: list[Mapping[str, Any]] = []
+        remaining = set(member_ids)
+        while remaining:
+            ready = sorted(
+                (task for task in tasks_by_uid.values() if task["id"] in remaining and not (set(task.get("depends_on", [])) & remaining)),
+                key=lambda item: str(item["id"]).encode("utf-8"),
+            )
+            if not ready:
+                raise S6AdmissionError("repair group Plan subgraph is cyclic")
+            for task in ready:
+                remaining.remove(str(task["id"]))
+                ordered.append(task)
+        external_dependencies = sorted(
+            {dependency for task in ordered for dependency in task.get("depends_on", []) if dependency not in member_ids},
+            key=lambda value: str(value).encode("utf-8"),
+        )
+        rows_by_id = {str(item["id"]): item for item in state["tasks"]}
+        if any(rows_by_id.get(dependency, {}).get("status") != "done" for dependency in external_dependencies):
+            raise S6AdmissionError("repair group has an unready external dependency")
+        owned_paths = {path for task in ordered for path in task.get("deliverable_files", [])}
+        if not set(frozen.get("affected_paths", [])) <= owned_paths:
+            raise S6AdmissionError("repair group affected paths are not owned by its members")
+        build_ids = {str(item.get("id")) for item in blueprint.get("build_artifacts", []) if isinstance(item, Mapping)}
+        if not set(frozen.get("build_artifact_ids", [])) <= build_ids:
+            raise S6AdmissionError("repair group references an unknown build artifact")
+        contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        known_symbols = {str(export.get("symbol")) for contract in contract_map.get("contracts", []) if isinstance(contract, Mapping) for export in contract.get("exports", []) if isinstance(export, Mapping)}
+        if not set(frozen.get("affected_symbols", [])) <= known_symbols:
+            raise S6AdmissionError("repair group references an unknown contract symbol")
+        workspace = store._confined("workspace")
+        epoch_checkpoint_commit = str(epoch["checkpoint_commit"])
+        baseline_commit = _git(workspace, "rev-parse", "HEAD")
+        if not _commit_descends(workspace, baseline_commit, epoch_checkpoint_commit):
+            raise S6AdmissionError("repair group workspace is not descended from its epoch baseline")
+        activation_ref = copy.deepcopy(rows_by_uid[member_uids[0]]["migration_ref"])
+        if any(rows_by_uid[uid].get("migration_ref") != activation_ref for uid in member_uids):
+            raise S6AdmissionError("repair group members disagree on activation lineage")
+        return {
+            "group_id": group_id, "activation_ref": activation_ref,
+            "member_uids": member_uids, "members": [copy.deepcopy(dict(task)) for task in ordered],
+            "affected_paths": list(frozen.get("affected_paths", [])),
+            "affected_symbols": list(frozen.get("affected_symbols", [])),
+            "build_artifact_ids": list(frozen.get("build_artifact_ids", [])),
+            "external_dependencies": external_dependencies,
+            "epoch_checkpoint_commit": epoch_checkpoint_commit,
+            "epoch_checkpoint_tree": str(epoch["checkpoint_tree"]),
+            "baseline_commit": baseline_commit,
+            "baseline_tree": _tree_sha256(workspace),
+        }
+
+    def _run_group(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+        epoch: Mapping[str, Any],
+        group_id: str,
+    ) -> None:
+        store = context.store
+        workspace = store._confined("workspace")
+        old_state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        descriptor = self._group_descriptor(store, plan, blueprint, old_state, epoch, group_id)
+        if _git(workspace, "rev-parse", "HEAD") != descriptor["baseline_commit"]:
+            raise S6ExecutionError("repair group must start from its accepted epoch checkpoint")
+        cumulative: dict[str, bytes] = {}
+        candidate_refs: list[dict[str, str]] = []
+        failure_refs: list[dict[str, str]] = []
+        empty_members: set[str] = set()
+        allocations: dict[str, Mapping[str, Any]] = {}
+        modes: dict[str, str] = {}
+        contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        affected_paths = set(descriptor["affected_paths"])
+        for task in descriptor["members"]:
+            state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+            row = next(item for item in state["tasks"] if item["id"] == task["id"])
+            mode = str(row["execution_mode"])
+            modes[str(task["task_uid"])] = mode
+            writable_paths = set(task.get("deliverable_files", [])) & affected_paths
+            if mode == "revalidate":
+                allocation = store.allocate_s6_migration(
+                    task_id=task["id"], task_uid=task["task_uid"], mode="revalidate",
+                    baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
+                )
+                allocations[str(task["task_uid"])] = allocation
+                continue
+            if not writable_paths:
+                raise S6AdmissionError("non-revalidation group member has no frozen writable path")
+            if mode == "amend":
+                allocation = store.allocate_s6_migration(
+                    task_id=task["id"], task_uid=task["task_uid"], mode="amend",
+                    baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
+                )
+                role, tier = "fixer", "T1"
+                call_attempt = max(1, int(row["attempts"]))
+            else:
+                replaying = False
+                if row.get("status") == "in_progress" and int(row["attempts"]) > 0:
+                    record_path = f"attempts/{task['task_uid']}/attempt_{int(row['attempts']):03d}.json"
+                    record = _load(store, record_path, "s6-attempt.schema.json")
+                    replaying = record.get("status") == "started"
+                call_attempt = int(row["attempts"]) if replaying else int(row["attempts"]) + 1
+                role = "coder" if call_attempt == 1 else "fixer"
+                tier = "T2" if call_attempt <= 3 else "T1"
+                allocation = store.allocate_s6_attempt(
+                    task_id=task["id"], task_uid=task["task_uid"], role=role, tier=tier,
+                    baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
+                )
+            allocations[str(task["task_uid"])] = allocation
+            self._fault(f"s6_group_member_allocated:{task['task_uid']}")
+            storage_uid = f"group/{group_id}/{task['task_uid']}"
+            accumulated_workspace = _candidate_workspace(workspace, store, f"group/{group_id}/accumulated", 1, cumulative)
+            files = _candidate_from_manifest(store, storage_uid, call_attempt, task, writable_paths)
+            if files is not None:
+                files = {path: data for path, data in files.items() if not (accumulated_workspace / path).is_file() or (accumulated_workspace / path).read_bytes() != data}
+                if not files:
+                    empty_members.add(str(task["task_uid"]))
+                    failure = {
+                        "attempt": call_attempt, "code": "GROUP_EMPTY_CANDIDATE",
+                        "detail": "group candidate contains no actual byte changes", "candidate": {},
+                        "feedback": {}, "diagnosis": {"group_id": group_id},
+                    }
+                    failure_ref = _failure_ref(store, str(task["task_uid"]), call_attempt, failure)
+                    failure_refs.append(failure_ref.as_dict())
+                    if mode == "normal":
+                        self._finish_attempt(store, str(task["task_uid"]), call_attempt, status="failed", failure_ref=failure_ref.as_dict())
+                    continue
+                refs = _write_candidate(store, storage_uid, call_attempt, files)
+                combined = {**cumulative, **files}
+                candidate = _candidate_workspace(workspace, store, f"group/{group_id}/combined", 1, combined)
+                task_files = _task_files(candidate, list(task.get("deliverable_files", [])))
+                _validate_candidate_bindings(
+                    {path: content.encode("utf-8") for path, content in task_files.items()},
+                    task, plan, blueprint, contract_map,
+                    written_paths=set(files), allowed_paths=writable_paths,
+                )
+                cumulative = combined
+                candidate_refs.extend(ref.as_dict() for ref in refs.values())
+                self._fault(f"s6_group_candidate_persisted:{task['task_uid']}")
+                continue
+            package = _work_package(plan, task)
+            execution_mode = "amend" if mode == "amend" else "normal"
+            inputs, _accounting = project_s6_context(
+                task=_public_task(task), work_package=package,
+                architecture=_architecture_projection(plan, task, package),
+                spec_slice=_spec_slice(store._read_json_artifact("spec/spec.json"), task, package),
+                contract_map=_contract_projection(contract_map, task),
+                interface_files=_interface_files(accumulated_workspace, plan, task),
+                language_guidance=constraints.get("advisory", {}),
+                current_files=_task_files(accumulated_workspace, sorted(writable_paths, key=lambda value: value.encode("utf-8"))),
+                execution_mode=execution_mode,
+                failed_candidate={} if role == "fixer" else None,
+                validation_feedback={"group_id": group_id, "migration_ref": row["migration_ref"]} if role == "fixer" else None,
+                diagnosis={"reason": "frozen repair group"} if role == "fixer" else None,
+                max_tokens=int(context.run["config_snapshot"]["budgets"]["coder_context_max_tokens"]),
+            )
+            if context.orchestrator is not None:
+                context.orchestrator.admit_external_call(store)
+            schema, example = coding_contract()
+            input_names = CODER_INPUTS if role == "coder" else FIXER_INPUTS
+            result = self.agent.invoke(
+                role=role, inputs={key: inputs[key] for key in input_names}, output_schema=schema,
+                output_example=example, run_id=context.run["run_id"], stage="S6", task_id=task["id"],
+                attempt=call_attempt, use_cache=False, tier_override=tier, allow_structured_repair=False,
+            )
+            parsed = result.parsed
+            _model_output_ref(store, storage_uid, call_attempt, str(getattr(result.response, "text", "")))
+            _archive_candidate_response(store, storage_uid, call_attempt, parsed)
+            files = normalize_candidate(parsed, task, _load(store, "plan/file_ledger.json", "file-ledger.schema.json"), allowed_paths=writable_paths)
+            files = {path: data for path, data in files.items() if not (accumulated_workspace / path).is_file() or (accumulated_workspace / path).read_bytes() != data}
+            if not files:
+                empty_members.add(str(task["task_uid"]))
+                failure = {
+                    "attempt": call_attempt, "code": "GROUP_EMPTY_CANDIDATE",
+                    "detail": "group candidate contains no actual byte changes", "candidate": {},
+                    "feedback": {}, "diagnosis": {"group_id": group_id},
+                }
+                failure_ref = _failure_ref(store, str(task["task_uid"]), call_attempt, failure)
+                failure_refs.append(failure_ref.as_dict())
+                if mode == "normal":
+                    self._finish_attempt(store, str(task["task_uid"]), call_attempt, status="failed", failure_ref=failure_ref.as_dict())
+                continue
+            refs = _write_candidate(store, storage_uid, call_attempt, files)
+            candidate_refs.extend(ref.as_dict() for ref in refs.values())
+            combined = {**cumulative, **files}
+            candidate = _candidate_workspace(workspace, store, f"group/{group_id}/combined", 1, combined)
+            task_files = _task_files(candidate, list(task.get("deliverable_files", [])))
+            _validate_candidate_bindings(
+                {path: content.encode("utf-8") for path, content in task_files.items()},
+                task, plan, blueprint, contract_map,
+                written_paths=set(files), allowed_paths=writable_paths,
+            )
+            cumulative = combined
+            self._fault(f"s6_group_candidate_persisted:{task['task_uid']}")
+        candidate = _candidate_workspace(workspace, store, f"group/{group_id}/validated", 1, cumulative)
+        executor = self.executor or SandboxExecutor(
+            context.run["config_snapshot"]["sandbox"]["image"],
+            context.run["config_snapshot"]["sandbox"]["cpu"],
+            context.run["config_snapshot"]["sandbox"]["mem_gb"],
+        )
+        round_number = 1
+        while True:
+            builds = run_build_variants(executor, candidate, blueprint, constraints, fail_fast=False)
+            smokes = run_smoke_checks(
+                executor, candidate, blueprint, builds,
+                context.run["config_snapshot"]["smoke"]["dwell_seconds"],
+                context.run["config_snapshot"]["smoke"]["term_grace_seconds"], fail_fast=False,
+            ) if builds and all(item["status"] == "passed" for item in builds) else []
+            build_refs, smoke_refs = _publish_results(store, f"groups/{group_id}/round_{round_number:03d}", builds, smokes)
+            self._fault(f"s6_group_results_published:{round_number}")
+            passed = not empty_members and bool(builds) and bool(smokes) and all(item["status"] == "passed" for item in [*builds, *smokes])
+            if passed:
+                break
+            implicated = set(empty_members) or _attribute_group_members(builds, descriptor, blueprint, contract_map)
+            if not implicated or not builds or any(item.get("timed_out") for item in builds) or (smokes and any(item.get("status") != "passed" for item in smokes)):
+                implicated = {str(task["task_uid"]) for task in descriptor["members"]}
+            state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+            limit = int(context.run["config_snapshot"]["budgets"]["task_fix_attempts"]) + 1
+            retry_tasks = [
+                task for task in descriptor["members"]
+                if str(task["task_uid"]) in implicated
+                and modes[str(task["task_uid"])] == "normal"
+                and next(row["attempts"] for row in state["tasks"] if row["id"] == task["id"]) < limit
+            ]
+            if not retry_tasks:
+                self._exhaust_group(store, plan, descriptor, allocations, build_refs, smoke_refs)
+                return
+            for task in retry_tasks:
+                uid = str(task["task_uid"])
+                current = allocations[uid]["attempt"]
+                if uid not in empty_members:
+                    failure = {
+                        "attempt": current["attempt"], "code": "GROUP_CANDIDATE_VALIDATION_FAILED",
+                        "detail": "group build or smoke failed", "candidate": {},
+                        "feedback": {"build": builds, "smoke": smokes}, "diagnosis": {"group_id": group_id},
+                    }
+                    failure_ref = _failure_ref(store, uid, int(current["attempt"]), failure)
+                    failure_refs.append(failure_ref.as_dict())
+                    self._finish_attempt(store, uid, int(current["attempt"]), status="failed", failure_ref=failure_ref.as_dict())
+                allocation, files, refs = self._retry_group_member(
+                    context, plan, blueprint, constraints, descriptor, task, cumulative, contract_map,
+                )
+                allocations[uid] = allocation
+                if files:
+                    cumulative.update(files)
+                    candidate_refs.extend(ref.as_dict() for ref in refs.values())
+                    empty_members.discard(uid)
+                else:
+                    next_attempt = int(allocation["attempt"]["attempt"])
+                    failure = {
+                        "attempt": next_attempt, "code": "GROUP_EMPTY_CANDIDATE",
+                        "detail": "group retry contains no actual byte changes", "candidate": {},
+                        "feedback": {}, "diagnosis": {"group_id": group_id},
+                    }
+                    failure_ref = _failure_ref(store, uid, next_attempt, failure)
+                    failure_refs.append(failure_ref.as_dict())
+                    self._finish_attempt(store, uid, next_attempt, status="failed", failure_ref=failure_ref.as_dict())
+                    empty_members.add(uid)
+            round_number += 1
+            candidate = _candidate_workspace(workspace, store, f"group/{group_id}/validated", round_number, cumulative)
+        self._publish_group_success(
+            context, plan, descriptor, old_state, allocations, modes, cumulative,
+            candidate_refs, failure_refs, _tree_sha256(candidate), build_refs, smoke_refs,
+        )
+
+    def _retry_group_member(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+        descriptor: Mapping[str, Any],
+        task: Mapping[str, Any],
+        cumulative: Mapping[str, bytes],
+        contract_map: Mapping[str, Any],
+    ) -> tuple[Mapping[str, Any], dict[str, bytes], dict[str, ArtifactRef]]:
+        store = context.store
+        workspace = store._confined("workspace")
+        state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        row = next(item for item in state["tasks"] if item["id"] == task["id"])
+        writable_paths = set(task.get("deliverable_files", [])) & set(descriptor["affected_paths"])
+        if not writable_paths:
+            raise S6AdmissionError("group retry has no frozen writable path")
+        attempt = int(row["attempts"]) + 1
+        tier = "T2" if attempt <= 3 else "T1"
+        allocation = store.allocate_s6_attempt(
+            task_id=task["id"], task_uid=task["task_uid"], role="fixer", tier=tier,
+            baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
+        )
+        candidate_workspace = _candidate_workspace(workspace, store, f"group/{descriptor['group_id']}/retry_context", attempt, cumulative)
+        previous = _find_previous_failure(store, task["task_uid"], attempt)
+        if not isinstance(previous, Mapping):
+            raise S6ExecutionError("group Fixer retry has no persisted preceding failure")
+        package = _work_package(plan, task)
+        inputs, _accounting = project_s6_context(
+            task=_public_task(task), work_package=package,
+            architecture=_architecture_projection(plan, task, package),
+            spec_slice=_spec_slice(store._read_json_artifact("spec/spec.json"), task, package),
+            contract_map=_contract_projection(contract_map, task),
+            interface_files=_interface_files(candidate_workspace, plan, task),
+            language_guidance=constraints.get("advisory", {}),
+            current_files=_task_files(candidate_workspace, sorted(writable_paths, key=lambda value: value.encode("utf-8"))),
+            execution_mode="normal", failed_candidate=previous.get("candidate", {}),
+            validation_feedback=previous.get("feedback", {}), diagnosis=previous.get("diagnosis", {}),
+            max_tokens=int(context.run["config_snapshot"]["budgets"]["coder_context_max_tokens"]),
+        )
+        if context.orchestrator is not None:
+            context.orchestrator.admit_external_call(store)
+        schema, example = coding_contract()
+        result = self.agent.invoke(
+            role="fixer", inputs={key: inputs[key] for key in FIXER_INPUTS}, output_schema=schema,
+            output_example=example, run_id=context.run["run_id"], stage="S6", task_id=task["id"],
+            attempt=attempt, use_cache=False, tier_override=tier, allow_structured_repair=False,
+        )
+        parsed = result.parsed
+        storage_uid = f"group/{descriptor['group_id']}/{task['task_uid']}"
+        _model_output_ref(store, storage_uid, attempt, str(getattr(result.response, "text", "")))
+        _archive_candidate_response(store, storage_uid, attempt, parsed)
+        files = normalize_candidate(parsed, task, _load(store, "plan/file_ledger.json", "file-ledger.schema.json"), allowed_paths=writable_paths)
+        files = {path: data for path, data in files.items() if not (candidate_workspace / path).is_file() or (candidate_workspace / path).read_bytes() != data}
+        refs = _write_candidate(store, storage_uid, attempt, files)
+        combined = {**cumulative, **files}
+        candidate = _candidate_workspace(workspace, store, f"group/{descriptor['group_id']}/retry_candidate", attempt, combined)
+        task_files = _task_files(candidate, list(task.get("deliverable_files", [])))
+        _validate_candidate_bindings(
+            {path: content.encode("utf-8") for path, content in task_files.items()},
+            task, plan, blueprint, contract_map,
+            written_paths=set(files), allowed_paths=writable_paths,
+        )
+        return allocation, files, refs
+
+    def _exhaust_group(
+        self,
+        store: RunStore,
+        plan: Mapping[str, Any],
+        descriptor: Mapping[str, Any],
+        allocations: Mapping[str, Mapping[str, Any]],
+        build_refs: list[dict[str, str]],
+        smoke_refs: list[dict[str, str]],
+    ) -> None:
+        state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        failure_ref = store.publish_immutable_json(
+            f"groups/{descriptor['group_id']}/failure.json",
+            {"code": "GROUP_VALIDATION_EXHAUSTED", "build_result_refs": build_refs, "smoke_result_refs": smoke_refs},
+        )
+        members = sorted(descriptor["members"], key=lambda item: str(item["task_uid"]).encode("utf-8"))
+        event = {
+            "schema_version": "2.0", "event": "group_exhausted", "task_id": members[0]["id"],
+            "group_id": descriptor["group_id"], "member_task_ids": [item["id"] for item in members],
+            "error": failure_ref.path,
+            "proof": {"group_id": descriptor["group_id"], "activation_ref": descriptor["activation_ref"], "member_uids": [item["task_uid"] for item in members]},
+        }
+        failed = project_state_transition(state, event, plan=plan, config_snapshot=store.load_run()["config_snapshot"])
+        store.replace_plan_state(failed, event_type="group_exhausted", event=event)
+        for task in members:
+            allocation = allocations[str(task["task_uid"])]
+            row = next(item for item in state["tasks"] if item["id"] == task["id"])
+            if row["execution_mode"] == "revalidate":
+                record = copy.deepcopy(dict(allocation["record"]))
+                record.update({"status": "failed", "failure_ref": failure_ref.as_dict(), "build_result_refs": build_refs, "smoke_result_refs": smoke_refs})
+                store.replace_json(allocation["record_ref"].path, record, schema_name="s6-validation.schema.json")
+            elif row["execution_mode"] == "amend":
+                self._finish_amendment(store, task["task_uid"], status="failed", failure_ref=failure_ref.as_dict())
+            else:
+                allocation = allocations[str(task["task_uid"])]
+                attempt = int(allocation["attempt"]["attempt"])
+                record = _load(store, f"attempts/{task['task_uid']}/attempt_{attempt:03d}.json", "s6-attempt.schema.json")
+                if record.get("status") == "started":
+                    self._finish_attempt(store, task["task_uid"], attempt, status="exhausted", failure_ref=failure_ref.as_dict())
+
+    def _publish_group_success(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        descriptor: Mapping[str, Any],
+        old_state: Mapping[str, Any],
+        allocations: Mapping[str, Mapping[str, Any]],
+        modes: Mapping[str, str],
+        cumulative: Mapping[str, bytes],
+        candidate_refs: list[dict[str, str]],
+        failure_refs: list[dict[str, str]],
+        candidate_tree: str,
+        build_refs: list[dict[str, str]],
+        smoke_refs: list[dict[str, str]],
+    ) -> None:
+        store = context.store
+        workspace = store._confined("workspace")
+        allocated_state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        members = sorted(descriptor["members"], key=lambda item: str(item["task_uid"]).encode("utf-8"))
+        member_uids = [str(task["task_uid"]) for task in members]
+        changed = {path: data for path, data in cumulative.items() if not (workspace / path).is_file() or (workspace / path).read_bytes() != data}
+        changed_by_uid: dict[str, list[dict[str, str]]] = {}
+        member_evidence_values: list[dict[str, Any]] = []
+        member_evidence: list[dict[str, Any]] = []
+        for task in members:
+            uid = str(task["task_uid"])
+            allocation = allocations[uid]
+            record = allocation.get("record") if isinstance(allocation.get("record"), Mapping) else allocation.get("attempt")
+            if not isinstance(record, Mapping):
+                raise S6ExecutionError("group allocation has no persisted member record")
+            sequence = int(record["evidence_seq"])
+            row = next(item for item in allocated_state["tasks"] if item["id"] == task["id"])
+            member_changed = [
+                {"path": path, "sha256": sha256_bytes(changed[path])}
+                for path in sorted(set(task.get("deliverable_files", [])) & set(changed), key=lambda value: value.encode("utf-8"))
+            ]
+            if modes[uid] == "revalidate" and member_changed:
+                raise S6ExecutionError("REVALIDATE group member cannot publish changed files")
+            if modes[uid] != "revalidate" and not member_changed:
+                raise S6ExecutionError("non-REVALIDATE group member has no actual byte change")
+            changed_by_uid[uid] = member_changed
+            evidence = {
+                "schema_version": "2.0", "task_uid": uid, "task_id": task["id"], "evidence_seq": sequence,
+                "execution_kind": "group", "attempt": 0 if modes[uid] == "revalidate" else int(row["attempts"]),
+                "amendment_used": int(row["amendment_used"]), "plan_ref": copy.deepcopy(allocated_state["plan_ref"]),
+                "plan_version": allocated_state["plan_ref"]["version"], "epoch": allocated_state["plan_ref"]["epoch"],
+                "binding_ref": copy.deepcopy(context.run["stages"]["s5"]["output_refs"]["binding_receipt"]),
+                "input_refs": {key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]} for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))},
+                "plan_sha256": _hash(plan), "workspace_tree": candidate_tree,
+                "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "test_summary_refs": [],
+                "group_id": descriptor["group_id"], "group_member_uids": member_uids,
+                "changed_files": member_changed, "accepted": True,
+                "migration_ref": copy.deepcopy(row["migration_ref"]),
+            }
+            evidence_path = f"test_results/task_evidence/{uid}/evidence_{sequence:03d}.json"
+            evidence_ref = ArtifactRef(evidence_path, _hash(evidence))
+            member_evidence_values.append(evidence)
+            member_evidence.append({
+                "task_uid": uid, "task_id": task["id"], "evidence_seq": sequence,
+                "evidence_ref": evidence_ref.as_dict(), "changed_files": member_changed,
+            })
+        verification_id = f"v-{member_uids[0]}-{member_evidence[0]['evidence_seq']}"
+        joint = {
+            "schema_version": "2.0", "verification_id": verification_id, "kind": "group",
+            "plan_ref": copy.deepcopy(allocated_state["plan_ref"]), "plan_sha256": _hash(plan),
+            "workspace_tree": candidate_tree, "parent_sha": descriptor["baseline_commit"],
+            "group_id": descriptor["group_id"],
+            "members": [
+                {
+                    "task_uid": item["task_uid"], "task_id": item["task_id"], "evidence_seq": item["evidence_seq"],
+                    "task_evidence_ref": item["evidence_ref"],
+                    "changed_files": [{**changed_file, "owner_uid": item["task_uid"]} for changed_file in item["changed_files"]],
+                    "execution_kind": modes[item["task_uid"]],
+                    "migration_ref": copy.deepcopy(next(row["migration_ref"] for row in allocated_state["tasks"] if row["task_uid"] == item["task_uid"])),
+                }
+                for item in member_evidence
+            ],
+        }
+        joint_path = f"test_results/joint_evidence/{verification_id}.json"
+        joint_ref = ArtifactRef(joint_path, _hash(joint))
+        prepared = prepare_joint_commit(
+            workspace, changed, verification_id=verification_id,
+            joint_evidence_sha256=joint_ref.sha256, allow_empty=not changed,
+        )
+        old_file = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+        old_revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        new_file = copy.deepcopy(old_file)
+        for task, item in zip(members, member_evidence, strict=True):
+            task_changed = {row["path"]: changed[row["path"]] for row in item["changed_files"]}
+            verified_paths = tuple(task.get("deliverable_files", [])) if modes[str(task["task_uid"])] == "revalidate" else ()
+            new_file = _file_ledger_after(
+                new_file, task, task_changed, prepared["commit_sha"], build_refs, item["evidence_ref"],
+                allocated_state["plan_ref"]["version"], epoch=allocated_state["plan_ref"]["epoch"],
+                verified_paths=verified_paths,
+            )
+        new_revision = append_verification_committed(
+            old_revision, commit_sha=prepared["commit_sha"], revision_seq=allocated_state["plan_ref"]["revision_seq"],
+            kind="group", members=[{"task_uid": item["task_uid"], "evidence_ref": item["evidence_ref"]} for item in member_evidence],
+            group_id=str(descriptor["group_id"]), joint_evidence_ref=joint_ref.as_dict(),
+        )
+        event = {
+            "schema_version": "2.0", "event": "group_verified", "task_id": members[0]["id"],
+            "group_id": descriptor["group_id"], "member_task_ids": [item["id"] for item in members],
+            "member_evidence_refs": [item["evidence_ref"] for item in member_evidence],
+            "commit_sha": prepared["commit_sha"], "verification_id": verification_id,
+            "evidence_ref": member_evidence[0]["evidence_ref"],
+            "proof": {
+                "kind": "group", "group_id": descriptor["group_id"], "activation_ref": descriptor["activation_ref"],
+                "commit_sha": prepared["commit_sha"], "verification_id": verification_id,
+                "workspace_tree": candidate_tree, "parent_sha": descriptor["baseline_commit"],
+                "member_uids": member_uids, "member_evidence_refs": [item["evidence_ref"] for item in member_evidence],
+            },
+        }
+        new_state = project_state_transition(allocated_state, event, plan=plan, config_snapshot=context.run["config_snapshot"])
+        wal = {
+            "schema_version": "2.0", "kind": "group", "old_state": old_state, "allocated_state": allocated_state,
+            "new_state": new_state, "old_file_ledger": old_file, "new_file_ledger": new_file,
+            "old_revision_ledger": old_revision, "new_revision_ledger": new_revision,
+            "activation_ref": {"event_seq": descriptor["activation_ref"]["event_seq"]},
+            "group_id": descriptor["group_id"],
+            "epoch_checkpoint_commit": descriptor["epoch_checkpoint_commit"],
+            "epoch_checkpoint_tree": descriptor["epoch_checkpoint_tree"],
+            "baseline_commit": descriptor["baseline_commit"],
+            "baseline_tree": descriptor["baseline_tree"], "joint_evidence_ref": joint_ref.as_dict(),
+            "member_uids": member_uids, "member_evidence": member_evidence,
+            "member_modes": [{"task_uid": uid, "execution_mode": modes[uid], "evidence_seq": next(item["evidence_seq"] for item in member_evidence if item["task_uid"] == uid), "migration_ref": copy.deepcopy(next(row["migration_ref"] for row in allocated_state["tasks"] if row["task_uid"] == uid))} for uid in member_uids],
+            "candidate_refs": candidate_refs, "candidate_file_refs": {path: next(ref for ref in reversed(candidate_refs) if ref["path"].endswith(f"/candidate/{path}")) for path in changed},
+            "failure_refs": failure_refs, "changed_files": [{"path": path, "sha256": sha256_bytes(data)} for path, data in sorted(changed.items(), key=lambda item: item[0].encode("utf-8"))],
+            "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "notes": "frozen repair group verified",
+            "expected_tree": candidate_tree, "expected_git_tree": prepared["tree_sha"], "expected_commit": prepared["commit_sha"],
+            "commit_message": prepared["message"], "commit_timestamp": prepared["timestamp"], "expected_parent": descriptor["baseline_commit"],
+            "expected_trailers": {"NePA-Verification-ID": verification_id, "NePA-Joint-Evidence-SHA256": joint_ref.sha256},
+            "phase": "prepared", "commit_sha": None,
+        }
+        store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+        self._fault("s6_group_wal_prepared")
+        for evidence, item in zip(member_evidence_values, member_evidence, strict=True):
+            store.publish_immutable_json(item["evidence_ref"]["path"], evidence, schema_name="task-evidence.schema.json")
+            self._fault(f"s6_group_member_evidence_published:{item['task_uid']}")
+        store.publish_immutable_json(joint_path, joint, schema_name="joint-evidence.schema.json")
+        self._fault("s6_group_joint_evidence_published")
+        for path, data in changed.items():
+            target = workspace / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        wal["phase"] = "candidate_installed"
+        store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+        self._fault("s6_group_candidate_installed")
+        commit = publish_joint_commit(workspace, changed, prepared, allow_empty=not changed)
+        wal.update({"phase": "committed", "commit_sha": commit["commit_sha"]})
+        store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+        self._fault("s6_group_commit_created")
+        self.reconcile_verification_wal(store)
+
     def _propagate_dependency_blocks(self, store: RunStore, plan: Mapping[str, Any]) -> None:
         state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
         rows = {row["id"]: row for row in state["tasks"]}
         changed_any = False
+        last_block: tuple[str, str] | None = None
         changed = True
         while changed:
             changed = False
@@ -1041,14 +2051,387 @@ class S6ExecutionController:
                     rows = {item["id"]: item for item in state["tasks"]}
                     changed = True
                     changed_any = True
+                    last_block = (str(task["id"]), str(blocked[0]))
         if changed_any:
-            store.replace_plan_state(state, event_type="dependency_blocked", event={"task_id": task["id"], "blocked_by": blocked[0]})
+            if last_block is None:
+                raise S6ExecutionError("dependency propagation lost its derived block")
+            store.replace_plan_state(state, event_type="dependency_blocked", event={"task_id": last_block[0], "blocked_by": last_block[1]})
+
+    def _run_revalidation(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+        task: Mapping[str, Any],
+    ) -> None:
+        store = context.store
+        workspace = store._confined("workspace")
+        baseline_commit = _git(workspace, "rev-parse", "HEAD")
+        baseline_tree = _tree_sha256(workspace)
+        allocation = store.allocate_s6_migration(
+            task_id=str(task["id"]),
+            task_uid=str(task["task_uid"]),
+            mode="revalidate",
+            baseline_commit=baseline_commit,
+            baseline_tree=baseline_tree,
+        )
+        self._fault("s6_validation_allocated")
+        state = allocation["state"]
+        record = allocation["record"]
+        sequence = int(record["evidence_seq"])
+        executor = self.executor or SandboxExecutor(
+            context.run["config_snapshot"]["sandbox"]["image"],
+            context.run["config_snapshot"]["sandbox"]["cpu"],
+            context.run["config_snapshot"]["sandbox"]["mem_gb"],
+        )
+        builds = run_build_variants(executor, workspace, blueprint, constraints, fail_fast=False)
+        smokes = (
+            run_smoke_checks(
+                executor,
+                workspace,
+                blueprint,
+                builds,
+                context.run["config_snapshot"]["smoke"]["dwell_seconds"],
+                context.run["config_snapshot"]["smoke"]["term_grace_seconds"],
+                fail_fast=False,
+            )
+            if builds and all(item["status"] == "passed" for item in builds)
+            else []
+        )
+        result_prefix = f"validations/{task['task_uid']}/validation_{sequence:03d}"
+        build_refs, smoke_refs = _publish_results(store, result_prefix, builds, smokes)
+        if not builds or not smokes or any(item["status"] != "passed" for item in [*builds, *smokes]):
+            failure_ref = store.publish_immutable_json(
+                f"{result_prefix}/failure.json",
+                {"code": "REVALIDATION_FAILED", "build_result_refs": build_refs, "smoke_result_refs": smoke_refs},
+            )
+            failed = project_state_transition(
+                state,
+                {
+                    "schema_version": "2.0",
+                    "event": "revalidation_failed",
+                    "task_id": task["id"],
+                    "error": failure_ref.path,
+                    "proof": {"previous_failure_ref": failure_ref.as_dict(), "evidence_seq": sequence},
+                },
+            )
+            store.replace_plan_state(failed, event_type="revalidation_failed", event={"task_id": task["id"], "failure_ref": failure_ref.as_dict()})
+            terminal = copy.deepcopy(record)
+            terminal.update({"status": "failed", "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "failure_ref": failure_ref.as_dict()})
+            store.replace_json(allocation["record_ref"].path, terminal, schema_name="s6-validation.schema.json")
+            return
+        self._publish_revalidation_success(
+            context,
+            plan,
+            task,
+            state,
+            allocation,
+            baseline_commit,
+            baseline_tree,
+            build_refs,
+            smoke_refs,
+        )
+
+    def _run_amendment(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+        task: Mapping[str, Any],
+    ) -> None:
+        store = context.store
+        workspace = store._confined("workspace")
+        baseline_commit = _git(workspace, "rev-parse", "HEAD")
+        baseline_tree = _tree_sha256(workspace)
+        allocation = store.allocate_s6_migration(
+            task_id=str(task["id"]), task_uid=str(task["task_uid"]), mode="amend",
+            baseline_commit=baseline_commit, baseline_tree=baseline_tree,
+        )
+        state = allocation["state"]
+        row = next(item for item in state["tasks"] if item["id"] == task["id"])
+        attempt = int(row["attempts"])
+        sequence = int(allocation["record"]["evidence_seq"])
+        self._fault("s6_amendment_allocated")
+        package = _work_package(plan, task)
+        contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        inputs, _accounting = project_s6_context(
+            task=_public_task(task), work_package=package,
+            architecture=_architecture_projection(plan, task, package),
+            spec_slice=_spec_slice(store._read_json_artifact("spec/spec.json"), task, package),
+            contract_map=_contract_projection(contract_map, task),
+            interface_files=_interface_files(workspace, plan, task),
+            language_guidance=constraints.get("advisory", {}),
+            current_files=_task_files(workspace, list(task.get("deliverable_files", []))),
+            execution_mode="amend", failed_candidate={},
+            validation_feedback={"migration_ref": row["migration_ref"]},
+            diagnosis={"reason": "accepted migration amendment"},
+            max_tokens=int(context.run["config_snapshot"]["budgets"]["coder_context_max_tokens"]),
+        )
+        schema, example = coding_contract()
+        storage_uid = f"{task['task_uid']}/amendment"
+        try:
+            if context.orchestrator is not None:
+                context.orchestrator.admit_external_call(store)
+            result = self.agent.invoke(
+                role="fixer", inputs={key: inputs[key] for key in FIXER_INPUTS},
+                output_schema=schema, output_example=example, run_id=context.run["run_id"],
+                stage="S6", task_id=task["id"], attempt=max(1, attempt), use_cache=False,
+                tier_override="T1", allow_structured_repair=False,
+            )
+            parsed = result.parsed
+            model_output_ref = _model_output_ref(store, storage_uid, 1, str(getattr(result.response, "text", "")))
+            candidate_manifest_ref = _archive_candidate_response(store, storage_uid, 1, parsed)
+            files = normalize_candidate(parsed, task, _load(store, "plan/file_ledger.json", "file-ledger.schema.json"))
+            candidate_refs = _write_candidate(store, storage_uid, 1, files)
+            self._fault("s6_amendment_candidate_persisted")
+            candidate = _candidate_workspace(workspace, store, storage_uid, 1, files)
+            candidate_task_files = _task_files(candidate, list(task.get("deliverable_files", [])))
+            _validate_candidate_bindings(
+                {path: content.encode("utf-8") for path, content in candidate_task_files.items()},
+                task, plan, blueprint, contract_map,
+            )
+            executor = self.executor or SandboxExecutor(
+                context.run["config_snapshot"]["sandbox"]["image"],
+                context.run["config_snapshot"]["sandbox"]["cpu"],
+                context.run["config_snapshot"]["sandbox"]["mem_gb"],
+            )
+            builds = run_build_variants(executor, candidate, blueprint, constraints, fail_fast=False)
+            smokes = run_smoke_checks(
+                executor, candidate, blueprint, builds,
+                context.run["config_snapshot"]["smoke"]["dwell_seconds"],
+                context.run["config_snapshot"]["smoke"]["term_grace_seconds"], fail_fast=False,
+            ) if builds and all(item["status"] == "passed" for item in builds) else []
+            result_prefix = f"attempts/{task['task_uid']}/amendment"
+            build_refs, smoke_refs = _publish_results(store, result_prefix, builds, smokes)
+            if not builds or not smokes or any(item["status"] != "passed" for item in [*builds, *smokes]):
+                raise S6ExecutionError("amendment build or smoke failed")
+            changed = {path: content for path, content in files.items() if not (workspace / path).is_file() or (workspace / path).read_bytes() != content}
+            if not changed:
+                raise S6ExecutionError("AMEND candidate contains no actual byte changes")
+            candidate_tree = _tree_sha256(candidate)
+            evidence = {
+                "schema_version": "2.0", "task_uid": task["task_uid"], "task_id": task["id"],
+                "evidence_seq": sequence, "execution_kind": "amend", "attempt": attempt,
+                "amendment_used": 1, "plan_ref": dict(state["plan_ref"]),
+                "plan_version": state["plan_ref"]["version"], "epoch": state["plan_ref"]["epoch"],
+                "binding_ref": dict(context.run["stages"]["s5"]["output_refs"]["binding_receipt"]),
+                "input_refs": {key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]} for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))},
+                "plan_sha256": _hash(plan), "workspace_tree": candidate_tree,
+                "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "test_summary_refs": [],
+                "changed_files": [{"path": path, "sha256": sha256_bytes(content)} for path, content in sorted(changed.items(), key=lambda item: item[0].encode("utf-8"))],
+                "accepted": True, "migration_ref": copy.deepcopy(row["migration_ref"]),
+            }
+            evidence_path = f"test_results/task_evidence/{task['task_uid']}/evidence_{sequence:03d}.json"
+            evidence_ref = ArtifactRef(evidence_path, _hash(evidence))
+            prepared = prepare_task_commit(
+                workspace, changed, task_id=task["id"], task_uid=task["task_uid"], attempt=attempt,
+                evidence_seq=sequence, evidence_sha256=evidence_ref.sha256,
+                plan_version=state["plan_ref"]["version"], epoch=state["plan_ref"]["epoch"],
+            )
+            old_file = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+            old_revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+            new_file = _file_ledger_after(old_file, task, changed, prepared["commit_sha"], build_refs, evidence_ref.as_dict(), state["plan_ref"]["version"], epoch=state["plan_ref"]["epoch"])
+            new_revision = append_verification_committed(old_revision, task_uid=task["task_uid"], evidence_ref=evidence_ref.as_dict(), commit_sha=prepared["commit_sha"], revision_seq=state["plan_ref"]["revision_seq"])
+            new_state = _state_after_migration_success(state, task["id"], prepared["commit_sha"], evidence_ref.as_dict(), "amend", str(parsed.get("notes", "")))
+            wal = {
+                "schema_version": "2.0", "kind": "normal", "task_id": task["id"], "task_uid": task["task_uid"],
+                "attempt": attempt, "evidence_seq": sequence, "old_state": state, "new_state": new_state,
+                "old_file_ledger": old_file, "new_file_ledger": new_file,
+                "old_revision_ledger": old_revision, "new_revision_ledger": new_revision,
+                "evidence_ref": evidence_ref.as_dict(), "candidate_ref": next(iter(candidate_refs.values())).as_dict(),
+                "candidate_file_refs": {path: ref.as_dict() for path, ref in candidate_refs.items()},
+                "changed_files": evidence["changed_files"], "build_result_refs": build_refs, "smoke_result_refs": smoke_refs,
+                "notes": str(parsed.get("notes", "")), "expected_tree": candidate_tree,
+                "expected_git_tree": prepared["tree_sha"], "expected_commit": prepared["commit_sha"],
+                "commit_message": prepared["message"], "commit_timestamp": prepared["timestamp"],
+                "expected_parent": baseline_commit,
+                "expected_trailers": {"NePA-Task": task["id"], "NePA-Task-UID": task["task_uid"], "NePA-Plan": state["plan_ref"]["version"], "NePA-Epoch": state["plan_ref"]["epoch"], "NePA-Attempt": str(attempt), "NePA-Evidence-Seq": str(sequence), "NePA-Evidence-SHA256": evidence_ref.sha256},
+                "phase": "prepared", "commit_sha": None,
+            }
+            store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+            self._fault("s6_wal_prepared")
+            published = store.publish_immutable_json(evidence_path, evidence, schema_name="task-evidence.schema.json")
+            if published != evidence_ref:
+                raise S6ExecutionError("published AMEND evidence disagrees with its WAL reference")
+            self._fault("s6_evidence_published")
+            for path, content in changed.items():
+                target = workspace / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            self._fault("s6_candidate_installed")
+            wal["phase"] = "candidate_installed"
+            store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+            commit = publish_task_commit(workspace, changed.keys(), prepared)
+            wal.update({"phase": "committed", "commit_sha": commit["commit_sha"]})
+            store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+            self._fault("s6_commit_created")
+            self.reconcile_verification_wal(store)
+        except BudgetExhausted:
+            raise
+        except Exception as exc:
+            if _git(workspace, "rev-parse", "HEAD") != baseline_commit:
+                raise RunStoreError(f"post-commit AMEND publication failed: {exc}") from exc
+            failure_ref = store.publish_immutable_json(
+                f"attempts/{task['task_uid']}/amendment/failure.json",
+                {"code": "AMENDMENT_FAILED", "detail": str(exc)},
+            )
+            failed = project_state_transition(
+                state,
+                {"schema_version": "2.0", "event": "amendment_failed", "task_id": task["id"], "error": failure_ref.path, "proof": {"previous_failure_ref": failure_ref.as_dict(), "evidence_seq": sequence}},
+            )
+            store.replace_plan_state(failed, event_type="amendment_failed", event={"task_id": task["id"], "failure_ref": failure_ref.as_dict()})
+            self._finish_amendment(store, task["task_uid"], status="failed", failure_ref=failure_ref.as_dict())
+
+    def _publish_revalidation_success(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        task: Mapping[str, Any],
+        state: Mapping[str, Any],
+        allocation: Mapping[str, Any],
+        baseline_commit: str,
+        baseline_tree: str,
+        build_refs: list[dict[str, str]],
+        smoke_refs: list[dict[str, str]],
+    ) -> None:
+        store = context.store
+        workspace = store._confined("workspace")
+        sequence = int(allocation["record"]["evidence_seq"])
+        row = next(item for item in state["tasks"] if item["id"] == task["id"])
+        evidence = {
+            "schema_version": "2.0",
+            "task_uid": task["task_uid"],
+            "task_id": task["id"],
+            "evidence_seq": sequence,
+            "execution_kind": "revalidate",
+            "attempt": 0,
+            "amendment_used": 0,
+            "plan_ref": dict(state["plan_ref"]),
+            "plan_version": state["plan_ref"]["version"],
+            "epoch": state["plan_ref"]["epoch"],
+            "binding_ref": dict(context.run["stages"]["s5"]["output_refs"]["binding_receipt"]),
+            "input_refs": {
+                key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]}
+                for key, path in (
+                    ("spec", "spec/spec.json"),
+                    ("target_profile", "inputs/target.json"),
+                    ("test_bundle", "inputs/test_bundle.json"),
+                )
+            },
+            "plan_sha256": _hash(plan),
+            "workspace_tree": baseline_tree,
+            "build_result_refs": build_refs,
+            "smoke_result_refs": smoke_refs,
+            "test_summary_refs": [],
+            "changed_files": [],
+            "accepted": True,
+            "migration_ref": copy.deepcopy(row["migration_ref"]),
+        }
+        evidence_path = f"test_results/task_evidence/{task['task_uid']}/evidence_{sequence:03d}.json"
+        evidence_ref = ArtifactRef(evidence_path, _hash(evidence))
+        prepared = prepare_task_commit(
+            workspace,
+            {},
+            task_id=task["id"],
+            task_uid=task["task_uid"],
+            attempt=0,
+            evidence_seq=sequence,
+            evidence_sha256=evidence_ref.sha256,
+            plan_version=state["plan_ref"]["version"],
+            epoch=state["plan_ref"]["epoch"],
+            allow_empty=True,
+        )
+        old_file = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+        old_revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        new_revision = append_verification_committed(
+            old_revision,
+            task_uid=task["task_uid"],
+            evidence_ref=evidence_ref.as_dict(),
+            commit_sha=prepared["commit_sha"],
+            revision_seq=state["plan_ref"]["revision_seq"],
+        )
+        new_file = _file_ledger_after(
+            old_file,
+            task,
+            {},
+            prepared["commit_sha"],
+            build_refs,
+            evidence_ref.as_dict(),
+            state["plan_ref"]["version"],
+            epoch=state["plan_ref"]["epoch"],
+            verified_paths=tuple(task.get("deliverable_files", [])),
+        )
+        new_state = _state_after_migration_success(
+            state,
+            task["id"],
+            prepared["commit_sha"],
+            evidence_ref.as_dict(),
+            "revalidate",
+            "revalidated current tree",
+        )
+        wal = {
+            "schema_version": "2.0",
+            "kind": "normal",
+            "task_id": task["id"],
+            "task_uid": task["task_uid"],
+            "attempt": 0,
+            "evidence_seq": sequence,
+            "old_state": copy.deepcopy(dict(state)),
+            "new_state": new_state,
+            "old_file_ledger": old_file,
+            "new_file_ledger": new_file,
+            "old_revision_ledger": old_revision,
+            "new_revision_ledger": new_revision,
+            "evidence_ref": evidence_ref.as_dict(),
+            "candidate_ref": allocation["record_ref"].as_dict(),
+            "candidate_file_refs": {},
+            "changed_files": [],
+            "build_result_refs": build_refs,
+            "smoke_result_refs": smoke_refs,
+            "notes": "revalidated current tree",
+            "expected_tree": baseline_tree,
+            "expected_git_tree": prepared["tree_sha"],
+            "expected_commit": prepared["commit_sha"],
+            "commit_message": prepared["message"],
+            "commit_timestamp": prepared["timestamp"],
+            "expected_parent": baseline_commit,
+            "expected_trailers": {
+                "NePA-Task": task["id"],
+                "NePA-Task-UID": task["task_uid"],
+                "NePA-Plan": state["plan_ref"]["version"],
+                "NePA-Epoch": state["plan_ref"]["epoch"],
+                "NePA-Attempt": "0",
+                "NePA-Evidence-Seq": str(sequence),
+                "NePA-Evidence-SHA256": evidence_ref.sha256,
+            },
+            "phase": "prepared",
+            "commit_sha": None,
+        }
+        store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+        self._fault("s6_wal_prepared")
+        published = store.publish_immutable_json(evidence_path, evidence, schema_name="task-evidence.schema.json")
+        if published != evidence_ref:
+            raise S6ExecutionError("published revalidation evidence disagrees with its WAL reference")
+        self._fault("s6_evidence_published")
+        commit = publish_task_commit(workspace, [], prepared, allow_empty=True)
+        wal.update({"phase": "committed", "commit_sha": commit["commit_sha"]})
+        store.replace_json("plan/verification_pending.json", wal, schema_name="verification-pending.schema.json")
+        self._fault("s6_commit_created")
+        self.reconcile_verification_wal(store)
 
     def _run_task(self, context: StageContext, plan: Mapping[str, Any], blueprint: Mapping[str, Any], constraints: Mapping[str, Any], task: Mapping[str, Any]) -> None:
         store = context.store
         workspace = store._confined("workspace")
         state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
         row = next(item for item in state["tasks"] if item["id"] == task["id"])
+        if row["execution_mode"] == "revalidate":
+            self._run_revalidation(context, plan, blueprint, constraints, task)
+            return
+        if row["execution_mode"] == "amend":
+            self._run_amendment(context, plan, blueprint, constraints, task)
+            return
         attempt = row["attempts"] + 1
         tier = "T2" if attempt <= 3 else "T1"
         role = "coder" if attempt == 1 else "fixer"
@@ -1179,7 +2562,6 @@ class S6ExecutionController:
                 return
             candidate_tree = _tree_sha256(candidate)
             changed = {path: content for path, content in files.items() if not (workspace / path).is_file() or (workspace / path).read_bytes() != content}
-            required_files = set(task.get("deliverable_files", []))
             if not changed:
                 raise S6ExecutionError("normal S6 candidate contains no actual changes")
             if lease_authorization is not None:
@@ -1188,13 +2570,10 @@ class S6ExecutionController:
                     candidate_tree, candidate_refs, build_refs, smoke_refs, parsed, baseline_commit,
                 )
                 return
-            if set(changed) != required_files:
-                missing = sorted(required_files - set(changed), key=lambda value: value.encode("utf-8"))
-                raise S6ExecutionError(f"normal S6 candidate does not realize every task deliverable: {missing}")
             evidence = {
                 "schema_version": "2.0", "task_uid": task["task_uid"], "task_id": task["id"], "evidence_seq": allocation["attempt"]["evidence_seq"], "execution_kind": "normal", "attempt": attempt, "amendment_used": 0,
                 "plan_ref": dict(state["plan_ref"]), "plan_version": state["plan_ref"]["version"], "epoch": state["plan_ref"]["epoch"], "binding_ref": dict(context.run["stages"]["s5"]["output_refs"]["binding_receipt"]), "input_refs": {key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]} for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))}, "plan_sha256": _hash(plan), "workspace_tree": candidate_tree, "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "test_summary_refs": [],
-                "changed_files": [{"path": path, "sha256": sha256_bytes(content)} for path, content in sorted(changed.items(), key=lambda item: item[0].encode("utf-8"))], "accepted": True, "migration_ref": None,
+                "changed_files": [{"path": path, "sha256": sha256_bytes(content)} for path, content in sorted(changed.items(), key=lambda item: item[0].encode("utf-8"))], "accepted": True, "migration_ref": copy.deepcopy(row.get("migration_ref")),
             }
             evidence_ref = store.publish_immutable_json(f"test_results/task_evidence/{task['task_uid']}/evidence_{evidence['evidence_seq']:03d}.json", evidence, schema_name="task-evidence.schema.json")
             self._fault("s6_evidence_published")
@@ -1205,7 +2584,7 @@ class S6ExecutionController:
             )
             old_file = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
             old_revision = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
-            new_file = _file_ledger_after(old_file, task, changed, prepared["commit_sha"], build_refs, evidence_ref.as_dict(), state["plan_ref"]["version"])
+            new_file = _file_ledger_after(old_file, task, changed, prepared["commit_sha"], build_refs, evidence_ref.as_dict(), state["plan_ref"]["version"], epoch=state["plan_ref"]["epoch"])
             new_revision = append_verification_committed(old_revision, task_uid=task["task_uid"], evidence_ref=evidence_ref.as_dict(), commit_sha=prepared["commit_sha"], revision_seq=state["plan_ref"]["revision_seq"])
             new_state = _state_after_success(state, task["id"], prepared["commit_sha"], evidence_ref.as_dict(), new_file, new_revision, parsed.get("notes", ""))
             wal = {
@@ -1263,12 +2642,13 @@ class S6ExecutionController:
         )
         if not lint["valid"]:
             raise ControlledStageFailure({"code": "S6_EXIT_VALIDATION_FAILED", "detail": lint["errors"][0]["message"]})
-        build_refs, smoke_refs = _publish_results(store, "build/s6/final", builds, smokes)
+        version = str(active["version"])
+        build_refs, smoke_refs = _publish_results(store, f"build/s6/{version}/final", builds, smokes)
         state_ref = ArtifactRef("plan/plan_state.json", store._json_artifact_hash("plan/plan_state.json"))
         state_history = _load(store, "plan/state_history.json", "state-history.schema.json")
-        state_history_ref = store.publish_immutable_json("plan/s6_state_history.json", state_history, schema_name="state-history.schema.json")
+        state_history_ref = store.publish_immutable_json(f"plan/s6_snapshots/{version}/state_history.json", state_history, schema_name="state-history.schema.json")
         file_ref = ArtifactRef("plan/file_ledger.json", store._json_artifact_hash("plan/file_ledger.json"))
-        revision_ref = store.publish_immutable_json("plan/s6_revision_ledger.json", revision, schema_name="revision-ledger.schema.json")
+        revision_ref = store.publish_immutable_json(f"plan/s6_snapshots/{version}/revision_ledger.json", revision, schema_name="revision-ledger.schema.json")
         receipt = {
             "schema_version": "2.0", "active_plan_ref": context.run["stages"]["s4"]["output_refs"]["active_plan"],
             "binding_ref": context.run["stages"]["s5"]["output_refs"]["binding_receipt"], "plan_state_ref": state_ref.as_dict(), "state_history_ref": state_history_ref.as_dict(), "file_ledger_ref": file_ref.as_dict(), "revision_ledger_ref": revision_ref.as_dict(),
@@ -1280,13 +2660,27 @@ class S6ExecutionController:
 
     def run(self, context: StageContext) -> StageResult:
         store = context.store
+        self.reconcile_verification_wal(store)
         receipt_path = store._confined("plan/s6_receipt.json")
         if receipt_path.exists():
-            receipt_ref = ArtifactRef("plan/s6_receipt.json", store._json_artifact_hash("plan/s6_receipt.json"))
-            store.verify_ref(receipt_ref, schema_name="s6-receipt.schema.json")
-            self.verify_completed(store)
-            return StageResult(output_refs={"s6_receipt": receipt_ref})
-        self.reconcile_verification_wal(store)
+            receipt = _load(store, "plan/s6_receipt.json", "s6-receipt.schema.json")
+            run = store.load_run()
+            if (
+                receipt.get("active_plan_ref") == run["stages"]["s4"]["output_refs"].get("active_plan")
+                and receipt.get("binding_ref") == run["stages"]["s5"]["output_refs"].get("binding_receipt")
+            ):
+                receipt_ref = ArtifactRef("plan/s6_receipt.json", store._json_artifact_hash("plan/s6_receipt.json"))
+                self.verify_completed(store)
+                return StageResult(output_refs={"s6_receipt": receipt_ref})
+            old_hash = receipt.get("active_plan_ref", {}).get("sha256")
+            if not isinstance(old_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", old_hash):
+                raise S6ExecutionError("stale S6 receipt has no canonical active-Plan hash")
+            store.publish_immutable_json(
+                f"plan/s6_receipts/{old_hash}.json",
+                receipt,
+                schema_name="s6-receipt.schema.json",
+            )
+            receipt_path.unlink()
         try:
             run, plan, active, blueprint, constraints, epoch = self._admit(store)
         except (S6AdmissionError, RunStoreError, S6ExecutionError) as exc:
@@ -1294,16 +2688,26 @@ class S6ExecutionController:
         while True:
             self._propagate_dependency_blocks(store, plan)
             state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
-            task = self._choose(plan, state)
+            unresolved_groups = sorted(
+                {str(row["group_id"]) for row in state["tasks"] if row.get("group_id") is not None and row["status"] in {"pending", "in_progress"}},
+                key=lambda value: value.encode("utf-8"),
+            )
+            pending_groups = unresolved_groups if unresolved_groups else None
+            task = self._choose(plan, state, pending_group_ids=pending_groups)
             if task is None:
                 if any(row["status"] == "pending" for row in state["tasks"]):
                     raise ControlledStageFailure({"code": "EXECUTION_UNRESOLVED", "detail": "no executable task remains in the current dependency graph"})
                 break
-            self._run_task(context, plan, blueprint, constraints, task)
+            row = next(item for item in state["tasks"] if item["id"] == task["id"])
+            if row.get("group_id") is not None:
+                self._run_group(context, plan, blueprint, constraints, epoch, str(row["group_id"]))
+            else:
+                self._run_task(context, plan, blueprint, constraints, task)
         final = self._finalize(context, plan, active, blueprint, constraints, epoch)
         return StageResult(output_refs=final.output_refs)
 
     def verify_completed(self, store: RunStore) -> None:
+        self.reconcile_verification_wal(store)
         run = store.load_run()
         receipt = _load(store, "plan/s6_receipt.json", "s6-receipt.schema.json")
         store.verify_ref({"path": "plan/s6_receipt.json", "sha256": store._json_artifact_hash("plan/s6_receipt.json")}, schema_name="s6-receipt.schema.json")
@@ -1369,6 +2773,8 @@ class S6ExecutionController:
         }
         for row in state["tasks"]:
             if row["status"] != "in_progress" or row["last_error"] is not None:
+                continue
+            if row.get("group_id") is not None or row.get("execution_mode") in {"amend", "revalidate"}:
                 continue
             attempt = row["attempts"]
             attempt_path = store._confined(f"attempts/{row['task_uid']}/attempt_{attempt:03d}.json")

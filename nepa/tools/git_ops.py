@@ -146,13 +146,14 @@ def prepare_task_commit(
     evidence_sha256: str,
     plan_version: str = "1.0.0",
     epoch: str = "E0",
+    allow_empty: bool = False,
 ) -> dict[str, str]:
     """Create the exact commit object without moving HEAD or the live index."""
 
     root = Path(workspace).resolve()
     selected = sorted(files, key=lambda value: value.encode("utf-8"))
-    if not selected or any(not value or Path(value).is_absolute() or ".." in Path(value).parts for value in selected):
-        raise GitOperationError("normal task commit requires a non-empty safe changed set")
+    if (not selected and not allow_empty) or any(not value or Path(value).is_absolute() or ".." in Path(value).parts for value in selected):
+        raise GitOperationError("task commit requires an explicitly authorized safe changed set")
     parent = _run(root, ["rev-parse", "HEAD"])
     fd, index_name = tempfile.mkstemp(prefix="nepa-s6-index-")
     os.close(fd)
@@ -200,16 +201,17 @@ def prepare_task_commit(
     return {"commit_sha": commit, "tree_sha": tree, "parent_sha": parent, "message": message, "timestamp": timestamp}
 
 
-def publish_task_commit(workspace: str | Path, paths: Iterable[str], prepared: Mapping[str, str]) -> dict[str, str]:
+def publish_task_commit(workspace: str | Path, paths: Iterable[str], prepared: Mapping[str, str], *, allow_empty: bool = False) -> dict[str, str]:
     """Install a prepared commit as HEAD after checking the live staged tree."""
 
     root = Path(workspace).resolve()
     selected = sorted(set(paths), key=lambda value: value.encode("utf-8"))
-    if not selected or _run(root, ["rev-parse", "HEAD"]) != prepared["parent_sha"]:
+    if (not selected and not allow_empty) or _run(root, ["rev-parse", "HEAD"]) != prepared["parent_sha"]:
         raise GitOperationError("prepared task commit parent or changed set drifted")
     if _run(root, ["diff", "--cached", "--name-only"]):
         raise GitOperationError("workspace contains unrelated staged changes before publication")
-    _run(root, ["add", "--", *selected])
+    if selected:
+        _run(root, ["add", "--", *selected])
     if _run(root, ["write-tree"]) != prepared["tree_sha"]:
         raise GitOperationError("live staged tree disagrees with prepared task commit")
     _run(root, ["update-ref", "HEAD", prepared["commit_sha"], prepared["parent_sha"]])
@@ -224,11 +226,12 @@ def prepare_joint_commit(
     *,
     verification_id: str,
     joint_evidence_sha256: str,
+    allow_empty: bool = False,
 ) -> dict[str, str]:
     """Prepare one commit for a complete F1 member change set."""
     root = Path(workspace).resolve()
     selected = sorted(files, key=lambda value: value.encode("utf-8"))
-    if not selected or any(not value or Path(value).is_absolute() or ".." in Path(value).parts for value in selected):
+    if (not selected and not allow_empty) or any(not value or Path(value).is_absolute() or ".." in Path(value).parts for value in selected):
         raise GitOperationError("joint commit requires a non-empty safe changed set")
     parent = _run(root, ["rev-parse", "HEAD"])
     fd, index_name = tempfile.mkstemp(prefix="nepa-s6-joint-index-")
@@ -259,15 +262,16 @@ def prepare_joint_commit(
     return {"commit_sha": commit, "tree_sha": tree, "parent_sha": parent, "message": message, "timestamp": timestamp}
 
 
-def publish_joint_commit(workspace: str | Path, paths: Iterable[str], prepared: Mapping[str, str]) -> dict[str, str]:
+def publish_joint_commit(workspace: str | Path, paths: Iterable[str], prepared: Mapping[str, str], *, allow_empty: bool = False) -> dict[str, str]:
     """Publish a prepared joint commit after checking the exact live tree."""
     root = Path(workspace).resolve()
     selected = sorted(set(paths), key=lambda value: value.encode("utf-8"))
-    if not selected or _run(root, ["rev-parse", "HEAD"]) != prepared["parent_sha"]:
+    if (not selected and not allow_empty) or _run(root, ["rev-parse", "HEAD"]) != prepared["parent_sha"]:
         raise GitOperationError("prepared joint commit parent or changed set drifted")
     if _run(root, ["diff", "--cached", "--name-only"]):
         raise GitOperationError("workspace contains unrelated staged changes before joint commit")
-    _run(root, ["add", "--", *selected])
+    if selected:
+        _run(root, ["add", "--", *selected])
     if _run(root, ["write-tree"]) != prepared["tree_sha"]:
         raise GitOperationError("live staged tree disagrees with prepared joint commit")
     _run(root, ["update-ref", "HEAD", prepared["commit_sha"], prepared["parent_sha"]])

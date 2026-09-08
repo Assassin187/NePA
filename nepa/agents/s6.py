@@ -126,11 +126,12 @@ def normalize_candidate(
     file_ledger: Mapping[str, Any] | None = None,
     *,
     leased_paths: tuple[str, ...] | list[str] = (),
+    allowed_paths: set[str] | None = None,
 ) -> dict[str, bytes]:
     """Admit a response only when every returned path is task-owned."""
 
     response = validate_coding_response(value)
-    allowed = set(task.get("deliverable_files", [])) | set(leased_paths)
+    allowed = (set(task.get("deliverable_files", [])) | set(leased_paths)) if allowed_paths is None else set(allowed_paths)
     frozen = {row.get("path") for row in (file_ledger or {}).get("files", []) if row.get("class") == "s5_frozen"}
     result: dict[str, bytes] = {}
     for item in response["files"]:

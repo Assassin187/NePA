@@ -1140,9 +1140,13 @@ def project_version_binding(
             raise MaterializationError("F2 binding changes structural artifact metadata", code="S5_F2_STRUCTURAL_DRIFT")
         if existing_manifest.get("epoch") != epoch:
             raise MaterializationError("F2 binding changes the accepted epoch", code="S5_F2_STRUCTURAL_DRIFT")
-        old_hashes = {row.get("path"): row.get("sha256") for row in existing_manifest.get("files", [])}
-        if old_hashes != active_hashes:
-            raise MaterializationError("F2 binding source content differs from the accepted workspace", code="S5_F2_CONTENT_DRIFT")
+        frozen_hashes = {
+            row.get("path"): row.get("sha256")
+            for row in existing_manifest.get("files", [])
+            if row.get("mutability") != "s6_owned"
+        }
+        if any(active_hashes.get(path) != digest for path, digest in frozen_hashes.items()):
+            raise MaterializationError("F2 binding frozen source content differs from the accepted workspace", code="S5_F2_CONTENT_DRIFT")
     if existing_contract_map is not None and existing_contract_map.get("epoch") != epoch:
         raise MaterializationError("F2 binding changes the accepted epoch", code="S5_F2_STRUCTURAL_DRIFT")
     if existing_contract_map is not None:

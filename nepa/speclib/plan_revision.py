@@ -257,6 +257,8 @@ def _classify_task(old_task: Mapping[str, Any] | None, new_task: Mapping[str, An
     if old_task is None or new_task is None:
         return "REGENERATE", "TASK_ADDED_OR_REMOVED"
     old_state = old_state_by_id[old_task["id"]]
+    if old_state["status"] in {"blocked", "blocked_by_dependency"} and old_task["obligation_digest"] == new_task["obligation_digest"] and old_task["task_uid"] == new_task["task_uid"]:
+        return "INHERIT", "INCOMPLETE_STATE_PRESERVED"
     if old_state["status"] != "done":
         return "REGENERATE", "OLD_TASK_NOT_DONE"
     if old_task["obligation_digest"] == new_task["obligation_digest"]:
@@ -532,13 +534,26 @@ def _clean_state_row(task_id: str) -> dict[str, Any]:
     }
 
 
+def _dependency_ancestor_ids(plan: Mapping[str, Any], task_id: str) -> set[str]:
+    tasks = {task["id"]: task for task in plan.get("tasks", [])}
+    result: set[str] = set()
+    pending = list(tasks.get(task_id, {}).get("depends_on", []))
+    while pending:
+        dependency = pending.pop()
+        if dependency in result:
+            continue
+        result.add(dependency)
+        pending.extend(tasks.get(dependency, {}).get("depends_on", []))
+    return result
+
+
 def project_plan_state(
     old_state: Mapping[str, Any],
     new_plan: Mapping[str, Any],
     report: Mapping[str, Any],
     new_plan_ref: Mapping[str, Any],
     *,
-    revalidation_proofs: Mapping[str, Any] | None = None,
+    activation_event_seq: int | None = None,
     config_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project the complete State from one validated migration report."""
@@ -578,8 +593,16 @@ def project_plan_state(
     old_by_id = {row["id"]: row for row in old_state["tasks"]}
     new_by_uid = {task["task_uid"]: task for task in new_plan["tasks"]}
     rows: list[dict[str, Any]] = []
-    proofs = revalidation_proofs or {}
-    limit = _total_attempt_limit(config_snapshot)
+    migration_rows = [row for row in report_tasks if row.get("classification") != "INHERIT"]
+    if migration_rows and (not isinstance(activation_event_seq, int) or isinstance(activation_event_seq, bool) or activation_event_seq < 1):
+        raise PlanRevisionError("changed migration rows require the accepted activation event sequence")
+    group_by_uid: dict[str, str] = {}
+    for group in report.get("pending_groups", []):
+        for task_uid in group.get("member_task_uids", []):
+            if task_uid in group_by_uid:
+                raise PlanRevisionError("migration task belongs to more than one pending group")
+            group_by_uid[str(task_uid)] = str(group["group_id"])
+    migration_ref = {"revision_seq": new_plan_ref["revision_seq"], "event_seq": activation_event_seq}
     for task in new_plan["tasks"]:
         candidates = [row for row in report["tasks"] if row.get("new_task_uid") == task["task_uid"]]
         if len(candidates) != 1:
@@ -593,30 +616,30 @@ def project_plan_state(
             row = copy.deepcopy(old)
             row["id"] = task["id"]
         elif classification == "REVALIDATE":
-            proof = proofs.get(task["task_uid"])
-            proof_passed = isinstance(proof, Mapping) and (
-                proof.get("passed") is True
-                or proof.get("build_passed") is True
-                or proof.get("valid") is True
-                or proof.get("status") in {"pass", "passed"}
-            )
-            if old is None or not proof_passed:
-                raise PlanRevisionError("REVALIDATE requires typed successful build proof")
-            row = copy.deepcopy(old)
-            row.update({"id": task["id"], "task_uid": task["task_uid"], "execution_mode": "revalidate", "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
-        elif classification == "AMEND":
-            if old is None or old["status"] != "done" or old["attempts"] >= limit:
-                raise PlanRevisionError("AMEND requires a completed task below the total attempt limit")
+            if old is None or old["status"] != "done":
+                raise PlanRevisionError("REVALIDATE requires a completed historical task")
             row = _clean_state_row(task["id"])
-            row.update({"task_uid": task["task_uid"], "execution_mode": "amend", "attempts": old["attempts"], "notes": f"revision classification=AMEND task_uid={task['task_uid']}", "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
+            row.update({"task_uid": task["task_uid"], "execution_mode": "revalidate", "attempts": old["attempts"], "notes": f"revision classification=REVALIDATE task_uid={task['task_uid']}", "migration_ref": migration_ref, "group_id": group_by_uid.get(task["task_uid"])})
+        elif classification == "AMEND":
+            if old is None or old["status"] != "done":
+                raise PlanRevisionError("AMEND requires a completed historical task")
+            row = _clean_state_row(task["id"])
+            row.update({"task_uid": task["task_uid"], "execution_mode": "amend", "attempts": old["attempts"], "notes": f"revision classification=AMEND task_uid={task['task_uid']}", "migration_ref": migration_ref, "group_id": group_by_uid.get(task["task_uid"])})
         elif classification == "REGENERATE":
             row = _clean_state_row(task["id"])
-            row.update({"task_uid": task["task_uid"], "migration_ref": {"revision_seq": new_plan_ref["revision_seq"], "event_seq": new_plan_ref["revision_seq"]}})
+            row.update({"task_uid": task["task_uid"], "migration_ref": migration_ref, "group_id": group_by_uid.get(task["task_uid"])})
         else:
             raise PlanRevisionError("migration report contains an unknown classification")
         rows.append(row)
     for row, task in zip(rows, new_plan["tasks"]):
         row["task_uid"] = task["task_uid"]
+    row_by_id = {row["id"]: row for row in rows}
+    for row in rows:
+        if row.get("status") != "blocked_by_dependency":
+            continue
+        ancestors = _dependency_ancestor_ids(new_plan, row["id"])
+        if not any(row_by_id.get(task_id, {}).get("status") in {"blocked", "blocked_by_dependency"} for task_id in ancestors):
+            row.update({"status": "pending", "last_error": None, "commit_sha": None, "acceptance_evidence": {"task_evidence_ref": None}})
     evidence_counters = copy.deepcopy(old_state.get("evidence_counters", {}))
     for task_uid in new_uids:
         evidence_counters.setdefault(task_uid, 0)
@@ -811,8 +834,9 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
             kind = payload.get("kind")
             if kind == "normal" and (len(payload.get("member_uids", [])) != 1 or len(payload.get("evidence_refs", [])) != 1):
                 raise PlanRevisionError("ordinary verification must bind exactly one member and evidence")
-            if kind == "lease" and (len(payload.get("member_uids", [])) < 2 or len(payload.get("member_uids", [])) != len(payload.get("evidence_refs", []))):
-                raise PlanRevisionError("lease verification must bind every member and evidence")
+            minimum = 2 if kind == "lease" else 1
+            if kind in {"lease", "group"} and (len(payload.get("member_uids", [])) < minimum or len(payload.get("member_uids", [])) != len(payload.get("evidence_refs", []))):
+                raise PlanRevisionError(f"{kind} verification must bind every member and evidence")
             if payload.get("member_uids") != sorted(set(payload.get("member_uids", [])), key=lambda item: str(item).encode("utf-8")):
                 raise PlanRevisionError("verification members are not sorted and unique")
             task_uid = payload["member_uids"][0]
@@ -832,6 +856,14 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
                     raise PlanRevisionError("lease verification members do not match an accepted lease start")
                 if payload.get("joint_evidence_ref") is None:
                     raise PlanRevisionError("lease verification is missing its joint evidence reference")
+            if kind == "group":
+                activation = activation_by_seq.get(payload.get("revision_seq"))
+                groups = activation.get("migration", {}).get("pending_groups", []) if isinstance(activation, Mapping) else []
+                matching = [group for group in groups if group.get("group_id") == payload.get("group_id")]
+                if len(matching) != 1 or sorted(matching[0].get("member_task_uids", []), key=lambda value: str(value).encode("utf-8")) != payload.get("member_uids"):
+                    raise PlanRevisionError("group verification members do not match the accepted activation")
+                if payload.get("joint_evidence_ref") is None:
+                    raise PlanRevisionError("group verification is missing its joint evidence reference")
         if entry["event_type"] in {"candidate_rejected", "epoch_materialized", "revision_activated"}:
             ref_events = []
             for key in ("trigger_event_seq",):
@@ -992,9 +1024,10 @@ def append_verification_committed(
     kind: str = "normal",
     members: list[Mapping[str, Any]] | None = None,
     lease_id: str | None = None,
+    group_id: str | None = None,
     joint_evidence_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Append one idempotent normal or lease verification fact."""
+    """Append one idempotent normal, lease, or migration-group verification fact."""
 
     if ledger.get("schema_version") != "2.0":
         raise PlanRevisionError("ordinary verification requires a v2 revision ledger")
@@ -1005,7 +1038,7 @@ def append_verification_committed(
             raise PlanRevisionError("normal verification requires task_uid and evidence_ref")
         members = [{"task_uid": task_uid, "evidence_ref": dict(evidence_ref)}]
     normalized = sorted(({"task_uid": item["task_uid"], "evidence_ref": dict(item["evidence_ref"])} for item in members), key=lambda item: str(item["task_uid"]).encode("utf-8"))
-    if kind not in {"normal", "lease"} or (kind == "normal" and len(normalized) != 1) or (kind == "lease" and len(normalized) < 2):
+    if kind not in {"normal", "lease", "group"} or (kind == "normal" and len(normalized) != 1) or (kind == "lease" and len(normalized) < 2) or (kind == "group" and not normalized):
         raise PlanRevisionError("verification kind and member cardinality are invalid")
     verification_id = f"v-{normalized[0]['task_uid']}-" + str(_evidence_sequence(normalized[0]["evidence_ref"]))
     payload = {
@@ -1017,10 +1050,14 @@ def append_verification_committed(
         "revision_seq": revision_seq,
     }
     if kind == "lease":
-        if not lease_id or joint_evidence_ref is None:
+        if not lease_id or group_id is not None or joint_evidence_ref is None:
             raise PlanRevisionError("lease verification requires lease_id and joint_evidence_ref")
         payload.update({"lease_id": lease_id, "joint_evidence_ref": dict(joint_evidence_ref)})
-    elif lease_id is not None or joint_evidence_ref is not None:
+    elif kind == "group":
+        if not group_id or lease_id is not None or joint_evidence_ref is None:
+            raise PlanRevisionError("group verification requires group_id and joint_evidence_ref")
+        payload.update({"group_id": group_id, "joint_evidence_ref": dict(joint_evidence_ref)})
+    elif lease_id is not None or group_id is not None or joint_evidence_ref is not None:
         raise PlanRevisionError("normal verification cannot carry lease bindings")
     for entry in current["entries"]:
         if entry.get("event_type") != "verification_committed":

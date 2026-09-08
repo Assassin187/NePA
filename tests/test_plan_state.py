@@ -7,7 +7,7 @@ from nepa.speclib.delivery import compile_delivery_constraints
 from nepa.speclib.lint import canonical_json_bytes
 from nepa.speclib.planning import build_test_manifest_metadata, prepare_architecture_inputs
 from nepa.speclib.plan import link_plan
-from nepa.speclib.plan_state import execution_state_lint, initialize_plan_state, plan_state_snapshot_lint, validate_state_transition
+from nepa.speclib.plan_state import execution_state_lint, initialize_plan_state, plan_state_snapshot_lint, project_state_transition, validate_state_transition
 
 
 ROOT = Path(__file__).parents[1]
@@ -72,6 +72,49 @@ def test_transitions_derive_the_only_legal_next_state():
 
     rejected = validate_state_transition(done, done, {"event": "attempt_started", "task_id": "T-001"})
     assert rejected["valid"] is False
+
+
+def test_migration_mode_allocations_keep_independent_accounting():
+    plan = _linked_plan()
+    state = initialize_plan_state(plan)
+    migration_ref = {"revision_seq": 1, "event_seq": 2}
+    amend = state["tasks"][0]
+    amend.update(status="pending", execution_mode="amend", attempts=4, migration_ref=migration_ref)
+    amend_event = {"event": "amendment_started", "task_id": amend["id"], "proof": {"baseline_commit": "a" * 40, "baseline_tree": "b" * 64, "evidence_seq": 1, "s6_attempts_used": 1, "migration_ref": migration_ref}}
+    amended = project_state_transition(state, amend_event)
+    amended_row = amended["tasks"][0]
+    assert amended_row["attempts"] == 4
+    assert amended_row["amendment_used"] == 1
+    assert amended["s6_attempts_used"] == 1
+
+    revalidate = initialize_plan_state(plan)
+    row = revalidate["tasks"][0]
+    row.update(status="pending", execution_mode="revalidate", attempts=4, migration_ref=migration_ref)
+    validation_event = {"event": "validation_started", "task_id": row["id"], "proof": {"baseline_commit": "a" * 40, "baseline_tree": "b" * 64, "evidence_seq": 1, "migration_ref": migration_ref}}
+    validating = project_state_transition(revalidate, validation_event)
+    assert validating["tasks"][0]["status"] == "in_progress"
+    assert validating["tasks"][0]["attempts"] == 4
+    assert validating["s6_attempts_used"] == 0
+
+
+def test_group_transition_updates_every_frozen_member_or_rejects_partial_input():
+    plan = _linked_plan()
+    state = initialize_plan_state(plan)
+    group_id = "g-1-1"
+    migration_ref = {"revision_seq": 1, "event_seq": 2}
+    for row in state["tasks"]:
+        row.update(status="in_progress", execution_mode="revalidate", migration_ref=migration_ref, group_id=group_id)
+    members = sorted(state["tasks"], key=lambda row: row["task_uid"].encode("utf-8"))
+    refs = [{"path": f"evidence/{row['task_uid']}.json", "sha256": str(index) * 64} for index, row in enumerate(members, 1)]
+    event = {"event": "group_verified", "task_id": members[0]["id"], "group_id": group_id, "member_task_ids": [row["id"] for row in members], "member_evidence_refs": refs, "commit_sha": "a" * 40, "verification_id": f"v-{members[0]['task_uid']}-1", "evidence_ref": refs[0], "proof": {"kind": "group", "commit_sha": "a" * 40, "verification_id": f"v-{members[0]['task_uid']}-1", "workspace_tree": "b" * 64, "parent_sha": "c" * 40, "group_id": group_id, "activation_ref": migration_ref, "member_uids": [row["task_uid"] for row in members], "member_evidence_refs": refs}}
+    done = project_state_transition(state, event)
+    assert all(row["status"] == "done" and row["commit_sha"] == "a" * 40 for row in done["tasks"])
+    partial = copy.deepcopy(event)
+    partial["member_task_ids"].pop()
+    partial["member_evidence_refs"].pop()
+    partial["proof"]["member_uids"].pop()
+    partial["proof"]["member_evidence_refs"].pop()
+    assert validate_state_transition(state, None, partial)["valid"] is False
 
 
 def test_execution_lint_checks_commit_trailers_evidence_identity_and_stage_anchor():

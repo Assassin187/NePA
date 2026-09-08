@@ -23,7 +23,7 @@ def _prepared_revision(tmp_path):
     new_plan = copy.deepcopy(completion.plan)
     report = classify_migration(completion.plan, new_plan, old_state, old_file, from_version="1.0.0", to_version="1.0.1")
     new_pointer = {"version": "1.0.1", "path": "plan/versions/plan-1.0.1.json", "sha256": store._canonical_value_hash(new_plan), "revision_seq": 1, "epoch": "E0"}
-    new_state = project_plan_state(old_state, new_plan, report, new_pointer)
+    new_state = project_plan_state(old_state, new_plan, report, new_pointer, activation_event_seq=2)
     entry = build_revision_entry(old_pointer, new_pointer, "F2", {"code": "test", "evidence_refs": []}, [], report, gates={"RG-1": "pass", "RG-2": "pass", "RG-3": "pass", "RG-4": "pass", "RG-5": "pass"}, activated_at_commit="0" * 40)
     return store, completion, old_pointer, old_file, new_plan, report, new_state, entry, new_pointer
 

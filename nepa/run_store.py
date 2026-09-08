@@ -323,12 +323,28 @@ class RunStore:
         cap = budgets.get("s6_total_attempts_cap") if isinstance(budgets, Mapping) else None
         if not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0:
             raise RunValidationError("S6 total attempt cap is not configured")
-        if state.get("s6_attempts_used") >= cap:
-            raise RunValidationError("S6 total attempt cap is exhausted")
         rows = {row["id"]: row for row in state.get("tasks", [])}
         row = rows.get(task_id)
         if not isinstance(row, Mapping) or row.get("task_uid") != task_uid or row.get("execution_mode") != "normal":
             raise RunValidationError("S6 task identity is not bound by Plan State")
+        if row.get("status") == "in_progress" and int(row.get("attempts", 0)) > 0:
+            current_attempt = int(row["attempts"])
+            current_path = f"attempts/{task_uid}/attempt_{current_attempt:03d}.json"
+            if self._confined(current_path).is_file():
+                existing = self._read_json_artifact(current_path, schema_name="s6-attempt.schema.json")
+                if existing.get("status") == "started":
+                    if (
+                        existing.get("task_id") != task_id
+                        or existing.get("task_uid") != task_uid
+                        or existing.get("role") != role
+                        or existing.get("tier") != tier
+                        or existing.get("baseline_commit") != baseline_commit
+                        or existing.get("baseline_tree") != baseline_tree
+                    ):
+                        raise ArtifactConflict("in-progress S6 attempt conflicts with its persisted allocation")
+                    return {"state": state, "attempt": existing, "attempt_ref": ArtifactRef(current_path, self._json_artifact_hash(current_path))}
+        if state.get("s6_attempts_used") >= cap:
+            raise RunValidationError("S6 total attempt cap is exhausted")
         limit = min(4, int(budgets.get("task_fix_attempts", 3)) + 1)
         if row.get("status") not in {"pending", "in_progress"} or row.get("attempts", 0) >= limit:
             raise RunValidationError("S6 task attempt limit is exhausted")
@@ -407,7 +423,7 @@ class RunStore:
         attempt = {
             "schema_version": "2.0", "task_id": task_id, "task_uid": task_uid, "execution_mode": "normal",
             "attempt": next_attempt,
-            "evidence_seq": sequence, "role": role, "tier": tier, "baseline_commit": baseline_commit,
+            "evidence_seq": sequence, "role": role, "tier": tier, "plan_ref": copy.deepcopy(state["plan_ref"]), "migration_ref": copy.deepcopy(row.get("migration_ref")), "baseline_commit": baseline_commit,
             "baseline_tree": baseline_tree, "status": "started", "output_ref": None, "failure_ref": None,
         }
         if lease_record is not None:
@@ -415,7 +431,7 @@ class RunStore:
         attempt_path = f"attempts/{task_uid}/attempt_{attempt['attempt']:03d}.json"
         if self._confined(attempt_path).exists():
             existing = self._read_json_artifact(attempt_path, schema_name="s6-attempt.schema.json")
-            identity_fields = ("task_id", "task_uid", "attempt", "evidence_seq", "role", "tier", "baseline_commit", "baseline_tree", "lease")
+            identity_fields = ("task_id", "task_uid", "attempt", "evidence_seq", "role", "tier", "plan_ref", "migration_ref", "baseline_commit", "baseline_tree", "lease")
             if any(existing.get(key) != attempt.get(key) for key in identity_fields):
                 raise ArtifactConflict("partially published S6 attempt conflicts with the requested allocation")
             attempt = existing
@@ -435,6 +451,90 @@ class RunStore:
         if fault_hook is not None:
             fault_hook("state_replaced")
         return {"state": next_state, "attempt": attempt, "attempt_ref": attempt_ref}
+
+    def allocate_s6_migration(
+        self,
+        *,
+        task_id: str,
+        task_uid: str,
+        mode: str,
+        baseline_commit: str,
+        baseline_tree: str,
+        fault_hook: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Allocate one AMEND call or deterministic REVALIDATE sequence before I/O."""
+
+        from .speclib.plan_state import plan_state_snapshot_lint, project_state_transition
+
+        if mode not in {"amend", "revalidate"}:
+            raise RunValidationError("migration allocation mode is unsupported")
+        if not re.fullmatch(r"[0-9a-f]{40}", baseline_commit) or not re.fullmatch(r"[0-9a-f]{64}", baseline_tree):
+            raise RunValidationError("migration baseline is not a canonical commit/tree binding")
+        state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+        run = self.load_run()
+        rows = {row["id"]: row for row in state.get("tasks", [])}
+        row = rows.get(task_id)
+        if not isinstance(row, Mapping) or row.get("task_uid") != task_uid or row.get("execution_mode") != mode or not isinstance(row.get("migration_ref"), Mapping):
+            raise RunValidationError("migration allocation is not bound by pending Plan State")
+        if row.get("status") == "in_progress":
+            sequence = int(state.get("evidence_counters", {}).get(task_uid, 0))
+            path = f"attempts/{task_uid}/amendment.json" if mode == "amend" else f"validations/{task_uid}/validation_{sequence:03d}.json"
+            schema = "s6-attempt.schema.json" if mode == "amend" else "s6-validation.schema.json"
+            existing = self._read_json_artifact(path, schema_name=schema)
+            if (
+                existing.get("task_id") != task_id
+                or existing.get("task_uid") != task_uid
+                or existing.get("evidence_seq") != sequence
+                or existing.get("migration_ref") != row.get("migration_ref")
+                or existing.get("baseline_commit") != baseline_commit
+                or existing.get("baseline_tree") != baseline_tree
+                or existing.get("status") != "started"
+            ):
+                raise ArtifactConflict("in-progress migration allocation conflicts with its persisted record")
+            return {"state": state, "record": existing, "record_ref": ArtifactRef(path, self._json_artifact_hash(path))}
+        if row.get("status") != "pending":
+            raise RunValidationError("migration allocation is not pending or replayable")
+        sequence = int(state.get("evidence_counters", {}).get(task_uid, 0)) + 1
+        proof = {"baseline_commit": baseline_commit, "baseline_tree": baseline_tree, "evidence_seq": sequence, "migration_ref": copy.deepcopy(row["migration_ref"])}
+        if mode == "amend":
+            budgets = run["config_snapshot"].get("budgets", {})
+            cap = budgets.get("s6_total_attempts_cap") if isinstance(budgets, Mapping) else None
+            if not isinstance(cap, int) or isinstance(cap, bool) or state["s6_attempts_used"] >= cap:
+                raise RunValidationError("S6 total attempt cap is exhausted")
+            proof["s6_attempts_used"] = state["s6_attempts_used"] + 1
+            event_name = "amendment_started"
+        else:
+            event_name = "validation_started"
+        event = {"schema_version": "2.0", "event": event_name, "task_id": task_id, "proof": proof}
+        next_state = project_state_transition(state, event, config_snapshot=run["config_snapshot"])
+        plan = self._read_json_artifact(state["plan_ref"]["path"], schema_name="plan.schema.json")
+        report = plan_state_snapshot_lint(plan, next_state, config_snapshot=run["config_snapshot"])
+        if not report["valid"]:
+            raise RunValidationError("migration allocation produced invalid State: " + report["errors"][0]["message"])
+        if mode == "amend":
+            record = {"schema_version": "2.0", "task_id": task_id, "task_uid": task_uid, "execution_mode": "amend", "attempt": int(row["attempts"]), "evidence_seq": sequence, "role": "fixer", "tier": "T1", "plan_ref": copy.deepcopy(state["plan_ref"]), "migration_ref": copy.deepcopy(row["migration_ref"]), "baseline_commit": baseline_commit, "baseline_tree": baseline_tree, "status": "started", "output_ref": None, "failure_ref": None}
+            path = f"attempts/{task_uid}/amendment.json"
+            schema = "s6-attempt.schema.json"
+        else:
+            record = {"schema_version": "1.0", "task_id": task_id, "task_uid": task_uid, "evidence_seq": sequence, "migration_ref": copy.deepcopy(row["migration_ref"]), "baseline_commit": baseline_commit, "baseline_tree": baseline_tree, "status": "started", "build_result_refs": [], "smoke_result_refs": [], "failure_ref": None, "evidence_ref": None}
+            path = f"validations/{task_uid}/validation_{sequence:03d}.json"
+            schema = "s6-validation.schema.json"
+        if self._confined(path).exists():
+            existing = self._read_json_artifact(path, schema_name=schema)
+            if existing != record:
+                raise ArtifactConflict("partially published migration allocation conflicts with requested facts")
+            record_ref = ArtifactRef(path, self._json_artifact_hash(path))
+        else:
+            record_ref = self.replace_json(path, record, schema_name=schema)
+        if fault_hook is not None:
+            fault_hook("migration_record_persisted")
+        self.append_state_history(next_state, event_type=event_name, event=event)
+        if fault_hook is not None:
+            fault_hook("state_history_appended")
+        self.replace_json("plan/plan_state.json", next_state, schema_name="plan-state.schema.json")
+        if fault_hook is not None:
+            fault_hook("state_replaced")
+        return {"state": next_state, "record": record, "record_ref": record_ref}
 
     @staticmethod
     def _s5_fault(fault_hook: Callable[[str], None] | None, point: str) -> None:
@@ -989,6 +1089,10 @@ class RunStore:
             "path": "plan/active_plan.json",
             "sha256": self._canonical_value_hash(pointer),
         }
+        s6 = updated["stages"].get("s6")
+        if isinstance(s6, dict) and s6.get("status") == "done":
+            s6.update({"status": "pending", "started_at": None, "ended_at": None, "error": None})
+            s6.pop("output_refs", None)
         current_epoch = str(updated["stages"]["s5"].get("instance_id", "E0"))
         current_match = re.fullmatch(r"E([0-9]+)", current_epoch)
         next_match = re.fullmatch(r"E([0-9]+)", str(pointer.get("epoch", "")))
@@ -1041,7 +1145,6 @@ class RunStore:
         *,
         level: str | None = None,
         new_pointer: Mapping[str, Any] | None = None,
-        revalidation_proofs: Mapping[str, Any] | None = None,
         expected_hashes: Mapping[str, str] | None = None,
         activated_at_commit: str | None = None,
         fault_hook: Callable[[str], None] | None = None,
@@ -1150,9 +1253,11 @@ class RunStore:
             _run_before, run_after = self._run_with_active_pointer(new_pointer)
             try:
                 from .speclib.plan_revision import project_file_ledger, project_plan_state
+                trigger_exists = any(item.get("event_type") == "trigger_evaluated" for item in old_revision_ledger.get("entries", []))
+                activation_event_seq = len(old_revision_ledger.get("entries", [])) + (1 if trigger_exists else 2)
                 expected_state = project_plan_state(
                     old_state, candidate, report, new_pointer,
-                    revalidation_proofs=revalidation_proofs,
+                    activation_event_seq=activation_event_seq,
                     config_snapshot=_run_before["config_snapshot"],
                 )
                 expected_file_ledger = project_file_ledger(

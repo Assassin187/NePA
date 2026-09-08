@@ -211,7 +211,10 @@ def _activate_candidate(store, candidate, level, *, migration_extensions=None):
     new_pointer = {"version": version, "path": f"plan/versions/plan-{version}.json", "sha256": _hash(canonical_json_bytes(candidate)), "revision_seq": old_pointer["revision_seq"] + 1, "epoch": epoch}
     report = classify_migration(old_plan, candidate, old_state, old_ledger, from_version=old_version, to_version=version)
     report.update(copy.deepcopy(migration_extensions or {}))
-    new_state = project_plan_state(old_state, candidate, report, new_pointer)
+    revision_ledger = store._read_json_artifact("plan/revision_ledger.json")
+    trigger_exists = any(entry.get("event_type") == "trigger_evaluated" for entry in revision_ledger["entries"])
+    activation_event_seq = len(revision_ledger["entries"]) + (1 if trigger_exists else 2)
+    new_state = project_plan_state(old_state, candidate, report, new_pointer, activation_event_seq=activation_event_seq)
     entry = build_revision_entry(old_pointer, new_pointer, level, {"code": "synthetic", "evidence_refs": []}, [], report, gates={f"RG-{index}": "pass" for index in range(1, 6)}, activated_at_commit="0" * 40)
     store.activate_revision(candidate, report, new_state, old_ledger, entry, old_pointer, new_pointer=new_pointer)
     return new_pointer, report
