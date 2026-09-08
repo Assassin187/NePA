@@ -531,6 +531,7 @@ class RunStore:
         contract_map = build_contract_map(plan_ref, blueprint, view_with_files, "E0")
         manifest_ref = self.publish_immutable_json("plan/bindings/1.0.0/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
         map_ref = self.publish_immutable_json("plan/bindings/1.0.0/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        self.publish_immutable_json("plan/epochs/E0/blueprint.json", blueprint, schema_name="delivery-blueprint.schema.json")
         self._s5_fault(fault_hook, "manifest_map_published")
         epoch_receipt = {
             "schema_version": "1.0", "epoch": "E0", "materialized_plan_ref": dict(plan_ref),
@@ -557,6 +558,315 @@ class RunStore:
         self.replace_json(pending_path, pending, schema_name="s5-pending-state.schema.json")
         self._s5_fault(fault_hook, "pending_accepted")
         return {"epoch_receipt": epoch_ref, "binding_receipt": binding_ref}
+
+    def publish_s5_epoch(self, bundle: Mapping[str, Any], fault_hook: Callable[[str], None] | None = None) -> dict[str, ArtifactRef]:
+        """Publish one E1+ checkpoint and its immutable epoch-keyed suffix."""
+
+        from .speclib.materialization import build_artifact_manifest, build_contract_map, project_file_ledger
+        from .tools.git_ops import checkpoint_workspace, verify_checkpoint
+
+        epoch = bundle.get("epoch")
+        plan_ref = bundle.get("plan_ref")
+        blueprint = bundle.get("blueprint")
+        view = bundle.get("rendering_view")
+        action_plan = bundle.get("action_plan")
+        if not isinstance(epoch, str) or not re.fullmatch(r"E[1-9][0-9]*", epoch):
+            raise RunValidationError("E1+ publication requires a canonical epoch")
+        if not all(isinstance(value, Mapping) for value in (plan_ref, blueprint, view, action_plan)):
+            raise RunValidationError("epoch publication bundle is incomplete")
+        path_match = re.search(r"plan-(1\.[0-9]+\.[0-9]+)\.json$", str(plan_ref.get("path")))
+        version = str(plan_ref.get("version") or (path_match.group(1) if path_match else ""))
+        if not re.fullmatch(r"1\.[0-9]+\.[0-9]+", version):
+            raise RunValidationError("epoch publication Plan ref has no canonical version")
+        rendered_files = bundle.get("rendered_files", {})
+        workspace_files = bundle.get("workspace_files", rendered_files)
+        if not isinstance(rendered_files, Mapping) or not isinstance(workspace_files, Mapping) or any(not isinstance(path, str) or not isinstance(data, bytes) for path, data in rendered_files.items()) or any(not isinstance(path, str) or not isinstance(data, bytes) for path, data in workspace_files.items()):
+            raise RunValidationError("epoch publication files must be path-to-bytes maps")
+        pending_path = self._confined(f"plan/epochs/{epoch}/pending.json")
+        if not pending_path.exists():
+            raise RunValidationError("epoch publication requires its pending action plan")
+        pending = self._read_json_artifact(f"plan/epochs/{epoch}/pending.json", schema_name="s5-pending-state.schema.json")
+        if pending.get("epoch") != epoch or pending.get("plan_ref") != dict(plan_ref):
+            raise ArtifactConflict("pending epoch record is not bound to the publication Plan")
+        if pending.get("blueprint_sha256") != self._canonical_value_hash(blueprint):
+            raise ArtifactConflict("pending epoch Blueprint binding drifted")
+        if pending.get("action_plan") != action_plan.get("actions", []):
+            raise ArtifactConflict("pending epoch action plan differs from the publication bundle")
+        if pending.get("new_inventory") != action_plan.get("new_inventory", {}):
+            raise ArtifactConflict("pending epoch inventory differs from the publication bundle")
+        workspace = self._confined(str(bundle.get("workspace", "workspace")))
+        actual_workspace = {
+            item.relative_to(workspace).as_posix(): item.read_bytes()
+            for item in workspace.rglob("*") if item.is_file() and ".git" not in item.parts
+        } if workspace.is_dir() else {}
+        if actual_workspace != dict(workspace_files):
+            raise ArtifactConflict("epoch workspace differs from the recorded post-action tree")
+        if pending.get("checkpoint_commit") and pending.get("checkpoint_tree"):
+            checkpoint = {"commit_sha": pending["checkpoint_commit"], "tree_sha": pending["checkpoint_tree"], "plan_version": version, "epoch": epoch}
+            verify_checkpoint(workspace, checkpoint)
+        else:
+            changed_paths = sorted({str(path) for action in action_plan.get("actions", []) if action.get("kind") != "preserve" for path in (action.get("path"), action.get("source_path"), action.get("target_path")) if isinstance(path, str)}, key=lambda value: value.encode("utf-8"))
+            checkpoint = checkpoint_workspace(workspace, changed_paths, plan_version=version, epoch=epoch)
+            pending.update({"phase": "checkpointed", "checkpoint_commit": checkpoint["commit_sha"], "checkpoint_tree": checkpoint["tree_sha"]})
+            self.replace_json(f"plan/epochs/{epoch}/pending.json", pending, schema_name="s5-pending-state.schema.json")
+            self._s5_fault(fault_hook, "epoch_checkpoint_created")
+        build_results = bundle.get("build_results", [])
+        smoke_results = bundle.get("smoke_results", [])
+        if not isinstance(build_results, list) or not isinstance(smoke_results, list):
+            raise RunValidationError("epoch build and smoke results must be arrays")
+        build_refs: list[dict[str, str]] = []
+        for result in build_results:
+            if not isinstance(result, Mapping):
+                raise RunValidationError("epoch build result is not an object")
+            variant = str(result.get("variant", "unknown"))
+            ref = self.publish_immutable_json(f"plan/epochs/{epoch}/build/{variant}.json", result, schema_name="build-result.schema.json")
+            build_refs.append(ref.as_dict())
+            self._s5_fault(fault_hook, f"epoch_build_evidence_published:{variant}")
+        smoke_refs: list[dict[str, str]] = []
+        for index, result in enumerate(smoke_results):
+            if not isinstance(result, Mapping):
+                raise RunValidationError("epoch smoke result is not an object")
+            variant = str(result.get("variant", "unknown")); artifact = str(result.get("artifact", index)).replace("/", "_")
+            ref = self.publish_immutable_json(f"plan/epochs/{epoch}/smoke/{variant}_{artifact}.json", result, schema_name="smoke-result.schema.json")
+            smoke_refs.append(ref.as_dict())
+            self._s5_fault(fault_hook, f"epoch_smoke_evidence_published:{variant}:{artifact}")
+        view_with_files = {**dict(view), "rendered_files": dict(rendered_files)}
+        manifest = build_artifact_manifest(plan_ref, blueprint, view_with_files, epoch)
+        contract_map = build_contract_map(plan_ref, blueprint, view_with_files, epoch)
+        self.publish_immutable_json(f"plan/epochs/{epoch}/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
+        self.publish_immutable_json(f"plan/epochs/{epoch}/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        self._s5_fault(fault_hook, "epoch_manifest_map_published")
+        status = str(bundle.get("materialization_status", "ready"))
+        groups = bundle.get("pending_group_ids", [])
+        if status not in {"ready", "pending_repair"} or not isinstance(groups, list) or groups != sorted(set(groups), key=lambda value: str(value).encode("utf-8")):
+            raise RunValidationError("epoch materialization status or pending groups are invalid")
+        epoch_receipt = {
+            "schema_version": "1.0", "epoch": epoch, "materialized_plan_ref": dict(plan_ref),
+            "blueprint_sha256": self._canonical_value_hash(blueprint), "checkpoint_commit": checkpoint["commit_sha"],
+            "checkpoint_tree": checkpoint["tree_sha"], "materialization_status": status,
+            "build_result_refs": build_refs, "smoke_result_refs": smoke_refs, "pending_group_ids": list(groups),
+        }
+        epoch_ref = self.publish_immutable_json(f"plan/epochs/{epoch}/receipt.json", epoch_receipt, schema_name="epoch-receipt.schema.json")
+        self._s5_fault(fault_hook, "epoch_receipt_published")
+        version_manifest_ref = self.publish_immutable_json(f"plan/bindings/{version}/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
+        version_map_ref = self.publish_immutable_json(f"plan/bindings/{version}/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        binding_receipt = {"schema_version": "1.0", "plan_ref": dict(plan_ref), "epoch_receipt_ref": epoch_ref.as_dict(), "manifest_ref": version_manifest_ref.as_dict(), "contract_map_ref": version_map_ref.as_dict()}
+        binding_ref = self.publish_immutable_json(f"plan/bindings/{version}/receipt.json", binding_receipt, schema_name="binding-receipt.schema.json")
+        self._s5_fault(fault_hook, "binding_receipt_published")
+        initial_ledger = pending.get("before_file_ledger")
+        if not isinstance(initial_ledger, Mapping):
+            initial_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+        build_evidence = {"build_variant_ids": [str(item.get("variant")) for item in build_results], "evidence_ref": build_refs[0] if build_refs else epoch_ref.as_dict(), "materialization_status": status}
+        ledger = project_file_ledger(initial_ledger, action_plan, checkpoint, build_evidence, epoch_ref.as_dict(), epoch=epoch)
+        if isinstance(pending.get("projected_file_ledger"), Mapping) and dict(pending["projected_file_ledger"]) != ledger:
+            raise ArtifactConflict("pending projected file ledger is not deterministic")
+        pending.update({"phase": "receipted", "projected_file_ledger": ledger})
+        self.replace_json(f"plan/epochs/{epoch}/pending.json", pending, schema_name="s5-pending-state.schema.json")
+        self._s5_fault(fault_hook, "epoch_ledger_projected")
+        current_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+        if current_ledger != ledger:
+            if current_ledger != dict(initial_ledger):
+                raise ArtifactConflict("file ledger contains conflicting post-checkpoint bytes")
+            self.replace_json("plan/file_ledger.json", ledger, schema_name="file-ledger.schema.json")
+        for relative_path, value in (("plan/artifact_manifest.json", manifest), ("plan/contract_map.json", contract_map)):
+            current = self._confined(relative_path)
+            data = canonical_json_bytes(value)
+            previous_value = pending.get("before_manifest" if relative_path.endswith("artifact_manifest.json") else "before_contract_map")
+            previous_data = canonical_json_bytes(previous_value) if isinstance(previous_value, Mapping) else None
+            if current.exists() and current.read_bytes() not in {data, previous_data}:
+                raise ArtifactConflict(f"{relative_path} contains conflicting post-checkpoint bytes")
+            if not current.exists() or current.read_bytes() != data:
+                self._write_atomic_at(current, data)
+        self._s5_fault(fault_hook, "mutable_epoch_copies_replaced")
+        pending.update({"phase": "accepted", "materialization_status": status, "pending_group_ids": list(groups), "output_refs": {"epoch_receipt": epoch_ref.as_dict(), "binding_receipt": binding_ref.as_dict()}, "build_results": copy.deepcopy(build_results), "smoke_results": copy.deepcopy(smoke_results)})
+        self.replace_json(f"plan/epochs/{epoch}/pending.json", pending, schema_name="s5-pending-state.schema.json")
+        self._s5_fault(fault_hook, "pending_accepted")
+        return {"epoch_receipt": epoch_ref, "binding_receipt": binding_ref}
+
+    def recover_s5_epoch(self, epoch: str, fault_hook: Callable[[str], None] | None = None) -> dict[str, ArtifactRef] | None:
+        """Recover an E1+ pending transaction using its recorded action facts."""
+
+        from .tools.git_ops import verify_checkpoint
+        if not re.fullmatch(r"E[1-9][0-9]*", epoch):
+            raise RunValidationError("epoch recovery requires a canonical E1+ id")
+        relative = f"plan/epochs/{epoch}/pending.json"
+        path = self._confined(relative)
+        if not path.exists():
+            return None
+        pending = self._read_json_artifact(relative, schema_name="s5-pending-state.schema.json")
+        refs = pending.get("output_refs", {})
+        if pending.get("phase") == "accepted" and isinstance(refs, Mapping) and set(refs) == {"epoch_receipt", "binding_receipt"}:
+            for ref in refs.values():
+                self.verify_ref(ref)
+            self._s5_fault(fault_hook, "pending_recovered_accepted")
+            return {key: ArtifactRef.from_value(value) for key, value in refs.items()}
+        workspace = self._confined("workspace")
+        if pending.get("checkpoint_commit") is None:
+            facts = {item["path"]: item for item in pending.get("expected_path_facts", []) if isinstance(item, Mapping) and isinstance(item.get("path"), str)}
+            predecessor = pending.get("predecessor_checkpoint", {})
+            predecessor_commit = predecessor.get("commit_sha") if isinstance(predecessor, Mapping) else None
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=workspace, capture_output=True, text=True, check=False
+            ).stdout.strip()
+            if not isinstance(predecessor_commit, str) or head != predecessor_commit:
+                raise ArtifactConflict("pre-checkpoint recovery is not based on the recorded predecessor")
+
+            def predecessor_bytes(relative_path: str, expected_hash: str) -> bytes:
+                result = subprocess.run(
+                    ["git", "show", f"{predecessor_commit}:{relative_path}"],
+                    cwd=workspace,
+                    capture_output=True,
+                    check=False,
+                )
+                if result.returncode != 0 or sha256_bytes(result.stdout) != expected_hash:
+                    raise ArtifactConflict(f"predecessor preimage is unavailable at {relative_path}")
+                return result.stdout
+
+            for action in reversed(pending.get("action_plan", [])):
+                if not isinstance(action, Mapping):
+                    raise RunValidationError("pending action plan contains a non-object")
+                kind = action.get("kind")
+                source = action.get("source_path"); target = action.get("target_path"); current_path = action.get("path")
+                if kind in {"quarantine", "re_adopt"}:
+                    if not isinstance(source, str) or not isinstance(target, str):
+                        raise ArtifactConflict("pending move has no complete source/target")
+                    source_file = (workspace / source).resolve(); target_file = (workspace / target).resolve()
+                    if source_file.exists() and target_file.exists():
+                        raise ArtifactConflict("pending recovery found both sides of a move")
+                    if target_file.exists():
+                        expected = action.get("sha256")
+                        if expected and sha256_bytes(target_file.read_bytes()) != expected:
+                            raise ArtifactConflict("pending recovery found conflicting moved bytes")
+                        source_file.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(target_file, source_file)
+                    elif not source_file.exists() or sha256_bytes(source_file.read_bytes()) != action.get("sha256"):
+                        raise ArtifactConflict("pending recovery found a missing or conflicting move preimage")
+                    continue
+                if not isinstance(current_path, str):
+                    continue
+                current = (workspace / current_path).resolve()
+                fact = facts.get(current_path, {})
+                before = fact.get("before_sha256"); after = fact.get("after_sha256")
+                actual = sha256_bytes(current.read_bytes()) if current.is_file() else None
+                if actual == before:
+                    continue
+                if actual == after:
+                    if before is None:
+                        if current.exists():
+                            current.unlink()
+                    else:
+                        self._write_atomic_at(current, predecessor_bytes(current_path, before))
+                    continue
+                if actual is None and after is None and before is not None:
+                    self._write_atomic_at(current, predecessor_bytes(current_path, before))
+                    continue
+                raise ArtifactConflict(f"pending recovery found conflicting bytes at {current_path}")
+            expected_before = {
+                item["path"]: item["sha256"]
+                for item in pending.get("before_files", [])
+                if isinstance(item, Mapping)
+            }
+            actual_before = {
+                item.relative_to(workspace).as_posix(): sha256_bytes(item.read_bytes())
+                for item in workspace.rglob("*")
+                if item.is_file() and ".git" not in item.parts
+            }
+            if actual_before != expected_before:
+                raise ArtifactConflict("pre-checkpoint recovery did not restore the predecessor workspace")
+            path.unlink()
+            self._s5_fault(fault_hook, "pending_precheckpoint_recovered")
+            return None
+        if pending.get("checkpoint_tree") is None:
+            raise ArtifactConflict("pending epoch records a checkpoint without its tree")
+        match = re.search(r"plan-(1\.[0-9]+\.[0-9]+)\.json$", pending["plan_ref"]["path"])
+        if match is None:
+            raise ArtifactConflict("pending epoch Plan ref is not versioned")
+        verify_checkpoint(workspace, {"commit_sha": pending["checkpoint_commit"], "tree_sha": pending["checkpoint_tree"], "plan_version": match.group(1), "epoch": epoch})
+        active_paths = set(pending.get("projected_active_paths", []))
+        expected = {item["path"]: item["content"].encode("utf-8") for item in pending.get("expected_files", []) if item["path"] in active_paths}
+        workspace_expected = {item["path"]: item["content"].encode("utf-8") for item in pending.get("expected_files", [])}
+        return self.publish_s5_epoch({"epoch": epoch, "workspace": "workspace", "plan_ref": pending["plan_ref"], "blueprint": pending["blueprint"], "constraints": pending["constraints"], "rendering_view": pending["rendering_view"], "action_plan": {"actions": pending.get("action_plan", []), "new_inventory": pending.get("new_inventory", {})}, "rendered_files": expected, "workspace_files": workspace_expected, "build_results": pending.get("build_results", []), "smoke_results": pending.get("smoke_results", []), "materialization_status": pending.get("materialization_status", "ready"), "pending_group_ids": pending.get("pending_group_ids", [])}, fault_hook=fault_hook)
+
+    def publish_version_binding(self, bundle: Mapping[str, Any]) -> ArtifactRef:
+        """Publish an accepted F2 metadata binding without materialization side effects."""
+
+        from .speclib.materialization import project_version_binding
+        from .speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints
+        from .speclib.materialization import derive_rendering_view
+        from .speclib.plan import blueprint_task_semantic_projection
+
+        plan_ref = bundle.get("plan_ref")
+        blueprint = bundle.get("blueprint")
+        rendering_view = bundle.get("rendering_view", {})
+        epoch_receipt = bundle.get("epoch_receipt")
+        if not all(isinstance(value, Mapping) for value in (plan_ref, blueprint, rendering_view, epoch_receipt)):
+            raise RunValidationError("F2 binding bundle is incomplete")
+        version_match = re.search(r"plan-(1\.[0-9]+\.[0-9]+)\.json$", str(plan_ref.get("path")))
+        if version_match is None:
+            raise RunValidationError("F2 binding Plan ref is not an immutable version")
+        version = version_match.group(1)
+        plan = self._read_json_artifact(str(plan_ref["path"]), schema_name="plan.schema.json")
+        if self._canonical_value_hash(plan) != plan_ref.get("sha256"):
+            raise ArtifactConflict("F2 binding Plan bytes do not match the accepted Plan ref")
+        active_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
+        if active_pointer.get("version") != version or active_pointer.get("epoch") != epoch_receipt.get("epoch") or active_pointer.get("sha256") != plan_ref.get("sha256"):
+            raise RunValidationError("F2 binding Plan is not the accepted active pointer")
+        revision = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+        from .speclib.plan_revision import latest_activation
+        activation = latest_activation(revision)
+        if not isinstance(activation, Mapping) or activation.get("level") != "F2" or activation.get("to_plan_ref") != dict(plan_ref) or activation.get("epoch_after") != epoch_receipt.get("epoch"):
+            raise RunValidationError("F2 binding requires the accepted F2 activation for the same epoch")
+        workspace = self._confined("workspace")
+        facts = {item.relative_to(workspace).as_posix(): sha256_bytes(item.read_bytes()) for item in workspace.rglob("*") if item.is_file() and ".git" not in item.parts} if workspace.is_dir() else {}
+        current_manifest = self._read_json_artifact("plan/artifact_manifest.json", schema_name="artifact-manifest.schema.json")
+        current_map = self._read_json_artifact("plan/contract_map.json", schema_name="contract-map.schema.json")
+        file_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
+        quarantine_paths = {
+            row["quarantine_path"]
+            for row in file_ledger.get("files", [])
+            if row.get("state") == "quarantined" and isinstance(row.get("quarantine_path"), str)
+        }
+        actual_orphans = {path for path in facts if path.startswith("_orphan/")}
+        if actual_orphans != quarantine_paths:
+            raise ArtifactConflict("F2 binding workspace quarantine set is not registered in the file ledger")
+        constraints = bundle.get("constraints", {})
+        if not isinstance(constraints, Mapping):
+            raise RunValidationError("F2 binding constraints are invalid")
+        spec = self._read_json_artifact("spec/spec.json")
+        target = self._read_json_artifact("inputs/target.json")
+        frozen_constraints = compile_delivery_constraints(spec, target)
+        if dict(constraints) != frozen_constraints:
+            raise ArtifactConflict("F2 binding constraints do not match frozen inputs")
+        frozen_blueprint = compile_delivery_blueprint(
+            frozen_constraints,
+            plan["architecture"],
+            plan["work_packages"],
+            blueprint_task_semantic_projection(plan["tasks"]),
+        )
+        if dict(blueprint) != frozen_blueprint:
+            raise ArtifactConflict("F2 binding Blueprint does not recompute from the accepted Plan")
+        frozen_view = derive_rendering_view(plan, spec, target, frozen_blueprint, frozen_constraints)
+        if dict(rendering_view) != frozen_view:
+            raise ArtifactConflict("F2 binding rendering metadata does not recompute from frozen inputs")
+        projected = project_version_binding(plan_ref, frozen_blueprint, frozen_view, epoch_receipt, {"file_hashes": facts, "ignored_paths": sorted(quarantine_paths), "constraints": frozen_constraints}, existing_manifest=current_manifest, existing_contract_map=current_map)
+        manifest = projected["manifest"]
+        contract_map = projected["contract_map"]
+        binding = projected["binding_receipt"]
+        manifest_ref = self.publish_immutable_json(f"plan/bindings/{version}/artifact_manifest.json", manifest, schema_name="artifact-manifest.schema.json")
+        map_ref = self.publish_immutable_json(f"plan/bindings/{version}/contract_map.json", contract_map, schema_name="contract-map.schema.json")
+        binding["manifest_ref"] = manifest_ref.as_dict(); binding["contract_map_ref"] = map_ref.as_dict()
+        binding_ref = self.publish_immutable_json(f"plan/bindings/{version}/receipt.json", binding, schema_name="binding-receipt.schema.json")
+
+        def replace_if_changed(relative_path: str, value: Mapping[str, Any]) -> None:
+            data = canonical_json_bytes(value)
+            path = self._confined(relative_path)
+            if path.is_file() and path.read_bytes() == data:
+                return
+            self._write_atomic_at(path, data)
+
+        replace_if_changed("plan/artifact_manifest.json", manifest)
+        replace_if_changed("plan/contract_map.json", contract_map)
+        return binding_ref
 
     def recover_s5_e0(self, fault_hook: Callable[[str], None] | None = None) -> dict[str, ArtifactRef] | None:
         """Return a previously accepted S5 suffix or fail closed on a damaged pending record."""
@@ -679,6 +989,21 @@ class RunStore:
             "path": "plan/active_plan.json",
             "sha256": self._canonical_value_hash(pointer),
         }
+        current_epoch = str(updated["stages"]["s5"].get("instance_id", "E0"))
+        current_match = re.fullmatch(r"E([0-9]+)", current_epoch)
+        next_match = re.fullmatch(r"E([0-9]+)", str(pointer.get("epoch", "")))
+        if current_match is None or next_match is None:
+            raise RunValidationError("S5 and active Plan epochs must be canonical")
+        current_number = int(current_match.group(1))
+        next_number = int(next_match.group(1))
+        if next_number < current_number:
+            raise RunValidationError("activation would move the S5 instance to an older epoch")
+        if next_number > current_number:
+            s5 = updated["stages"]["s5"]
+            if s5.get("status") != "done":
+                raise RunValidationError("F3 requires the predecessor S5 epoch to be done")
+            s5.update({"instance_id": str(pointer["epoch"]), "status": "pending", "started_at": None, "ended_at": None, "error": None})
+            s5.pop("output_refs", None)
         return run, updated
 
     def _normalize_activation_inputs(
@@ -817,7 +1142,8 @@ class RunStore:
                 )
             except PlanRevisionError as exc:
                 raise RunValidationError(str(exc)) from exc
-            if report != expected_report:
+            report_base = {key: report[key] for key in expected_report}
+            if report_base != expected_report:
                 raise RunValidationError("migration report is not the deterministic complete classification")
             if state.get("plan_ref") != new_pointer:
                 raise RunValidationError("projected Plan State does not bind the new active pointer")
@@ -865,7 +1191,11 @@ class RunStore:
                         "level": entry["level"], "trigger_event_seq": trigger_event["event_seq"],
                         "trigger_signature": self._canonical_value_hash(entry.get("trigger", {})),
                         "patch_ops": list(entry.get("patch_ops", [])),
-                        "migration": {key: report[key] for key in ("counts", "tasks", "files")},
+                        "migration": {
+                            key: copy.deepcopy(report[key])
+                            for key in ("counts", "tasks", "files", "pending_groups", "re_adopt")
+                            if key in report
+                        },
                         "preservation_rate": report["preservation_rate"],
                         "rework_cost_estimate_usd": entry.get("cost_usd", 0.0),
                         "gates": dict(entry["gates"]), "epoch_after": new_pointer["epoch"],
@@ -883,7 +1213,12 @@ class RunStore:
                         raise RunValidationError("revision entry Plan refs do not bind the activation pointers")
                     if activated_at_commit is not None and entry.get("activated_at_commit") != activated_at_commit:
                         raise RunValidationError("revision entry activation commit does not match the supplied activation commit")
-                    if entry.get("migration") != {key: report[key] for key in ("counts", "tasks", "files")} or entry.get("preservation_rate") != report["preservation_rate"]:
+                    expected_migration = {
+                        key: report[key]
+                        for key in ("counts", "tasks", "files", "pending_groups", "re_adopt")
+                        if key in report
+                    }
+                    if entry.get("migration") != expected_migration or entry.get("preservation_rate") != report["preservation_rate"]:
                         raise RunValidationError("revision entry migration does not bind the complete migration report")
                     new_revision_ledger = append_revision_entry(old_revision_ledger, entry)
             except PlanRevisionError as exc:

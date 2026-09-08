@@ -45,6 +45,70 @@ def _sorted(values: Any) -> list[Any]:
     return sorted((copy.deepcopy(value) for value in (values or [])), key=canonical_json_bytes)
 
 
+def validate_migration_extensions(
+    migration: Mapping[str, Any], *, level: str, revision_seq: int
+) -> None:
+    """Validate canonical activation-bound group and re-adoption declarations."""
+
+    groups = migration.get("pending_groups", [])
+    re_adopt = migration.get("re_adopt", [])
+    if level == "F2" and (groups or re_adopt):
+        raise PlanRevisionError("F2 migration cannot contain structural group or re-adoption rows")
+    if level not in {"F2", "F3"}:
+        raise PlanRevisionError("migration extensions require an F2 or F3 activation")
+    if not isinstance(groups, list) or not isinstance(re_adopt, list):
+        raise PlanRevisionError("migration extension rows must be arrays")
+    if groups != sorted(groups, key=lambda row: _utf8(row.get("group_id", "")) if isinstance(row, Mapping) else b""):
+        raise PlanRevisionError("pending migration groups must be sorted by group_id")
+    task_uids = {
+        row["new_task_uid"]
+        for row in migration.get("tasks", [])
+        if isinstance(row, Mapping) and isinstance(row.get("new_task_uid"), str)
+    }
+    group_ids: list[str] = []
+    claimed: dict[str, set[str]] = {
+        "member_task_uids": set(), "affected_paths": set(),
+        "affected_symbols": set(), "build_artifact_ids": set(),
+    }
+    for ordinal, group in enumerate(groups, 1):
+        if not isinstance(group, Mapping):
+            raise PlanRevisionError("pending migration group rows must be objects")
+        expected_id = f"g-{revision_seq}-{ordinal}"
+        if group.get("group_id") != expected_id:
+            raise PlanRevisionError("pending migration group id is not canonical for its activation")
+        group_ids.append(expected_id)
+        for key in ("member_task_uids", "affected_paths", "affected_symbols", "build_artifact_ids"):
+            values = group.get(key)
+            if not isinstance(values, list) or values != sorted(set(values), key=_utf8):
+                raise PlanRevisionError(f"pending migration group {key} must be sorted and unique")
+        if not set(group.get("member_task_uids", [])) <= task_uids:
+            raise PlanRevisionError("pending migration group references an unknown target task")
+        for key, seen in claimed.items():
+            overlap = seen & set(group.get(key, []))
+            if overlap:
+                raise PlanRevisionError("overlapping pending migration groups must be merged")
+            seen.update(group.get(key, []))
+    if len(group_ids) != len(set(group_ids)):
+        raise PlanRevisionError("pending migration group ids are duplicated")
+    if re_adopt != sorted(re_adopt, key=lambda row: (_utf8(row.get("quarantine_path", "")), _utf8(row.get("target_path", ""))) if isinstance(row, Mapping) else (b"", b"")):
+        raise PlanRevisionError("re-adoption rows must be sorted by quarantine and target path")
+    sources: list[str] = []
+    targets: list[str] = []
+    for row in re_adopt:
+        if not isinstance(row, Mapping):
+            raise PlanRevisionError("re-adoption rows must be objects")
+        sources.append(str(row.get("quarantine_path")))
+        targets.append(str(row.get("target_path")))
+        owner = row.get("owner", {})
+        if not isinstance(owner, Mapping) or owner.get("task_uid") not in task_uids:
+            raise PlanRevisionError("re-adoption owner is not a target Plan task")
+        matching = [item for item in migration.get("tasks", []) if item.get("new_task_uid") == owner.get("task_uid")]
+        if len(matching) != 1 or matching[0].get("new_task_id") != owner.get("task_id"):
+            raise PlanRevisionError("re-adoption owner id and uid disagree with migration tasks")
+    if len(sources) != len(set(sources)) or len(targets) != len(set(targets)):
+        raise PlanRevisionError("re-adoption source and target paths must be unique")
+
+
 def _validate_complete_inputs(
     old_plan: Mapping[str, Any],
     new_plan: Mapping[str, Any],
@@ -351,12 +415,46 @@ def validate_file_ledger(ledger: Mapping[str, Any]) -> None:
     paths = [row["path"] for row in ledger.get("files", [])]
     if len(paths) != len(set(paths)):
         raise PlanRevisionError("file ledger paths must be unique")
+    quarantine_paths: list[str] = []
     for row in ledger.get("files", []):
         state = row["state"]
         if state == "slot_only" and any(key in row for key in ("created_in_epoch", "content_sha256", "last_commit_sha", "verified_by", "owner_history", "created_by_stage", "epoch_receipt_ref", "quarantined_in_epoch", "quarantine_path")):
             raise PlanRevisionError("slot_only file rows cannot carry realization evidence")
         if state == "realized" and any(key in row for key in ("quarantined_in_epoch", "quarantine_path")):
             raise PlanRevisionError("realized file rows cannot carry quarantine evidence")
+        if state == "realized":
+            if row["class"] == "s5_frozen" and "owner_history" in row:
+                raise PlanRevisionError("S5-frozen rows cannot carry S6 owner history")
+            if row["class"] == "s6_owned":
+                history = row.get("owner_history")
+                if not isinstance(history, list) or not history:
+                    raise PlanRevisionError("realized S6-owned rows require owner history")
+                seen_owners: set[tuple[Any, Any, Any]] = set()
+                for owner in history:
+                    if not isinstance(owner, Mapping):
+                        raise PlanRevisionError("S6 owner history contains a non-object row")
+                    identity = (owner.get("plan_version"), owner.get("task_uid"), owner.get("task_id"))
+                    if identity in seen_owners:
+                        raise PlanRevisionError("S6 owner history repeats an identity")
+                    seen_owners.add(identity)
+            verified = row.get("verified_by")
+            if isinstance(verified, Mapping) and verified.get("build_variant_ids") != sorted(set(verified.get("build_variant_ids", [])), key=lambda item: str(item).encode("utf-8")):
+                raise PlanRevisionError("file verification variants are not sorted and unique")
+        if state == "quarantined":
+            if row["class"] != "s6_owned":
+                raise PlanRevisionError("only realized S6-owned rows may be quarantined")
+            quarantine = row.get("quarantine_path")
+            quarantine_epoch = row.get("quarantined_in_epoch")
+            if not isinstance(quarantine, str) or not isinstance(quarantine_epoch, str) or re.fullmatch(r"E[0-9]+", quarantine_epoch) is None or quarantine != f"_orphan/{quarantine_epoch}/{row['path']}":
+                raise PlanRevisionError("quarantine path is not the canonical epoch-scoped path")
+            if row.get("created_in_epoch") == quarantine_epoch:
+                raise PlanRevisionError("a row cannot be created and retired in the same epoch")
+            quarantine_paths.append(quarantine)
+    if len(quarantine_paths) != len(set(quarantine_paths)):
+        raise PlanRevisionError("file ledger quarantine paths must be unique")
+    active_paths = {row["path"] for row in ledger.get("files", []) if row["state"] != "quarantined"}
+    if active_paths & set(quarantine_paths):
+        raise PlanRevisionError("active file paths cannot collide with quarantine paths")
 
 
 def _pointer_version(pointer: Mapping[str, Any]) -> tuple[int, int, int]:
@@ -648,6 +746,7 @@ def _validate_revision_ledger_v1(ledger: Mapping[str, Any]) -> None:
         expected_rate = 1.0 if denominator == 0 else preserved / denominator
         if entry["preservation_rate"] != expected_rate:
             raise PlanRevisionError("revision preservation rate drifts from file rows")
+        validate_migration_extensions(migration, level=entry["level"], revision_seq=entry["revision_seq"])
         previous = _sha(entry)
         previous_version = entry["to_version"]
         previous_epoch = entry["epoch_after"]
@@ -669,6 +768,7 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
     latest_revision = 0
     accepted_events: set[int] = set()
     activation_by_seq: dict[int, Mapping[str, Any]] = {}
+    materialized_revisions: set[int] = set()
     verification_ids: set[str] = set()
     verification_evidence: set[tuple[str, str]] = set()
     lease_starts: dict[str, Mapping[str, Any]] = {}
@@ -740,6 +840,24 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
             if entry["event_type"] == "epoch_materialized":
                 if payload["revision_seq"] != latest_revision:
                     raise PlanRevisionError("epoch materialization revision sequence disagrees with latest activation")
+                revision_seq = payload["revision_seq"]
+                if revision_seq in materialized_revisions:
+                    raise PlanRevisionError("revision ledger contains a duplicate epoch materialization")
+                receipt_path = payload["epoch_receipt_ref"].get("path")
+                binding_path = payload["binding_ref"].get("path")
+                receipt_match = re.fullmatch(r"plan/epochs/(E[0-9]+)/receipt\.json", str(receipt_path))
+                if receipt_match is None:
+                    raise PlanRevisionError("epoch materialization receipt is not epoch scoped")
+                if revision_seq == 0:
+                    if receipt_match.group(1) != "E0" or binding_path != "plan/bindings/1.0.0/receipt.json":
+                        raise PlanRevisionError("E0 materialization refs are not canonical")
+                else:
+                    activation = activation_by_seq.get(revision_seq)
+                    if activation is None or activation.get("level") != "F3":
+                        raise PlanRevisionError("E1+ materialization requires its accepted F3 activation")
+                    if receipt_match.group(1) != activation.get("epoch_after") or binding_path != f"plan/bindings/{activation.get('to_version')}/receipt.json":
+                        raise PlanRevisionError("epoch materialization refs disagree with its F3 activation")
+                materialized_revisions.add(revision_seq)
             if any(not isinstance(value, int) or value >= entry["event_seq"] or value not in accepted_events for value in ref_events):
                 raise PlanRevisionError("revision ledger event references a future or unaccepted event")
         if entry["event_type"] == "revision_activated":
@@ -747,6 +865,8 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
                 raise PlanRevisionError("revision activation sequence is not consecutive")
             if payload["pending_materialization"] is False and payload.get("binding_ref") is None:
                 raise PlanRevisionError("accepted activation without pending materialization requires a binding ref")
+            validate_activation_binding(payload, payload.get("binding_ref") if payload.get("pending_materialization") is False else None)
+            validate_migration_extensions(payload["migration"], level=payload["level"], revision_seq=payload["revision_seq"])
             latest_revision = payload["revision_seq"]
             activation_by_seq[latest_revision] = payload
         if entry["event_type"] == "epoch_materialized":
@@ -780,6 +900,30 @@ def latest_activation(ledger: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return None
 
 
+def validate_activation_binding(activation: Mapping[str, Any], binding: Mapping[str, Any] | None) -> None:
+    """Validate the dormant binding reference of an already accepted activation."""
+
+    level = activation.get("level")
+    if level not in {"F2", "F3"}:
+        raise PlanRevisionError("activation level is unsupported")
+    if activation.get("pending_materialization"):
+        if binding is not None:
+            raise PlanRevisionError("pending activation cannot claim a completed binding")
+        return
+    if not isinstance(binding, Mapping):
+        raise PlanRevisionError("completed activation is missing its binding")
+    expected_plan = activation.get("to_plan_ref")
+    expected_version = activation.get("to_version")
+    expected_epoch = activation.get("epoch_after")
+    if binding.get("plan_ref") != expected_plan:
+        raise PlanRevisionError("activation binding Plan ref disagrees")
+    receipt_path = binding.get("epoch_receipt_ref", {}).get("path") if isinstance(binding.get("epoch_receipt_ref"), Mapping) else None
+    if receipt_path != f"plan/epochs/{expected_epoch}/receipt.json":
+        raise PlanRevisionError("activation binding epoch disagrees")
+    if binding.get("manifest_ref", {}).get("path") != f"plan/bindings/{expected_version}/artifact_manifest.json" or binding.get("contract_map_ref", {}).get("path") != f"plan/bindings/{expected_version}/contract_map.json":
+        raise PlanRevisionError("activation binding version paths disagree")
+
+
 def build_event_entry(ledger: Mapping[str, Any], event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     if ledger.get("schema_version") != "2.0":
         raise PlanRevisionError("typed events require a v2 revision ledger")
@@ -805,7 +949,7 @@ def append_epoch_materialized(
     binding_ref: Mapping[str, Any],
     revision_seq: int = 0,
 ) -> dict[str, Any]:
-    """Append the accepted E0 fact exactly once."""
+    """Append one accepted epoch fact exactly once."""
 
     current = copy.deepcopy(dict(ledger))
     if current.get("schema_version") != "2.0":
@@ -966,11 +1110,19 @@ def build_revision_entry(
     cost_usd: float = 0.0,
 ) -> dict[str, Any]:
     validate_plan_successor(old_pointer, new_pointer, level)
-    migration_value = {key: copy.deepcopy(migration[key]) for key in ("counts", "tasks", "files")}
+    errors = _schema_errors(migration, "migration-report.schema.json")
+    if errors:
+        raise PlanRevisionError("migration report failed Schema validation: " + "; ".join(errors))
+    migration_value = {
+        key: copy.deepcopy(migration[key])
+        for key in ("counts", "tasks", "files", "pending_groups", "re_adopt")
+        if key in migration
+    }
+    validate_migration_extensions(migration_value, level=level, revision_seq=new_pointer["revision_seq"])
     entry = {"revision_seq": new_pointer["revision_seq"], "prev_entry_sha256": _ZERO_HASH, "from_plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]}, "to_plan_ref": {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}, "from_version": old_pointer["version"], "to_version": new_pointer["version"], "level": level, "trigger": copy.deepcopy(dict(trigger)), "trigger_signature": _sha(trigger), "patch_ops": _sorted(patch_ops), "migration": migration_value, "preservation_rate": migration.get("preservation_rate", 1.0), "gates": copy.deepcopy(dict(gates)), "epoch_after": new_pointer["epoch"], "activated_at_commit": activated_at_commit, "cost_usd": cost_usd}
     return entry
 
 
 __all__ = [
-    "PlanRevisionError", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_file_ledger", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
+    "PlanRevisionError", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_activation_binding", "validate_file_ledger", "validate_migration_extensions", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
 ]

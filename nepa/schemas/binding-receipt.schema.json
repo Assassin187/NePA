@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.local/schemas/binding-receipt.schema.json",
-  "title": "NePA E0 binding receipt",
+  "title": "NePA version binding receipt",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "plan_ref", "epoch_receipt_ref", "manifest_ref", "contract_map_ref"],

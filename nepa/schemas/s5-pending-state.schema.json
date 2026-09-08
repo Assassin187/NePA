@@ -1,20 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.local/schemas/s5-pending-state.schema.json",
-  "title": "NePA S5 E0 pending state",
+  "title": "NePA S5 epoch pending state",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "epoch", "phase", "plan_ref", "input_refs", "blueprint", "constraints", "blueprint_sha256", "rendering_view", "rendering_view_sha256", "expected_files", "build_results", "smoke_results", "checkpoint_commit", "checkpoint_tree", "output_refs"],
   "properties": {
-    "schema_version": {"const": "1.0"}, "epoch": {"const": "E0"}, "phase": {"enum": ["pending", "rendered", "built", "smoked", "checkpointed", "receipted", "accepted"]}, "plan_ref": {"$ref": "#/$defs/ref"},
+    "schema_version": {"const": "1.0"}, "epoch": {"type": "string", "pattern": "^E[0-9]+$"}, "phase": {"enum": ["pending", "rendered", "built", "smoked", "checkpointed", "receipted", "accepted"]}, "plan_ref": {"$ref": "#/$defs/ref"},
     "input_refs": {"type": "object", "additionalProperties": false, "required": ["spec", "target_profile", "test_bundle"], "properties": {"spec": {"$ref": "#/$defs/ref"}, "target_profile": {"$ref": "#/$defs/ref"}, "test_bundle": {"$ref": "#/$defs/ref"}}},
     "blueprint": {"type": "object"}, "constraints": {"type": "object"}, "blueprint_sha256": {"$ref": "#/$defs/sha256"}, "rendering_view": {"type": "object"}, "rendering_view_sha256": {"$ref": "#/$defs/sha256"},
-    "expected_files": {"type": "array", "items": {"$ref": "#/$defs/file"}}, "build_results": {"type": "array", "items": {"type": "object"}}, "smoke_results": {"type": "array", "items": {"type": "object"}},
+    "expected_files": {"type": "array", "items": {"$ref": "#/$defs/file"}}, "before_files": {"type": "array", "items": {"$ref": "#/$defs/file"}}, "before_file_ledger": {"type": "object"}, "before_manifest": {"type": "object"}, "before_contract_map": {"type": "object"}, "projected_file_ledger": {"type": "object"}, "build_results": {"type": "array", "items": {"type": "object"}}, "smoke_results": {"type": "array", "items": {"type": "object"}},
+    "predecessor_epoch": {"type": ["string", "null"], "pattern": "^E[0-9]+$"},
+    "predecessor_checkpoint": {"anyOf": [{"$ref": "#/$defs/checkpoint"}, {"type": "null"}]},
+    "predecessor_receipt_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "predecessor_binding_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "activation_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "migration": {"anyOf": [{"$ref": "#/$defs/migration"}, {"type": "null"}]},
+    "action_plan": {"type": "array", "items": {"$ref": "#/$defs/action"}},
+    "new_inventory": {"type": "object"}, "materialization_status": {"enum": ["ready", "pending_repair"]}, "pending_group_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "expected_path_facts": {"type": "array", "items": {"$ref": "#/$defs/pathFact"}},
+    "projected_active_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "projected_quarantine_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "checkpoint_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "checkpoint_tree": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "output_refs": {"type": "object", "additionalProperties": false, "properties": {"epoch_receipt": {"$ref": "#/$defs/ref"}, "binding_receipt": {"$ref": "#/$defs/ref"}}}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "content"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "content": {"type": "string"}}}
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "content"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "content": {"type": "string"}}},
+    "checkpoint": {"type": "object", "additionalProperties": false, "required": ["commit_sha", "tree_sha"], "properties": {"commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "tree_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}},
+    "migration": {"type": "object", "additionalProperties": false, "required": ["counts", "tasks", "files"], "properties": {"counts": {"type": "object"}, "tasks": {"type": "array", "items": {"type": "object"}}, "files": {"type": "array", "items": {"type": "object"}}, "pending_groups": {"type": "array", "items": {"$ref": "#/$defs/pendingGroup"}}, "re_adopt": {"type": "array", "items": {"$ref": "#/$defs/reAdopt"}}}},
+    "pendingGroup": {"type": "object", "additionalProperties": false, "required": ["group_id", "member_task_uids", "affected_paths", "affected_symbols", "build_artifact_ids"], "properties": {"group_id": {"type": "string", "pattern": "^g-[1-9][0-9]*-[1-9][0-9]*$"}, "member_task_uids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "affected_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "affected_symbols": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "build_artifact_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
+    "reAdopt": {"type": "object", "additionalProperties": false, "required": ["quarantine_path", "target_path", "owner", "content_sha256"], "properties": {"quarantine_path": {"type": "string", "minLength": 1}, "target_path": {"type": "string", "minLength": 1}, "owner": {"type": "object", "additionalProperties": false, "required": ["task_uid", "task_id"], "properties": {"task_uid": {"type": "string", "minLength": 1}, "task_id": {"type": "string", "minLength": 1}}}, "content_sha256": {"$ref": "#/$defs/sha256"}}},
+    "pathFact": {"type": "object", "additionalProperties": false, "required": ["path", "before_sha256", "after_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "before_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}, "after_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}, "before_path": {"type": ["string", "null"], "minLength": 1}, "after_path": {"type": ["string", "null"], "minLength": 1}}},
+    "action": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"enum": ["render", "replace", "new_stub", "preserve", "retire_slot", "quarantine", "re_adopt"]}, "path": {"type": "string", "minLength": 1}, "source_path": {"type": ["string", "null"], "minLength": 1}, "target_path": {"type": ["string", "null"], "minLength": 1}, "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}, "content": {"type": ["string", "null"]}, "owner": {"type": ["object", "null"]}}}
   }
 }

@@ -31,6 +31,15 @@ def test_frozen_s5_fixtures_are_s4_published_and_canonical():
         assert metadata["s4_anchors"]["plan"]["sha256"] == plan_sha
         validate_file_ledger(ledger)
         validate_revision_ledger(revision)
+        epochs = json.loads((fixture / "epoch_inputs.json").read_text(encoding="utf-8"))
+        assert (fixture / "epoch_inputs.json").read_bytes().rstrip(b"\n") == canonical_json_bytes(epochs)
+        assert epochs["fixture_id"] == f"{case_id}-multi-epoch"
+        assert epochs["f2"]["activation_input"]["level"] == "F2" and epochs["f2"]["plan_ref"]["epoch"] == "E0"
+        assert epochs["f3"]["activation_input"]["level"] == "F3" and epochs["f3"]["plan_ref"]["epoch"] == "E1"
+        assert epochs["f3"]["predecessor"]["epoch"] == "E0"
+        source_files = {"plan_ref": "plan.json", "active_plan": "active_plan.json", "file_ledger": "file_ledger.json"}
+        for name, local_name in source_files.items():
+            assert epochs["source_e0"][name]["sha256"] == hashlib.sha256((fixture / local_name).read_bytes()).hexdigest()
 
 
 def test_fixture_generator_replays_identical_semantic_bytes(tmp_path):
@@ -43,3 +52,8 @@ def test_fixture_generator_replays_identical_semantic_bytes(tmp_path):
     second_files = sorted(path.relative_to(second).as_posix() for path in second.rglob("*") if path.is_file())
     assert first_files == second_files
     assert {relative: (first / relative).read_bytes() for relative in first_files} == {relative: (second / relative).read_bytes() for relative in second_files}
+    checked_in_files = sorted(path.relative_to(FIXTURES).as_posix() for path in FIXTURES.rglob("*") if path.is_file() and path.name != "README.md")
+    assert first_files == checked_in_files
+    assert {relative: (first / relative).read_bytes() for relative in first_files} == {
+        relative: (FIXTURES / relative).read_bytes() for relative in checked_in_files
+    }

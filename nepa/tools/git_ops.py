@@ -1,4 +1,4 @@
-"""Small, deterministic git boundary for the single E0 checkpoint."""
+"""Small, deterministic git boundary for epoch checkpoints."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Iterable, Mapping
 
 
 class GitOperationError(RuntimeError):
-    """The E0 checkpoint could not be created or verified."""
+    """An epoch checkpoint could not be created or verified."""
 
 
 def _run(workspace: Path, args: list[str], *, env: Mapping[str, str] | None = None) -> str:
@@ -29,43 +29,60 @@ def checkpoint_workspace(workspace: str | Path, paths: Iterable[str], *, plan_ve
         _run(root, ["init", "--quiet"])
         _run(root, ["config", "user.name", "NePA Materialization"])
         _run(root, ["config", "user.email", "materialization@nepa.invalid"])
-    status = _run(root, ["status", "--porcelain", "--untracked-files=all"])
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if status_result.returncode != 0:
+        raise GitOperationError(status_result.stderr.strip() or "git status failed")
+    status = status_result.stdout.rstrip("\n")
     if status:
         unexpected = [line[3:] for line in status.splitlines() if len(line) >= 4]
         allowed = set(paths)
         if any(path not in allowed for path in unexpected):
-            raise GitOperationError("workspace contains an unrecorded path before E0 checkpoint")
+            raise GitOperationError("workspace contains an unrecorded path before epoch checkpoint")
     path_list = sorted(set(paths), key=lambda value: value.encode("utf-8"))
-    if not path_list:
-        raise GitOperationError("E0 checkpoint cannot be empty")
-    _run(root, ["add", "--", *path_list])
-    staged = _run(root, ["diff", "--cached", "--name-only", "--diff-filter=ACMRT"])
+    if not path_list and epoch == "E0":
+        raise GitOperationError("epoch checkpoint cannot be empty")
+    if path_list:
+        _run(root, ["add", "--all", "--", *path_list])
+    staged = _run(root, ["diff", "--cached", "--name-only", "--no-renames"])
     if set(staged.splitlines()) != set(path_list):
-        raise GitOperationError("E0 staged tree does not equal the rendered path set")
+        raise GitOperationError("epoch staged tree does not equal the selected path set")
     has_commit = subprocess.run(["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=root, capture_output=True, text=True, check=False).returncode == 0
-    if has_commit:
-        raise GitOperationError("workspace already has a checkpoint; recovery must verify and reuse it")
+    if has_commit and epoch == "E0":
+        raise GitOperationError("workspace already has an E0 checkpoint; recovery must verify and reuse it")
+    if not has_commit and epoch != "E0":
+        raise GitOperationError("E1+ checkpoint requires an existing predecessor repository")
     env = dict(os.environ)
     env.update({"GIT_AUTHOR_NAME": "NePA Materialization", "GIT_AUTHOR_EMAIL": "materialization@nepa.invalid", "GIT_COMMITTER_NAME": "NePA Materialization", "GIT_COMMITTER_EMAIL": "materialization@nepa.invalid"})
     message = f"Materialize {plan_version} {epoch}\n\nNePA-Plan: {plan_version}\nNePA-Epoch: {epoch}\n"
-    result = subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=root, capture_output=True, text=True, check=False, env=env)
+    commit_args = ["git", "commit", "--quiet", "-m", message]
+    if not path_list:
+        commit_args.insert(3, "--allow-empty")
+    result = subprocess.run(commit_args, cwd=root, capture_output=True, text=True, check=False, env=env)
     if result.returncode != 0:
         raise GitOperationError(f"git commit failed: {result.stderr.strip()}")
     commit_sha = _run(root, ["rev-parse", "HEAD"])
     tree_sha = _run(root, ["rev-parse", "HEAD^{tree}"])
     body = _run(root, ["show", "-s", "--format=%B", "HEAD"])
     if f"NePA-Plan: {plan_version}" not in body or f"NePA-Epoch: {epoch}" not in body:
-        raise GitOperationError("E0 checkpoint trailers are missing")
-    return {"commit_sha": commit_sha, "tree_sha": tree_sha, "initialized": initialized}
+        raise GitOperationError("epoch checkpoint trailers are missing")
+    return {"commit_sha": commit_sha, "tree_sha": tree_sha, "initialized": initialized, "plan_version": plan_version, "epoch": epoch}
 
 
 def verify_checkpoint(workspace: str | Path, checkpoint: dict[str, str]) -> None:
     root = Path(workspace).resolve()
     if _run(root, ["rev-parse", "HEAD"]) != checkpoint["commit_sha"] or _run(root, ["rev-parse", "HEAD^{tree}"]) != checkpoint["tree_sha"]:
-        raise GitOperationError("E0 checkpoint commit or tree drifted")
+        raise GitOperationError("epoch checkpoint commit or tree drifted")
     body = _run(root, ["show", "-s", "--format=%B", "HEAD"])
-    if "NePA-Plan: 1.0.0" not in body or "NePA-Epoch: E0" not in body:
-        raise GitOperationError("E0 checkpoint trailers drifted")
+    plan_version = checkpoint.get("plan_version", "1.0.0")
+    epoch = checkpoint.get("epoch", "E0")
+    if f"NePA-Plan: {plan_version}" not in body or f"NePA-Epoch: {epoch}" not in body:
+        raise GitOperationError("epoch checkpoint trailers drifted")
 
 
 def commit_task(

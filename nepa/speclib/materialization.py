@@ -1,10 +1,11 @@
-"""Pure, protocol-neutral S5 E0 materialization projections."""
+"""Pure, protocol-neutral S5 epoch materialization projections."""
 
 from __future__ import annotations
 
 import hashlib
 import importlib.resources
 import re
+import copy
 from collections import defaultdict
 from typing import Any, Mapping
 
@@ -15,7 +16,7 @@ from .lint import canonical_json_bytes
 
 
 class MaterializationError(ValueError):
-    """A sealed S4 input cannot be rendered as the finite E0 grammar."""
+    """A sealed S4 input cannot be rendered as the finite S5 grammar."""
 
     def __init__(self, message: str, *, code: str = "S5_RENDERABILITY_INVALID") -> None:
         self.code = code
@@ -436,12 +437,12 @@ def build_artifact_manifest(plan_ref: Mapping[str, Any], blueprint: Mapping[str,
         }, key=_utf8)
         files.append({
             "rule_id": rule.get("rule_id", rule.get("id", path)), "path": path, "kind": kind,
-            "sha256": _sha(data), "created_by_stage": "s5", "mutability": mutability,
+            "sha256": rendering_view.get("content_hashes", {}).get(path, _sha(data)), "created_by_stage": "s5", "mutability": mutability,
             "owner_task_id": rule.get("owner_task_id") if mutability == "s6_owned" else None,
             "build_variant_ids": build_variants,
         })
     return {
-        "schema_version": "2.0", "plan_version": "1.0.0", "plan_sha256": plan_ref["sha256"],
+        "schema_version": "2.0", "plan_version": _plan_version(plan_ref), "plan_sha256": plan_ref["sha256"],
         "delivery_blueprint_sha256": _sha(blueprint), "epoch": epoch, "files": files,
         "delivery_graph": {
             "deliverables": list(blueprint.get("deliverables", [])),
@@ -473,9 +474,700 @@ def build_contract_map(plan_ref: Mapping[str, Any], blueprint: Mapping[str, Any]
             ],
         })
     return {
-        "schema_version": "2.0", "plan_version": "1.0.0", "plan_sha256": plan_ref["sha256"],
+        "schema_version": "2.0", "plan_version": _plan_version(plan_ref), "plan_sha256": plan_ref["sha256"],
         "delivery_blueprint_sha256": _sha(blueprint), "epoch": epoch, "contracts": contracts,
     }
+
+
+def _plan_version(plan_ref: Mapping[str, Any]) -> str:
+    value = plan_ref.get("version")
+    if isinstance(value, str) and re.fullmatch(r"1\.[0-9]+\.[0-9]+", value):
+        return value
+    path = plan_ref.get("path")
+    match = re.fullmatch(r"plan/versions/plan-(1\.[0-9]+\.[0-9]+)\.json", str(path))
+    if match is None:
+        raise MaterializationError("Plan ref is not an immutable version path", code="S5_PLAN_REF_INVALID")
+    return match.group(1)
+
+
+def _epoch_number(epoch: Any) -> int:
+    match = re.fullmatch(r"E([0-9]+)", str(epoch))
+    if match is None:
+        raise MaterializationError("epoch must use canonical E<n> spelling", code="S5_EPOCH_INVALID")
+    return int(match.group(1))
+
+
+def _safe_relative_path(value: Any, *, allow_orphan: bool = False) -> str:
+    if not isinstance(value, str):
+        raise MaterializationError("materialization paths must be strings", code="S5_PATH_INVALID")
+    path = value
+    pure = re.split(r"[/\\]", path)
+    if not path or path.startswith(('/', '\\')) or any(part in {"", ".", ".."} for part in pure) or ".git" in pure:
+        raise MaterializationError(f"unsafe materialization path: {path!r}", code="S5_PATH_INVALID")
+    if not allow_orphan and pure[0] == "_orphan":
+        raise MaterializationError("active materialization paths cannot be under _orphan", code="S5_PATH_INVALID")
+    return "/".join(pure)
+
+
+def _path_hash(files: Mapping[str, Any], path: str) -> str | None:
+    if path not in files:
+        return None
+    value = files[path]
+    if isinstance(value, bytes):
+        return _sha(value)
+    if isinstance(value, str):
+        return _sha(value.encode("utf-8"))
+    if isinstance(value, Mapping) and isinstance(value.get("sha256"), str):
+        return value["sha256"]
+    raise MaterializationError(f"workspace fact for {path!r} is not hashable", code="S5_PATH_FACT_INVALID")
+
+
+def _expanded_inventory(blueprint: Mapping[str, Any], constraints: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    rows = expand_file_rules(blueprint, constraints)
+    result: dict[str, Mapping[str, Any]] = {}
+    for row in rows:
+        path = _safe_relative_path(row.get("path"))
+        if path in result:
+            raise MaterializationError(f"Blueprint expands the path more than once: {path}", code="S5_BLUEPRINT_PATH_COLLISION")
+        result[path] = dict(row)
+    return result
+
+
+def build_epoch_context(
+    run: Mapping[str, Any] | None = None,
+    plan: Mapping[str, Any] | None = None,
+    active_plan: Mapping[str, Any] | None = None,
+    plan_ref: Mapping[str, Any] | None = None,
+    blueprint: Mapping[str, Any] | None = None,
+    constraints: Mapping[str, Any] | None = None,
+    *,
+    spec: Mapping[str, Any] | None = None,
+    target: Mapping[str, Any] | None = None,
+    state: Mapping[str, Any] | None = None,
+    file_ledger: Mapping[str, Any] | None = None,
+    revision_ledger: Mapping[str, Any] | None = None,
+    old_plan: Mapping[str, Any] | None = None,
+    old_plan_ref: Mapping[str, Any] | None = None,
+    old_blueprint: Mapping[str, Any] | None = None,
+    predecessor_receipt: Mapping[str, Any] | None = None,
+    predecessor_binding: Mapping[str, Any] | None = None,
+    activation: Mapping[str, Any] | None = None,
+    migration: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a copied, filesystem-free admission context for one epoch.
+
+    The function intentionally accepts already-frozen values.  Reading a run,
+    pointer, or Blueprint from disk belongs to the controller boundary; this
+    projection only checks their cross-object identity and returns no aliases
+    to caller-owned mutable input.
+    """
+
+    if not all(isinstance(value, Mapping) for value in (plan, active_plan, plan_ref, blueprint, constraints)):
+        raise MaterializationError("epoch context is missing a sealed Plan, pointer, Blueprint, or constraints", code="S5_ADMISSION_INVALID")
+    assert plan is not None and active_plan is not None and plan_ref is not None and blueprint is not None and constraints is not None
+    value_plan = copy.deepcopy(dict(plan))
+    value_pointer = copy.deepcopy(dict(active_plan))
+    value_plan_ref = copy.deepcopy(dict(plan_ref))
+    value_blueprint = copy.deepcopy(dict(blueprint))
+    value_constraints = copy.deepcopy(dict(constraints))
+    epoch = value_pointer.get("epoch")
+    number = _epoch_number(epoch)
+    version = _plan_version(value_plan_ref)
+    if value_pointer.get("version") != version or value_pointer.get("path") != value_plan_ref.get("path") or value_pointer.get("sha256") != value_plan_ref.get("sha256"):
+        raise MaterializationError("active Plan pointer and Plan ref disagree", code="S5_ADMISSION_INVALID")
+    if value_plan_ref.get("sha256") != _sha(value_plan):
+        raise MaterializationError("active Plan ref hash does not match the sealed Plan", code="S5_PLAN_DRIFT")
+    if value_plan.get("delivery_blueprint_sha256") != _sha(value_blueprint):
+        raise MaterializationError("active Plan Blueprint binding drifted", code="S5_BLUEPRINT_DRIFT")
+    if value_pointer.get("revision_seq") != number and number == 0:
+        raise MaterializationError("E0 pointer has an invalid revision sequence", code="S5_ADMISSION_INVALID")
+    if file_ledger is not None:
+        from .plan_revision import validate_file_ledger
+        validate_file_ledger(file_ledger)
+    if revision_ledger is not None:
+        from .plan_revision import latest_activation, validate_revision_ledger
+        validate_revision_ledger(revision_ledger)
+        ledger_activation = latest_activation(revision_ledger)
+        if number > 0:
+            if activation is None:
+                activation = ledger_activation
+            if not isinstance(activation, Mapping) or dict(activation) != dict(ledger_activation or {}):
+                raise MaterializationError("E1+ context is not bound to the latest accepted activation", code="S5_ACTIVATION_INVALID")
+        elif ledger_activation is not None:
+            raise MaterializationError("E0 context cannot contain an accepted activation", code="S5_ADMISSION_INVALID")
+    if number == 0:
+        if value_pointer.get("revision_seq") != 0:
+            raise MaterializationError("E0 context requires revision sequence zero", code="S5_ADMISSION_INVALID")
+        value_old_plan = copy.deepcopy(dict(old_plan or value_plan))
+        value_old_ref = copy.deepcopy(dict(old_plan_ref or value_plan_ref))
+        value_old_blueprint = copy.deepcopy(dict(old_blueprint or value_blueprint))
+        value_migration: Mapping[str, Any] | None = None
+    else:
+        if not isinstance(activation, Mapping) or activation.get("level") != "F3":
+            raise MaterializationError("E1+ materialization requires an accepted F3 activation", code="S5_ACTIVATION_INVALID")
+        if activation.get("revision_seq") != value_pointer.get("revision_seq") or activation.get("to_version") != version or activation.get("epoch_after") != epoch or activation.get("to_plan_ref") != {"path": value_plan_ref.get("path"), "sha256": value_plan_ref.get("sha256")}:
+            raise MaterializationError("active pointer does not match its F3 activation", code="S5_ACTIVATION_INVALID")
+        value_migration = copy.deepcopy(dict(migration or activation.get("migration") or {}))
+        if migration is not None and activation.get("migration") is not None and dict(migration) != dict(activation["migration"]):
+            raise MaterializationError("migration input is not the frozen activation migration", code="S5_MIGRATION_INVALID")
+        if not value_migration:
+            raise MaterializationError("E1+ activation has no frozen migration rows", code="S5_MIGRATION_INVALID")
+        if not isinstance(old_plan, Mapping) or not isinstance(old_plan_ref, Mapping) or not isinstance(old_blueprint, Mapping):
+            raise MaterializationError("E1+ context is missing its predecessor Plan and Blueprint", code="S5_PREDECESSOR_INVALID")
+        value_old_plan = copy.deepcopy(dict(old_plan))
+        value_old_ref = copy.deepcopy(dict(old_plan_ref))
+        value_old_blueprint = copy.deepcopy(dict(old_blueprint))
+        if _plan_version(value_old_ref) != activation.get("from_version") or value_old_ref.get("path") != activation.get("from_plan_ref", {}).get("path") or value_old_ref.get("sha256") != activation.get("from_plan_ref", {}).get("sha256"):
+            raise MaterializationError("predecessor Plan ref disagrees with the activation", code="S5_PREDECESSOR_INVALID")
+        if value_old_ref.get("sha256") != _sha(value_old_plan):
+            raise MaterializationError("predecessor Plan ref hash does not match the predecessor Plan", code="S5_PREDECESSOR_INVALID")
+        if _epoch_number(predecessor_receipt.get("epoch") if predecessor_receipt else None) != number - 1:
+            raise MaterializationError("predecessor receipt is not the immediate prior epoch", code="S5_PREDECESSOR_INVALID")
+        checkpoint = predecessor_receipt.get("checkpoint_commit") if predecessor_receipt else None
+        if not isinstance(checkpoint, str) or not re.fullmatch(r"[0-9a-f]{40}", checkpoint):
+            raise MaterializationError("predecessor receipt has no canonical checkpoint", code="S5_PREDECESSOR_INVALID")
+        if not isinstance(predecessor_binding, Mapping) or predecessor_binding.get("epoch_receipt_ref", {}).get("path") != f"plan/epochs/E{number - 1}/receipt.json":
+            raise MaterializationError("predecessor binding does not reference the immediate epoch", code="S5_PREDECESSOR_INVALID")
+        if predecessor_receipt.get("materialized_plan_ref") != value_old_ref:
+            raise MaterializationError("predecessor receipt does not bind the predecessor Plan", code="S5_PREDECESSOR_INVALID")
+        if predecessor_binding.get("plan_ref") != value_old_ref or predecessor_binding.get("epoch_receipt_ref", {}).get("sha256") != _sha(predecessor_receipt):
+            raise MaterializationError("predecessor binding facts are not mutually bound", code="S5_PREDECESSOR_INVALID")
+    if state is not None and isinstance(state.get("plan_ref"), Mapping):
+        state_ref = state["plan_ref"]
+        if state_ref.get("path") != value_plan_ref.get("path") or state_ref.get("sha256") != value_plan_ref.get("sha256"):
+            raise MaterializationError("Plan State is not bound to the active Plan", code="S5_STATE_INVALID")
+    old_inventory = _expanded_inventory(value_old_blueprint, value_constraints)
+    new_inventory = _expanded_inventory(value_blueprint, value_constraints)
+    return {
+        "schema_version": "1.0", "epoch": epoch, "epoch_number": number, "plan_version": version, "run": copy.deepcopy(dict(run or {})),
+        "plan": value_plan, "plan_ref": value_plan_ref, "active_plan": value_pointer,
+        "old_plan": value_old_plan, "old_plan_ref": value_old_ref, "blueprint": value_blueprint,
+        "old_blueprint": value_old_blueprint, "constraints": value_constraints,
+        "spec": copy.deepcopy(dict(spec or {})), "target": copy.deepcopy(dict(target or {})),
+        "state": copy.deepcopy(dict(state or {})), "file_ledger": copy.deepcopy(dict(file_ledger or {})),
+        "revision_ledger": copy.deepcopy(dict(revision_ledger or {})),
+        "activation": copy.deepcopy(dict(activation or {})), "migration": copy.deepcopy(dict(value_migration or {})),
+        "predecessor_receipt": copy.deepcopy(dict(predecessor_receipt or {})),
+        "predecessor_binding": copy.deepcopy(dict(predecessor_binding or {})),
+        "old_inventory": old_inventory, "new_inventory": new_inventory,
+    }
+
+
+def _migration_file_rows(migration: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    rows = migration.get("files", [])
+    if not isinstance(rows, list):
+        raise MaterializationError("migration file rows must be an array", code="S5_MIGRATION_INVALID")
+    result: dict[str, Mapping[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping) or not isinstance(row.get("path"), str):
+            raise MaterializationError("migration file rows must name a path", code="S5_MIGRATION_INVALID")
+        if row.get("classification") not in {"INHERIT", "REVALIDATE", "AMEND", "REGENERATE"}:
+            raise MaterializationError("migration file rows have an invalid classification", code="S5_MIGRATION_INVALID")
+        path = _safe_relative_path(row["path"])
+        if path in result:
+            raise MaterializationError(f"migration repeats file path {path!r}", code="S5_MIGRATION_INVALID")
+        result[path] = dict(row)
+    return result
+
+
+def _operation_rows(migration: Mapping[str, Any], names: tuple[str, ...]) -> list[Mapping[str, Any]]:
+    result: list[Mapping[str, Any]] = []
+    for name in names:
+        values = migration.get(name, [])
+        if values is None:
+            continue
+        if not isinstance(values, list):
+            raise MaterializationError(f"migration {name} must be an array", code="S5_MIGRATION_INVALID")
+        if any(not isinstance(value, Mapping) for value in values):
+            raise MaterializationError(f"migration {name} rows must be objects", code="S5_MIGRATION_INVALID")
+        result.extend(values)
+    return result
+
+
+def plan_epoch_materialization(
+    old_blueprint: Mapping[str, Any],
+    new_blueprint: Mapping[str, Any],
+    rendered_files: Mapping[str, bytes],
+    current_ledger: Mapping[str, Any],
+    migration: Mapping[str, Any] | None = None,
+    *,
+    constraints: Mapping[str, Any] | None = None,
+    workspace_files: Mapping[str, Any] | None = None,
+    epoch: str = "E0",
+    plan_version: str | None = None,
+) -> dict[str, Any]:
+    """Produce the complete deterministic action plan for one epoch.
+
+    ``workspace_files`` is a path-to-bytes (or path-to-hash-fact) snapshot and
+    is never read by this function.  It is only used for preimage facts and for
+    protecting realized owned content from an accidental renderer overwrite.
+    """
+
+    number = _epoch_number(epoch)
+    constraints_value = constraints or {}
+    old_inventory = _expanded_inventory(old_blueprint, constraints_value)
+    new_inventory = _expanded_inventory(new_blueprint, constraints_value)
+    from .plan_revision import validate_file_ledger
+    validate_file_ledger(current_ledger)
+    old_rows = {row["path"]: dict(row) for row in current_ledger.get("files", [])}
+    if len(old_rows) != len(current_ledger.get("files", [])):
+        raise MaterializationError("current file ledger contains duplicate paths", code="S5_LEDGER_INVALID")
+    migration_value = dict(migration or {})
+    file_migrations = _migration_file_rows(migration_value) if number else {}
+    workspace = dict(workspace_files or {})
+    for path in workspace:
+        _safe_relative_path(path, allow_orphan=True)
+    registered_quarantine_paths = {
+        row.get("quarantine_path")
+        for row in old_rows.values()
+        if row.get("state") == "quarantined" and isinstance(row.get("quarantine_path"), str)
+    }
+    expected_preimage_paths = {path for path, row in old_rows.items() if row.get("state") != "quarantined"} | registered_quarantine_paths
+    if set(workspace) != expected_preimage_paths:
+        raise MaterializationError("workspace contains missing or unregistered paths", code="S5_WORKSPACE_DRIFT")
+    if number and any(row.get("class") == "s6_owned" and row.get("state") == "realized" and path not in file_migrations for path, row in old_rows.items() if not str(path).startswith("_orphan/")):
+        # Realized owned rows are historical obligations and must be explicitly
+        # accounted for by the activation. Frozen S5 output is recomputed from
+        # the new Blueprint and does not require an ownership migration row.
+        raise MaterializationError("migration does not account for every realized file", code="S5_MIGRATION_INVALID")
+    rendered = dict(rendered_files)
+    if any(not isinstance(path, str) or not isinstance(data, bytes) for path, data in rendered.items()):
+        raise MaterializationError("rendered files must be a path-to-bytes map", code="S5_RENDER_PATH_INVALID")
+    if set(rendered) - set(new_inventory):
+        raise MaterializationError("renderer produced an undeclared path", code="S5_RENDER_PATH_CLOSURE")
+    actions: list[dict[str, Any]] = []
+    consumed_old: set[str] = set()
+    consumed_new: set[str] = set()
+    active_rows = {path: row for path, row in old_rows.items() if row.get("state") != "quarantined"}
+    quarantine_rows = {path: row for path, row in old_rows.items() if row.get("state") == "quarantined"}
+
+    def add(action: Mapping[str, Any]) -> None:
+        value = {key: copy.deepcopy(item) for key, item in action.items()}
+        for key in ("path", "source_path", "target_path"):
+            if value.get(key) is not None:
+                value[key] = _safe_relative_path(value[key], allow_orphan=key == "source_path" or str(value[key]).startswith("_orphan/"))
+        actions.append(value)
+
+    re_adopt_rows = _operation_rows(migration_value, ("re_adopt",))
+    re_adopt_targets: set[str] = set()
+    re_adopt_sources: set[str] = set()
+    for row in re_adopt_rows:
+        source = row.get("quarantine_path")
+        target = row.get("target_path")
+        if not isinstance(source, str) or not isinstance(target, str):
+            raise MaterializationError("re_adopt must name source and target paths", code="S5_READOPT_INVALID")
+        source = _safe_relative_path(source, allow_orphan=True)
+        target = _safe_relative_path(target)
+        source_row = next((item for item in quarantine_rows.values() if item.get("quarantine_path") == source), None)
+        if source_row is None or source in re_adopt_sources or target in re_adopt_targets or target not in new_inventory:
+            raise MaterializationError("re_adopt source or target is not a unique registered quarantine transition", code="S5_READOPT_INVALID")
+        if source_row.get("content_sha256") != row.get("content_sha256", source_row.get("content_sha256")):
+            raise MaterializationError("re_adopt source content hash disagrees with the ledger", code="S5_READOPT_INVALID")
+        if target in active_rows:
+            raise MaterializationError("re_adopt target collides with an active row", code="S5_READOPT_INVALID")
+        declared_rule = new_inventory[target]
+        owner = row.get("owner")
+        if owner is not None and not isinstance(owner, Mapping):
+            raise MaterializationError("re_adopt owner must be an object", code="S5_READOPT_INVALID")
+        if isinstance(owner, Mapping) and declared_rule.get("owner_task_id") is not None and owner.get("task_id") not in {None, declared_rule.get("owner_task_id")}:
+            raise MaterializationError("re_adopt owner does not match the destination slot", code="S5_READOPT_INVALID")
+        owner_value = copy.deepcopy(owner or {"task_id": declared_rule.get("owner_task_id")})
+        if plan_version is not None:
+            owner_value["plan_version"] = plan_version
+        add({"kind": "re_adopt", "source_path": source, "target_path": target, "sha256": source_row.get("content_sha256"), "owner": owner_value})
+        re_adopt_sources.add(source); re_adopt_targets.add(target); consumed_new.add(target)
+
+    for path in sorted(new_inventory, key=_utf8):
+        if path in consumed_new:
+            continue
+        rule = new_inventory[path]
+        row = active_rows.get(path)
+        mutability = rule.get("mutability", "s5_frozen")
+        new_hash = _sha(rendered[path]) if path in rendered else None
+        if row is None:
+            if mutability == "s5_frozen":
+                if new_hash is None:
+                    raise MaterializationError(f"new frozen path {path!r} has no rendered bytes", code="S5_RENDER_PATH_CLOSURE")
+                add({"kind": "render", "path": path, "sha256": new_hash, "content": rendered[path].decode("utf-8")})
+            else:
+                if new_hash is None:
+                    raise MaterializationError(f"new owned slot {path!r} has no deterministic stub", code="S5_RENDER_PATH_CLOSURE")
+                add({"kind": "new_stub", "path": path, "sha256": new_hash, "content": rendered[path].decode("utf-8"), "owner": {"task_id": rule.get("owner_task_id")}})
+            consumed_new.add(path)
+            continue
+        consumed_old.add(path); consumed_new.add(path)
+        old_class = row.get("class")
+        if row.get("state") == "quarantined":
+            raise MaterializationError("a quarantined identity may only return through explicit re_adopt", code="S5_READOPT_INVALID")
+        if old_class == "s6_owned" and row.get("state") == "realized":
+            if mutability != "s6_owned":
+                raise MaterializationError("materialization cannot overwrite realized owned bytes", code="S5_REALIZED_OVERWRITE")
+            before = row.get("content_sha256")
+            actual = _path_hash(workspace, path)
+            if actual is not None and before != actual:
+                raise MaterializationError(f"realized owned preimage disagrees at {path}", code="S5_PREIMAGE_INVALID")
+            migration_row = file_migrations.get(path, {})
+            owner = {"plan_version": str(migration_value.get("to_version", "1.0.0")), "task_uid": migration_row.get("new_owner_uid") or (row.get("owner_history", [{}])[-1].get("task_uid") if row.get("owner_history") else None), "task_id": rule.get("owner_task_id")} if rule.get("owner_task_id") else None
+            add({"kind": "preserve", "path": path, "sha256": before, "owner": owner})
+            continue
+        if mutability == "s6_owned":
+            if new_hash is None:
+                raise MaterializationError(f"owned slot {path!r} has no deterministic stub", code="S5_RENDER_PATH_CLOSURE")
+            if row.get("state") == "slot_only" and _path_hash(workspace, path) == new_hash:
+                add({"kind": "preserve", "path": path, "sha256": new_hash, "owner": {"task_id": rule.get("owner_task_id")}})
+            elif old_class == "s5_frozen":
+                add({"kind": "replace", "path": path, "sha256": new_hash, "content": rendered[path].decode("utf-8")})
+            else:
+                add({"kind": "new_stub", "path": path, "sha256": new_hash, "content": rendered[path].decode("utf-8"), "owner": {"task_id": rule.get("owner_task_id")}})
+        else:
+            if new_hash is None:
+                raise MaterializationError(f"frozen path {path!r} has no rendered bytes", code="S5_RENDER_PATH_CLOSURE")
+            if old_class == "s6_owned" and row.get("state") == "realized":
+                raise MaterializationError("frozen replacement would overwrite realized owned bytes", code="S5_REALIZED_OVERWRITE")
+            add({"kind": "preserve" if row.get("content_sha256") == new_hash else "replace", "path": path, "sha256": new_hash, "content": rendered[path].decode("utf-8")})
+
+    for path in sorted(active_rows, key=_utf8):
+        if path in consumed_old:
+            continue
+        row = active_rows[path]
+        if path in new_inventory:
+            continue
+        if row.get("state") == "slot_only":
+            add({"kind": "retire_slot", "path": path, "sha256": None})
+        elif row.get("state") == "realized":
+            quarantine = f"_orphan/{epoch}/{path}"
+            if quarantine in workspace or quarantine in registered_quarantine_paths:
+                raise MaterializationError(f"quarantine target already exists for {path!r}", code="S5_QUARANTINE_INVALID")
+            if path in file_migrations and file_migrations[path].get("classification") not in {"REGENERATE", "AMEND"}:
+                raise MaterializationError(f"retirement of {path!r} is not declared by migration", code="S5_MIGRATION_INVALID")
+            add({"kind": "quarantine", "path": path, "source_path": path, "target_path": quarantine, "sha256": row.get("content_sha256")})
+        else:
+            raise MaterializationError(f"unsupported active ledger state for {path!r}", code="S5_LEDGER_INVALID")
+        consumed_old.add(path)
+    for path in sorted(quarantine_rows, key=_utf8):
+        row = quarantine_rows[path]
+        quarantine = row.get("quarantine_path")
+        if not isinstance(quarantine, str) or quarantine in re_adopt_sources:
+            # A source remains a historical ledger row, but its quarantine file
+            # is consumed by the explicitly named move.
+            if quarantine not in re_adopt_sources:
+                raise MaterializationError("quarantined row has no registered quarantine path", code="S5_QUARANTINE_INVALID")
+        else:
+            add({"kind": "preserve", "path": quarantine, "sha256": row.get("content_sha256")})
+        consumed_old.add(path)
+    if consumed_new != set(new_inventory):
+        raise MaterializationError("materialization plan does not consume every new Blueprint path", code="S5_PLAN_CLOSURE")
+    if consumed_old != set(old_rows):
+        raise MaterializationError("materialization plan does not consume every old ledger row", code="S5_PLAN_CLOSURE")
+    active_paths = sorted(set(new_inventory), key=_utf8)
+    quarantine_paths = sorted({row.get("quarantine_path") for row in old_rows.values() if row.get("state") == "quarantined" and isinstance(row.get("quarantine_path"), str) and row.get("quarantine_path") not in re_adopt_sources}, key=_utf8)
+    for action in actions:
+        if action.get("kind") in {"render", "replace", "new_stub", "preserve"} and action.get("path") not in set(active_paths) | set(quarantine_paths):
+            raise MaterializationError("action targets a path outside the projected closure", code="S5_PLAN_CLOSURE")
+    actions.sort(key=lambda item: (str(item.get("target_path", item.get("path", ""))).encode("utf-8"), str(item.get("kind", "")).encode("utf-8"), str(item.get("source_path", "")).encode("utf-8")))
+    touched = set()
+    facts: list[dict[str, Any]] = []
+    for action in actions:
+        # A move action names its source twice (``path`` is retained for the
+        # ledger identity), so deduplicate paths within that action before
+        # checking cross-action consumption.
+        paths = list(dict.fromkeys(item for item in (action.get("source_path"), action.get("target_path"), action.get("path")) if isinstance(item, str)))
+        for path in paths:
+            if path in touched and action.get("kind") not in {"preserve"}:
+                raise MaterializationError(f"materialization action path collision at {path}", code="S5_PLAN_COLLISION")
+            touched.add(path)
+            facts.append({"path": path, "before_sha256": _path_hash(workspace, path), "after_sha256": action.get("sha256") if path == action.get("path") or path == action.get("target_path") else _path_hash(workspace, path), **({"before_path": action.get("source_path"), "after_path": action.get("target_path")} if action.get("kind") in {"quarantine", "re_adopt"} else {})})
+    facts.sort(key=lambda item: _utf8(item["path"]))
+    return {"schema_version": "1.0", "epoch": epoch, "actions": actions, "expected_path_facts": facts, "active_paths": active_paths, "quarantine_paths": quarantine_paths, "new_inventory": copy.deepcopy(new_inventory), "old_inventory": copy.deepcopy(old_inventory)}
+
+
+def project_file_ledger(
+    initial_ledger: Mapping[str, Any],
+    materialization_plan: Mapping[str, Any],
+    checkpoint: Mapping[str, Any],
+    build_evidence: Mapping[str, Any],
+    epoch_receipt_ref: Mapping[str, Any],
+    *,
+    epoch: str | None = None,
+) -> dict[str, Any]:
+    """Project the post-epoch ledger from a validated action plan."""
+
+    commit = checkpoint.get("commit_sha") or checkpoint.get("sha256")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise MaterializationError("checkpoint must contain a git commit sha", code="S5_CHECKPOINT_INVALID")
+    actions = [dict(item) for item in materialization_plan.get("actions", [])]
+    if not isinstance(actions, list):
+        raise MaterializationError("materialization action plan is not an array", code="S5_PLAN_INVALID")
+    target_epoch = epoch or str(materialization_plan.get("epoch") or epoch_receipt_ref.get("epoch") or "E0")
+    _epoch_number(target_epoch)
+    old_rows = {row["path"]: copy.deepcopy(dict(row)) for row in initial_ledger.get("files", [])}
+    by_path = {str(item.get("path")): item for item in actions if item.get("path") is not None}
+    by_target = {str(item.get("target_path")): item for item in actions if item.get("target_path") is not None}
+    new_inventory = materialization_plan.get("new_inventory", {})
+    if not isinstance(new_inventory, Mapping):
+        new_inventory = {}
+    build_variants = sorted({str(item) for item in build_evidence.get("build_variant_ids", [])}, key=_utf8) or ["release"]
+    evidence_ref = build_evidence.get("evidence_ref") or {"path": f"plan/epochs/{target_epoch}/receipt.json", "sha256": _sha(build_evidence)}
+    verified = build_evidence.get("materialization_status", "ready") == "ready"
+    rows: list[dict[str, Any]] = []
+    for path in sorted(new_inventory, key=_utf8):
+        rule = new_inventory[path]
+        action = by_path.get(path) or by_target.get(path)
+        old = old_rows.get(path)
+        if action and action.get("kind") in {"render", "replace"} and verified:
+            rows.append({"path": path, "class": "s5_frozen", "state": "realized", "created_in_epoch": target_epoch, "content_sha256": action.get("sha256"), "last_commit_sha": commit, "verified_by": {"build_variant_ids": build_variants, "evidence_ref": copy.deepcopy(dict(evidence_ref))}, "created_by_stage": "s5", "epoch_receipt_ref": copy.deepcopy(dict(epoch_receipt_ref))})
+        elif action and action.get("kind") in {"render", "replace"}:
+            rows.append({"path": path, "class": "s5_frozen", "state": "slot_only"})
+        elif action and action.get("kind") == "new_stub":
+            rows.append({"path": path, "class": str(rule.get("mutability", "s6_owned")), "state": "slot_only"})
+        elif action and action.get("kind") == "re_adopt":
+            source = next(
+                (row for row in old_rows.values() if row.get("state") == "quarantined" and row.get("quarantine_path") == action.get("source_path")),
+                None,
+            )
+            if source is None:
+                raise MaterializationError("re-adoption source disappeared from the ledger", code="S5_LEDGER_DRIFT")
+            value = copy.deepcopy(source)
+            value["path"] = path
+            value["state"] = "realized"
+            value.pop("quarantined_in_epoch", None)
+            value.pop("quarantine_path", None)
+            owner = action.get("owner")
+            if isinstance(owner, Mapping) and all(isinstance(owner.get(key), str) for key in ("task_uid", "task_id", "plan_version")):
+                owner_value = {key: owner[key] for key in ("plan_version", "task_uid", "task_id")}
+                history = value.setdefault("owner_history", [])
+                if not history or history[-1] != owner_value:
+                    history.append(owner_value)
+            rows.append(value)
+        elif old and old.get("class") == "s6_owned" and old.get("state") == "realized":
+            value = copy.deepcopy(old)
+            owner = action.get("owner") if action else None
+            if isinstance(owner, Mapping) and owner.get("task_uid") and owner.get("task_id") and owner.get("plan_version"):
+                history = value.setdefault("owner_history", [])
+                owner_value = {"plan_version": owner["plan_version"], "task_uid": owner["task_uid"], "task_id": owner["task_id"]}
+                if history[-1] != owner_value:
+                    history.append(owner_value)
+            rows.append(value)
+        elif old and old.get("class") == "s5_frozen" and old.get("state") == "realized":
+            rows.append(copy.deepcopy(old))
+        else:
+            rows.append({"path": path, "class": str(rule.get("mutability", "s5_frozen")), "state": "slot_only"})
+    for path, old in sorted(old_rows.items(), key=lambda item: _utf8(item[0])):
+        if path in new_inventory:
+            continue
+        action = by_path.get(path)
+        if old.get("state") == "quarantined" and old.get("quarantine_path") in {item.get("source_path") for item in actions if item.get("kind") == "re_adopt"}:
+            continue
+        if old.get("state") == "quarantined":
+            rows.append(old)
+        elif action and action.get("kind") == "quarantine":
+            value = copy.deepcopy(old)
+            value.update({"state": "quarantined", "quarantined_in_epoch": target_epoch, "quarantine_path": action.get("target_path")})
+            rows.append(value)
+        elif action and action.get("kind") == "retire_slot":
+            continue
+        else:
+            raise MaterializationError(f"old ledger row {path!r} was dropped without a declared transition", code="S5_LEDGER_DRIFT")
+    projected = {"schema_version": "2.0", "files": sorted(rows, key=lambda item: _utf8(item["path"]))}
+    from .plan_revision import validate_file_ledger
+    validate_file_ledger(projected)
+    return projected
+
+
+def validate_completed_epoch(
+    run: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    blueprint: Mapping[str, Any],
+    file_ledger: Mapping[str, Any],
+    revision_ledger: Mapping[str, Any],
+    epoch_receipt: Mapping[str, Any],
+    binding_receipt: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    contract_map: Mapping[str, Any],
+    workspace_facts: Mapping[str, Any],
+    *,
+    active_plan: Mapping[str, Any] | None = None,
+    require_event: bool = True,
+) -> None:
+    """Validate an accepted epoch without reading or modifying the filesystem."""
+
+    if run.get("stages", {}).get("s5", {}).get("status") != "done":
+        raise MaterializationError("S5 is not accepted", code="S5_ACCEPTANCE_INVALID")
+    epoch = epoch_receipt.get("epoch")
+    number = _epoch_number(epoch)
+    if epoch_receipt.get("materialization_status") not in {"ready", "pending_repair"}:
+        raise MaterializationError("epoch receipt has an invalid materialization status", code="S5_RECEIPT_INVALID")
+    plan_version = str(plan.get("plan_version") or "1.0.0")
+    plan_ref = {"path": f"plan/versions/plan-{plan_version}.json", "sha256": _sha(plan)}
+    if isinstance(active_plan, Mapping):
+        plan_ref = {"path": active_plan.get("path"), "sha256": active_plan.get("sha256")}
+    if epoch_receipt.get("materialized_plan_ref") != plan_ref or binding_receipt.get("plan_ref") != plan_ref:
+        raise MaterializationError("epoch or binding receipt does not bind the accepted Plan", code="S5_BINDING_DRIFT")
+    if epoch_receipt.get("blueprint_sha256") != _sha(blueprint):
+        raise MaterializationError("epoch receipt Blueprint binding drifted", code="S5_BINDING_DRIFT")
+    if binding_receipt.get("epoch_receipt_ref", {}).get("path") != f"plan/epochs/{epoch}/receipt.json" or binding_receipt.get("epoch_receipt_ref", {}).get("sha256") != _sha(epoch_receipt):
+        raise MaterializationError("binding receipt does not bind the epoch receipt", code="S5_BINDING_DRIFT")
+    from .plan_revision import validate_file_ledger, validate_revision_ledger
+    validate_file_ledger(file_ledger); validate_revision_ledger(revision_ledger)
+    expected_paths = {row["path"] for row in expand_file_rules(blueprint, workspace_facts.get("constraints", {}))} if workspace_facts.get("constraints") else {row["path"] for row in file_ledger.get("files", []) if row.get("state") != "quarantined"}
+    ledger_active = {row["path"] for row in file_ledger.get("files", []) if row.get("state") != "quarantined"}
+    if ledger_active != expected_paths:
+        raise MaterializationError("file ledger active path set drifted", code="S5_LEDGER_DRIFT")
+    for value in (manifest, contract_map):
+        if value.get("plan_sha256") != plan_ref["sha256"] or value.get("plan_version") != _plan_version(plan_ref) or value.get("delivery_blueprint_sha256") != _sha(blueprint) or value.get("epoch") != epoch:
+            raise MaterializationError("manifest/map binding drifted", code="S5_BINDING_DRIFT")
+    if binding_receipt.get("manifest_ref", {}).get("sha256") != _sha(manifest) or binding_receipt.get("contract_map_ref", {}).get("sha256") != _sha(contract_map):
+        raise MaterializationError("binding receipt does not bind manifest/map", code="S5_BINDING_DRIFT")
+    builds = epoch_receipt.get("build_result_refs", []); smokes = epoch_receipt.get("smoke_result_refs", []); groups = epoch_receipt.get("pending_group_ids", [])
+    if not isinstance(builds, list) or not builds:
+        raise MaterializationError("accepted epoch has no build evidence", code="S5_RECEIPT_INVALID")
+    if epoch_receipt.get("materialization_status") == "ready" and (groups or not isinstance(smokes, list) or not smokes):
+        raise MaterializationError("ready epoch evidence is incomplete", code="S5_RECEIPT_INVALID")
+    if epoch_receipt.get("materialization_status") == "pending_repair" and (not isinstance(groups, list) or groups != sorted(set(groups), key=_utf8) or smokes):
+        raise MaterializationError("pending-repair evidence is incomplete", code="S5_RECEIPT_INVALID")
+    manifest_paths = {row.get("path") for row in manifest.get("files", [])}
+    if manifest_paths != expected_paths:
+        raise MaterializationError("artifact manifest path set drifted", code="S5_MANIFEST_DRIFT")
+    hashes = workspace_facts.get("file_hashes", {})
+    if hashes and any(row.get("sha256") != hashes.get(row.get("path")) for row in manifest.get("files", [])):
+        raise MaterializationError("artifact manifest content hash drifted", code="S5_MANIFEST_DRIFT")
+    event_matches = [entry for entry in revision_ledger.get("entries", []) if entry.get("event_type") == "epoch_materialized" and entry.get("payload", {}).get("revision_seq") == (active_plan or {}).get("revision_seq", 0)]
+    refs = run["stages"]["s5"].get("output_refs", {})
+    if require_event and (len(event_matches) != 1 or event_matches[0].get("payload", {}).get("epoch_receipt_ref") != refs.get("epoch_receipt") or event_matches[0].get("payload", {}).get("binding_ref") != refs.get("binding_receipt")):
+        raise MaterializationError("accepted epoch event is missing or conflicts", code="S5_EVENT_DRIFT")
+    if not require_event and event_matches:
+        raise MaterializationError("event-optional validation requires the event suffix to be absent", code="S5_EVENT_DRIFT")
+    if workspace_facts.get("paths") is not None:
+        allowed = expected_paths | {row.get("quarantine_path") for row in file_ledger.get("files", []) if row.get("state") == "quarantined"}
+        if set(workspace_facts["paths"]) != allowed:
+            raise MaterializationError("workspace path set does not match accepted ledger", code="S5_WORKSPACE_DRIFT")
+
+
+def attribute_pending_repair(
+    build_results: list[Mapping[str, Any]],
+    migration: Mapping[str, Any],
+    *,
+    changed_paths: set[str] | None = None,
+) -> dict[str, Any]:
+    """Classify failed compiler/linker diagnostics against frozen group closures."""
+
+    values = migration.get("pending_groups", []) if isinstance(migration, Mapping) else []
+    groups = [value for value in values if isinstance(value, Mapping)] if isinstance(values, list) else []
+    if not groups:
+        return {"publishable": False, "group_ids": [], "reason": "NO_FROZEN_GROUPS"}
+    changed = changed_paths or set()
+    group_ids: set[str] = set()
+    failed = False
+    tool_markers = (
+        "command not found", "no such file or directory", "permission denied",
+        "internal compiler error", "docker:", "sandbox", "cleanup failed",
+    )
+    path_pattern = re.compile(r"(?m)^(?P<path>[^:\n]+):[0-9]+(?::[0-9]+)?:\s+(?:fatal\s+)?error:")
+    symbol_pattern = re.compile(r"undefined reference to\s+[`'](?P<symbol>[^`']+)[`']")
+    for result in build_results:
+        if result.get("status") == "passed":
+            continue
+        failed = True
+        stderr = str(result.get("stderr", ""))
+        lowered = stderr.lower()
+        if result.get("timed_out") is not False or not isinstance(result.get("exit_code"), int) or result.get("exit_code") == 0:
+            return {"publishable": False, "group_ids": [], "reason": "INELIGIBLE_BUILD_FAILURE"}
+        if any(marker in lowered for marker in tool_markers):
+            return {"publishable": False, "group_ids": [], "reason": "TOOL_OR_SANDBOX_FAILURE"}
+        diagnostics: list[tuple[str, str]] = []
+        diagnostics.extend(("path", match.group("path")) for match in path_pattern.finditer(stderr))
+        diagnostics.extend(("symbol", match.group("symbol")) for match in symbol_pattern.finditer(stderr))
+        error_lines = [line for line in stderr.splitlines() if "error:" in line.lower() or "undefined reference to" in line.lower()]
+        if not diagnostics or len(diagnostics) != len(error_lines):
+            return {"publishable": False, "group_ids": [], "reason": "UNPARSED_BUILD_DIAGNOSTIC"}
+        for kind, value in diagnostics:
+            candidates: list[str] = []
+            for group in groups:
+                paths = {str(item) for item in group.get("affected_paths", [])}
+                symbols = {str(item) for item in group.get("affected_symbols", [])}
+                if changed and paths and not (paths & changed):
+                    continue
+                matched = (
+                    kind == "path" and any(value == path or value.endswith("/" + path) for path in paths)
+                ) or (kind == "symbol" and value in symbols)
+                if matched:
+                    candidates.append(str(group.get("group_id")))
+            if len(candidates) != 1:
+                reason = "AMBIGUOUS_BUILD_DIAGNOSTIC" if len(candidates) > 1 else "UNREGISTERED_BUILD_DIAGNOSTIC"
+                return {"publishable": False, "group_ids": [], "reason": reason}
+            group_ids.add(candidates[0])
+    if not failed or not group_ids:
+        return {"publishable": False, "group_ids": [], "reason": "NO_FAILED_BUILD"}
+    return {"publishable": True, "group_ids": sorted(group_ids, key=_utf8), "reason": None}
+
+
+def project_version_binding(
+    plan_ref: Mapping[str, Any],
+    blueprint: Mapping[str, Any],
+    rendering_view: Mapping[str, Any],
+    existing_epoch_receipt: Mapping[str, Any],
+    workspace_facts: Mapping[str, Any],
+    *,
+    existing_manifest: Mapping[str, Any] | None = None,
+    existing_contract_map: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Project an F2 metadata binding without rendering or changing content."""
+
+    epoch = existing_epoch_receipt.get("epoch")
+    _epoch_number(epoch)
+    hashes = workspace_facts.get("file_hashes")
+    if not isinstance(hashes, Mapping):
+        raise MaterializationError("F2 binding requires the accepted workspace hash map", code="S5_BINDING_INVALID")
+    ignored_values = workspace_facts.get("ignored_paths", [])
+    if not isinstance(ignored_values, list) or any(not isinstance(path, str) or not path.startswith("_orphan/") for path in ignored_values):
+        raise MaterializationError("F2 binding ignored paths are not registered quarantine paths", code="S5_F2_STRUCTURAL_DRIFT")
+    ignored = set(ignored_values)
+    for path in ignored:
+        _safe_relative_path(path, allow_orphan=True)
+    active_hashes = {str(path): value for path, value in hashes.items() if path not in ignored}
+    paths = _expanded_inventory(blueprint, workspace_facts.get("constraints", {}))
+    if set(active_hashes) != set(paths):
+        raise MaterializationError("F2 binding would change the structural workspace path set", code="S5_F2_STRUCTURAL_DRIFT")
+    content_view = copy.deepcopy(dict(rendering_view))
+    content_view["rendered_files"] = {path: b"" for path in paths}
+    content_view["content_hashes"] = dict(active_hashes)
+    manifest = build_artifact_manifest(plan_ref, blueprint, content_view, str(epoch))
+    contract_map = build_contract_map(plan_ref, blueprint, content_view, str(epoch))
+    if existing_manifest is not None:
+        old_files = {row.get("path"): (row.get("rule_id"), row.get("mutability"), row.get("kind")) for row in existing_manifest.get("files", [])}
+        new_files = {row.get("path"): (row.get("rule_id"), row.get("mutability"), row.get("kind")) for row in manifest.get("files", [])}
+        if old_files != new_files or existing_manifest.get("delivery_graph") != manifest.get("delivery_graph"):
+            raise MaterializationError("F2 binding changes structural artifact metadata", code="S5_F2_STRUCTURAL_DRIFT")
+        if existing_manifest.get("epoch") != epoch:
+            raise MaterializationError("F2 binding changes the accepted epoch", code="S5_F2_STRUCTURAL_DRIFT")
+        old_hashes = {row.get("path"): row.get("sha256") for row in existing_manifest.get("files", [])}
+        if old_hashes != active_hashes:
+            raise MaterializationError("F2 binding source content differs from the accepted workspace", code="S5_F2_CONTENT_DRIFT")
+    if existing_contract_map is not None and existing_contract_map.get("epoch") != epoch:
+        raise MaterializationError("F2 binding changes the accepted epoch", code="S5_F2_STRUCTURAL_DRIFT")
+    if existing_contract_map is not None:
+        def contract_shape(value: Mapping[str, Any]) -> dict[str, Any]:
+            return {
+                "contract_id": value.get("contract_id"),
+                "interface_files": value.get("interface_files", []),
+                "exports": [
+                    {
+                        key: item.get(key)
+                        for key in ("symbol", "signature", "kind", "interface_file", "implementation_file")
+                    }
+                    for item in value.get("exports", [])
+                ],
+            }
+        old_contracts = sorted((contract_shape(value) for value in existing_contract_map.get("contracts", [])), key=canonical_json_bytes)
+        new_contracts = sorted((contract_shape(value) for value in contract_map.get("contracts", [])), key=canonical_json_bytes)
+        if old_contracts != new_contracts:
+            raise MaterializationError("F2 binding changes structural contract metadata", code="S5_F2_STRUCTURAL_DRIFT")
+    normalized_plan_ref = {"path": str(plan_ref["path"]), "sha256": str(plan_ref["sha256"])}
+    manifest_ref = {"path": f"plan/bindings/{_plan_version(plan_ref)}/artifact_manifest.json", "sha256": _sha(manifest)}
+    map_ref = {"path": f"plan/bindings/{_plan_version(plan_ref)}/contract_map.json", "sha256": _sha(contract_map)}
+    epoch_ref = {"path": f"plan/epochs/{epoch}/receipt.json", "sha256": _sha(existing_epoch_receipt)}
+    binding = {"schema_version": "1.0", "plan_ref": normalized_plan_ref, "epoch_receipt_ref": epoch_ref, "manifest_ref": manifest_ref, "contract_map_ref": map_ref}
+    return {"manifest": manifest, "contract_map": contract_map, "binding_receipt": binding}
 
 
 def project_e0_file_ledger(initial_ledger: Mapping[str, Any], rendered_files: Mapping[str, bytes], checkpoint: Mapping[str, Any], build_evidence: Mapping[str, Any], epoch_receipt_ref: Mapping[str, Any]) -> dict[str, Any]:
@@ -545,4 +1237,6 @@ def validate_completed_e0(run: Mapping[str, Any], plan: Mapping[str, Any], bluep
 __all__ = [
     "MaterializationError", "parse_c99_declaration", "derive_rendering_view", "render_e0_files",
     "build_artifact_manifest", "build_contract_map", "project_e0_file_ledger", "validate_completed_e0",
+    "build_epoch_context", "plan_epoch_materialization", "project_file_ledger",
+    "validate_completed_epoch", "attribute_pending_repair", "project_version_binding",
 ]

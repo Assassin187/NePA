@@ -1,7 +1,7 @@
 {
   "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://nepa.local/schemas/contract-map.schema.json","title":"NePA E0 contract map v2","type":"object","additionalProperties":false,
   "required":["schema_version","plan_version","plan_sha256","delivery_blueprint_sha256","epoch","contracts"],
-  "properties":{"schema_version":{"const":"2.0"},"plan_version":{"const":"1.0.0"},"plan_sha256":{"$ref":"#/$defs/sha256"},"delivery_blueprint_sha256":{"$ref":"#/$defs/sha256"},"epoch":{"const":"E0"},"contracts":{"type":"array","items":{"$ref":"#/$defs/contract"}}},
+  "properties":{"schema_version":{"const":"2.0"},"plan_version":{"type":"string","pattern":"^1\\.[0-9]+\\.[0-9]+$"},"plan_sha256":{"$ref":"#/$defs/sha256"},"delivery_blueprint_sha256":{"$ref":"#/$defs/sha256"},"epoch":{"type":"string","pattern":"^E[0-9]+$"},"contracts":{"type":"array","items":{"$ref":"#/$defs/contract"}}},
   "$defs":{
     "sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
     "export":{"type":"object","additionalProperties":false,"required":["symbol","signature","kind","interface_file","implementation_file","owner_task_id"],"properties":{"symbol":{"type":"string"},"signature":{"type":"string"},"kind":{"enum":["function","type","constant"]},"interface_file":{"type":"string"},"implementation_file":{"type":["string","null"]},"owner_task_id":{"type":["string","null"],"pattern":"^T-[0-9]{3}$"}}},

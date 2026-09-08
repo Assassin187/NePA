@@ -251,7 +251,7 @@
       "additionalProperties": false,
       "required": ["instance_id", "status", "started_at", "ended_at", "error"],
       "properties": {
-        "instance_id": {"const": "E0"},
+        "instance_id": {"type": "string", "pattern": "^E[0-9]+$"},
         "status": {"enum": ["pending", "running", "done", "failed", "skipped"]},
         "started_at": {"type": ["string", "null"]},
         "ended_at": {"type": ["string", "null"]},

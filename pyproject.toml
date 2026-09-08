@@ -36,7 +36,7 @@ nepa = ["templates/*", "agents/prompts/*.md", "schemas/*.json", "schemas/example
 
 [tool.pytest.ini_options]
 markers = [
-  "s5_epoch: end-to-end S5 E0 materialization checks",
+  "s5_epoch: end-to-end S5 epoch materialization checks",
   "s6_execution: end-to-end S6 ordinary task execution checks",
   "s6_lease: end-to-end S6 F1 lease execution checks",
   "metric_contract: deterministic M1 metric contract checks",
