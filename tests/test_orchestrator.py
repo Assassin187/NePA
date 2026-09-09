@@ -3,7 +3,7 @@ from pathlib import Path
 from nepa.config import load_config
 import pytest
 
-from nepa.orchestrator import OrchestrationError, Orchestrator, StageResult
+from nepa.orchestrator import OrchestrationError, Orchestrator, StagePause, StageResult
 from nepa.run_store import RunStore, SpecRunInputs
 
 
@@ -90,3 +90,28 @@ def test_empty_output_refs_finalize_as_internal_error_and_never_done(tmp_path):
     assert run["termination_kind"] == "internal_error"
     assert run["stages"]["s4"]["status"] == "running"
     assert "output_refs" not in run["stages"]["s4"]
+
+
+def test_revision_handoff_restores_s6_pending_without_terminal_report(tmp_path):
+    store = _store(tmp_path)
+    calls = []
+
+    class PausingS6:
+        def run(self, context):
+            calls.append("pause")
+            return StageResult(pause=StagePause("revision_handoff", 7, "plan/_s4r/candidate_7/candidate.json"))
+
+    controller = Orchestrator({
+        "s4": RecordingController(calls, "s4"),
+        "s5": RecordingController(calls, "s5"),
+        "s6": PausingS6(),
+    })
+    assert controller.run_spec(store) == 0
+    run = store.load_run()
+    assert run["stages"]["s6"]["status"] == "pending"
+    assert "termination_request" not in run
+    assert "termination_kind" not in run
+    assert not (store.root / "report/report.json").exists()
+    assert controller.resume(store) == 0
+    assert calls.count("pause") == 2
+    assert store.load_run()["stages"]["s6"]["status"] == "pending"

@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -22,6 +23,22 @@ class PlanError(ValueError):
     def __init__(self, message: str, *, code: str = "PLAN_INVALID") -> None:
         self.code = code
         super().__init__(message)
+
+
+@dataclass(frozen=True)
+class CandidateCompletion:
+    """Deterministic artifacts shared by initial and revision completion."""
+
+    plan_draft_ir: dict[str, Any]
+    plan: dict[str, Any]
+    blueprint: dict[str, Any]
+    link_report: dict[str, Any]
+    lint_report: dict[str, Any]
+    constraints: dict[str, Any]
+    manifest: dict[str, Any]
+    spec: dict[str, Any]
+    config_snapshot: dict[str, Any]
+    input_refs: dict[str, dict[str, str]]
 
 
 def _utf8(value: Any) -> bytes:
@@ -462,7 +479,7 @@ def derive_task_metadata(
 def blueprint_task_semantic_projection(tasks: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Project tasks to the fields that can affect Delivery Blueprint semantics."""
 
-    derived = {"task_uid", "obligation_digest", "guidance_digest"}
+    derived = {"local_task_id", "task_uid", "obligation_digest", "guidance_digest"}
     return [{key: copy.deepcopy(value) for key, value in task.items() if key not in derived} for task in tasks]
 
 
@@ -517,6 +534,7 @@ def link_plan(
         context_refs.sort(key=lambda ref: (_utf8(ref.get("kind")), _utf8(ref.get("id"))))
         final = {
             "id": final_id_by_key[key],
+            "local_task_id": key[1],
             "work_package": key[0],
             "title": local["title"],
             "goal": local["goal"],
@@ -578,7 +596,7 @@ def link_plan(
     blueprint_sha256 = hashlib.sha256(canonical_json_bytes(blueprint)).hexdigest()
     target = constraints.get("target_profile", {})
     plan = {
-        "schema_version": "4.0",
+        "schema_version": "5.0",
         "input_refs": _input_refs(input_refs, spec, target, manifest_value),
         "delivery_blueprint_sha256": blueprint_sha256,
         "architecture": final_architecture,
@@ -617,6 +635,124 @@ def link_plan_draft(*args: Any, **kwargs: Any) -> dict[str, Any]:
 normalize_plan_draft_ir = normalize_plan_draft
 build_plan_draft_ir = normalize_plan_draft
 compile_linked_plan = link_plan
+
+
+def plan_to_draft_ir(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Project a formal Plan 5.0 back to its package-local draft representation."""
+
+    value = copy.deepcopy(dict(plan))
+    errors = _schema_errors(value, "plan.schema.json")
+    if errors:
+        raise PlanError("formal Plan failed Schema validation: " + "; ".join(errors), code="PLAN_SCHEMA_INVALID")
+    task_by_id = {task["id"]: task for task in value["tasks"]}
+    shards: list[dict[str, Any]] = []
+    for package in value["work_packages"]:
+        package_id = package["id"]
+        tasks: list[dict[str, Any]] = []
+        for formal in value["tasks"]:
+            if formal["work_package"] != package_id:
+                continue
+            local = {
+                key: copy.deepcopy(item)
+                for key, item in formal.items()
+                if key not in {"id", "local_task_id", "work_package", "task_uid", "obligation_digest", "guidance_digest"}
+            }
+            local["local_id"] = formal["local_task_id"]
+            local["depends_on"] = sorted(
+                {
+                    task_by_id[dependency]["local_task_id"]
+                    for dependency in formal.get("depends_on", [])
+                    if task_by_id[dependency]["work_package"] == package_id
+                },
+                key=_utf8,
+            )
+            tasks.append(local)
+        tasks.sort(key=lambda item: _utf8(item["local_id"]))
+        shards.append({"schema_version": "1.0", "work_package_id": package_id, "tasks": tasks})
+    architecture = copy.deepcopy(value["architecture"])
+    for contract in architecture.get("contracts", []):
+        contract.pop("provider_task_id", None)
+    architecture["work_packages"] = copy.deepcopy(value["work_packages"])
+    return normalize_plan_draft(architecture, value["work_packages"], shards)
+
+
+def _candidate_ref(value: Any, label: str) -> dict[str, str]:
+    if not isinstance(value, Mapping) or not isinstance(value.get("path"), str) or not isinstance(value.get("sha256"), str):
+        raise PlanError(f"{label} is not an artifact reference", code="PLAN_INPUT_REF_INVALID")
+    path = value["path"]
+    digest = value["sha256"]
+    if not path or path.startswith("/") or "\\" in path or ".." in Path(path).parts or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise PlanError(f"{label} is invalid", code="PLAN_INPUT_REF_INVALID")
+    return {"path": path, "sha256": digest}
+
+
+def complete_plan_candidate(
+    plan_draft_ir: Mapping[str, Any],
+    constraints: Mapping[str, Any],
+    frozen_refs: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    config_snapshot: Mapping[str, Any],
+) -> CandidateCompletion:
+    """Run the shared normalize, link, Blueprint, and full-lint path."""
+
+    source = copy.deepcopy(dict(plan_draft_ir))
+    errors = _schema_errors(source, "plan-draft-ir.schema.json")
+    if errors:
+        raise PlanError("PlanDraftIR failed Schema validation: " + "; ".join(errors), code="PLAN_SCHEMA_INVALID")
+    spec = frozen_refs.get("spec_value") or frozen_refs.get("spec")
+    target = frozen_refs.get("target_profile_value") or frozen_refs.get("target_profile")
+    if not isinstance(spec, Mapping) or not isinstance(target, Mapping):
+        raise PlanError("candidate completion requires frozen Spec and Target values", code="PLAN_INPUT_REF_INVALID")
+    refs_value = frozen_refs.get("refs") or frozen_refs.get("input_refs")
+    if refs_value is None:
+        refs_value = {
+            name: frozen_refs[name]
+            for name in ("spec", "target_profile", "test_bundle")
+            if isinstance(frozen_refs.get(name), Mapping) and "path" in frozen_refs[name]
+        }
+    if not isinstance(refs_value, Mapping):
+        raise PlanError("candidate input refs are invalid", code="PLAN_INPUT_REF_INVALID")
+    input_refs = {name: _candidate_ref(refs_value.get(name), f"candidate input {name}") for name in ("spec", "target_profile", "test_bundle")}
+    normalized = normalize_plan_draft(source["architecture"], source["work_packages"], source["task_shards"], constraints=constraints)
+    linked = link_plan(
+        normalized,
+        constraints=constraints,
+        spec=dict(spec),
+        manifest=dict(manifest),
+        config_snapshot=dict(config_snapshot),
+        input_refs=input_refs,
+    )
+    lint_manifest = frozen_refs.get("test_bundle_value") or manifest
+    lint_plan_value = copy.deepcopy(linked["plan"])
+    lint_plan_value["input_refs"] = {
+        "spec": {"path": input_refs["spec"]["path"], "sha256": hashlib.sha256(canonical_json_bytes(dict(spec))).hexdigest()},
+        "target_profile": {"path": input_refs["target_profile"]["path"], "sha256": hashlib.sha256(canonical_json_bytes(dict(target))).hexdigest()},
+        "test_bundle": {"path": input_refs["test_bundle"]["path"], "sha256": hashlib.sha256(canonical_json_bytes(dict(lint_manifest))).hexdigest()},
+    }
+    lint_report = plan_lint(
+        lint_plan_value,
+        dict(spec),
+        dict(lint_manifest),
+        dict(config_snapshot),
+        level="full",
+        constraints=dict(constraints),
+        blueprint=linked["blueprint"],
+        target_profile=dict(target),
+    )
+    if not lint_report.get("valid"):
+        raise PlanError("candidate failed S4-G0 through S4-G6 full lint", code="PLAN_FULL_LINT_INVALID")
+    return CandidateCompletion(
+        plan_draft_ir=linked["plan_draft_ir"],
+        plan=linked["plan"],
+        blueprint=linked["blueprint"],
+        link_report=linked["link_report"],
+        lint_report=lint_report,
+        constraints=dict(constraints),
+        manifest=dict(manifest),
+        spec=dict(spec),
+        config_snapshot=dict(config_snapshot),
+        input_refs=input_refs,
+    )
 
 
 def plan_lint(
@@ -976,5 +1112,5 @@ def _full_contract_ancestry(plan: Mapping[str, Any]) -> list[dict[str, str]]:
 
 
 __all__ = [
-    "PlanError", "blueprint_task_semantic_projection", "build_coverage", "build_plan_draft_ir", "compile_linked_plan", "compile_plan", "derive_task_metadata", "interface_signature_digest", "link_plan", "link_plan_draft", "normalize_plan_draft", "normalize_plan_draft_ir", "plan_lint",
+    "CandidateCompletion", "PlanError", "blueprint_task_semantic_projection", "build_coverage", "build_plan_draft_ir", "complete_plan_candidate", "compile_linked_plan", "compile_plan", "derive_task_metadata", "interface_signature_digest", "link_plan", "link_plan_draft", "normalize_plan_draft", "normalize_plan_draft_ir", "plan_lint", "plan_to_draft_ir",
 ]

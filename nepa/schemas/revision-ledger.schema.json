@@ -21,16 +21,37 @@
     "callRef": {"type": "object", "additionalProperties": false, "required": ["path"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
     "callRefs": {"type": "array", "items": {"$ref": "#/$defs/callRef"}},
     "eventRef": {"type": "object", "additionalProperties": false, "required": ["event_seq"], "properties": {"event_seq": {"type": "integer", "minimum": 1}}},
+    "taskSnapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_uid", "mode", "ordinary_attempts_used", "amendment_used", "status"],
+      "properties": {
+        "task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "mode": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]},
+        "ordinary_attempts_used": {"type": "integer", "minimum": 0},
+        "amendment_used": {"type": "boolean"},
+        "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]}
+      }
+    },
+    "boundaryKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["phase", "revision_seq", "tasks"],
+      "properties": {
+        "phase": {"enum": ["task_boundary", "provider_submission"]},
+        "revision_seq": {"type": "integer", "minimum": 0},
+        "tasks": {"type": "array", "items": {"$ref": "#/$defs/taskSnapshot"}}
+      }
+    },
     "trigger": {
       "type": "object", "additionalProperties": false,
-      "required": ["boundary_key", "plan_ref", "hit_code", "hit_signature", "evidence_refs", "selected", "reason"],
+      "required": ["boundary_key", "plan_ref", "hit_code", "route", "hit_signature", "evidence_refs", "selected", "reason"],
       "properties": {
-        "boundary_key": {"type": "object", "additionalProperties": true},
+        "boundary_key": {"$ref": "#/$defs/boundaryKey"},
         "plan_ref": {"$ref": "#/$defs/ref"},
-        "hit_code": {"type": "string", "minLength": 1},
+        "hit_code": {"enum": ["TR-1", "TR-2", "TR-3", "TR-4", "TR-5", "TR-6", "TR-7", "TR-8"]},
+        "route": {"enum": ["record_only", "F1", "F2", "F3", "F4", "submission_reject"]},
         "hit_signature": {"$ref": "#/$defs/sha256"},
         "evidence_refs": {"$ref": "#/$defs/refs"},
-        "selected": {"type": ["boolean", "null"]},
+        "selected": {"type": "boolean"},
         "reason": {"type": "string", "minLength": 1}
       }
     },

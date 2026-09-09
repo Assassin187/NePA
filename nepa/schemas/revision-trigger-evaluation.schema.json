@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/revision-trigger-evaluation.schema.json",
+  "title": "NePA revision trigger evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "boundary_key", "plan_ref", "epoch", "state_history_ref", "workspace", "blueprint_ref", "contract_map_ref", "file_ledger_ref", "ledger_prefix_sha256", "thresholds", "hits", "selection"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "boundary_key": {"$ref": "#/$defs/boundaryKey"},
+    "plan_ref": {"$ref": "#/$defs/ref"},
+    "epoch": {"type": "string", "pattern": "^E[0-9]+$"},
+    "state_history_ref": {"$ref": "#/$defs/ref"},
+    "workspace": {"$ref": "#/$defs/workspace"},
+    "blueprint_ref": {"$ref": "#/$defs/ref"},
+    "contract_map_ref": {"$ref": "#/$defs/ref"},
+    "file_ledger_ref": {"$ref": "#/$defs/ref"},
+    "ledger_prefix_sha256": {"$ref": "#/$defs/sha256"},
+    "thresholds": {"type": "object", "additionalProperties": false, "required": ["theta_2", "theta_6"], "properties": {"theta_2": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "theta_6": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}}},
+    "hits": {"type": "array", "items": {"$ref": "#/$defs/hit"}},
+    "selection": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/selection"}]}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "taskSnapshot": {"type": "object", "additionalProperties": false, "required": ["task_uid", "mode", "ordinary_attempts_used", "amendment_used", "status"], "properties": {"task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "mode": {"enum": ["INHERIT", "REVALIDATE", "AMEND", "REGENERATE"]}, "ordinary_attempts_used": {"type": "integer", "minimum": 0}, "amendment_used": {"type": "boolean"}, "status": {"enum": ["pending", "in_progress", "done", "blocked", "blocked_by_dependency"]}}},
+    "boundaryKey": {"type": "object", "additionalProperties": false, "required": ["phase", "revision_seq", "tasks"], "properties": {"phase": {"enum": ["task_boundary", "provider_submission"]}, "revision_seq": {"type": "integer", "minimum": 0}, "tasks": {"type": "array", "items": {"$ref": "#/$defs/taskSnapshot"}}}},
+    "workspace": {"type": "object", "additionalProperties": false, "required": ["commit", "tree"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "tree": {"$ref": "#/$defs/commit"}}},
+    "anchors": {"type": "object", "additionalProperties": false, "required": ["obligation_uids", "lineage_uids", "paths", "symbols", "error_class"], "properties": {"obligation_uids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "lineage_uids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "symbols": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "error_class": {"type": "string", "minLength": 1}}},
+    "hit": {"type": "object", "additionalProperties": false, "required": ["code", "route", "level", "signature", "signature_anchors", "evidence_refs", "selected", "reason"], "properties": {"code": {"enum": ["TR-1", "TR-2", "TR-3", "TR-4", "TR-5", "TR-6", "TR-7", "TR-8"]}, "route": {"enum": ["record_only", "F1", "F2", "F3", "F4", "submission_reject"]}, "level": {"enum": ["F1", "F2", "F3", "F4", null]}, "signature": {"$ref": "#/$defs/sha256"}, "signature_anchors": {"$ref": "#/$defs/anchors"}, "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}, "selected": {"type": "boolean"}, "reason": {"type": "string", "minLength": 1}}},
+    "selection": {"type": "object", "additionalProperties": false, "required": ["code", "signature", "level"], "properties": {"code": {"enum": ["TR-1", "TR-2", "TR-3", "TR-4", "TR-6", "TR-7"]}, "signature": {"$ref": "#/$defs/sha256"}, "level": {"enum": ["F2", "F3"]}}}
+  }
+}

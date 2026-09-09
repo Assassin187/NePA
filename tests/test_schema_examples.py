@@ -13,7 +13,7 @@ EXAMPLE_DIR = SCHEMA_DIR / "examples"
 
 def test_schema_examples():
     schema_paths = sorted(SCHEMA_DIR.glob("*.schema.json"))
-    assert len(schema_paths) == 97
+    assert len(schema_paths) == 100
 
     for schema_path in schema_paths:
         example_name = schema_path.name.removesuffix(".schema.json") + ".example.json"
@@ -154,6 +154,9 @@ def test_schema_contract_audit():
         "active-plan.schema.json",
         "file-ledger.schema.json",
         "revision-ledger.schema.json",
+        "revision-trigger-evaluation.schema.json",
+        "revision-patch.schema.json",
+        "revision-candidate.schema.json",
         "migration-report.schema.json",
         "plan-activation.schema.json",
         "artifact-manifest.schema.json",
@@ -191,6 +194,37 @@ def test_schema_contract_audit():
     assert _schema("spec-review.schema.json")["allOf"]
     repair = _schema("repair-log.schema.json")
     assert any("regression_summary_ref" in condition.get("then", {}).get("required", []) for condition in repair["allOf"])
+
+
+def test_revision_mechanism_contracts_are_closed_and_level_bound():
+    trigger_schema = Draft202012Validator(_schema("revision-trigger-evaluation.schema.json"))
+    trigger = _example("revision-trigger-evaluation.example.json")
+    trigger["boundary_key"]["unexpected"] = True
+    assert list(trigger_schema.iter_errors(trigger))
+    trigger = _example("revision-trigger-evaluation.example.json")
+    trigger["hits"][0]["code"] = "TR-9"
+    assert list(trigger_schema.iter_errors(trigger))
+
+    patch_schema = Draft202012Validator(_schema("revision-patch.schema.json"))
+    patch = _example("revision-patch.example.json")
+    patch["patch_ops"][0]["unexpected"] = True
+    assert list(patch_schema.iter_errors(patch))
+    patch = _example("revision-patch.example.json")
+    patch["patch_ops"] = [{
+        "op": "add_file_slot", "file_slot": {}, "work_package_id": "wp-a", "owner_task_uid": "0" * 16,
+    }]
+    assert list(patch_schema.iter_errors(patch)), "F3 operations must be rejected from F2 patches"
+    patch = _example("revision-patch.example.json")
+    patch["patch_ops"][0]["op"] = "replace_plan"
+    assert list(patch_schema.iter_errors(patch))
+
+    candidate_schema = Draft202012Validator(_schema("revision-candidate.schema.json"))
+    candidate = _example("revision-candidate.example.json")
+    candidate["formal_version"] = "1.0.1"
+    assert list(candidate_schema.iter_errors(candidate))
+    candidate = _example("revision-candidate.example.json")
+    candidate["candidate_id"] = "candidate-2"
+    assert not list(candidate_schema.iter_errors(candidate)), "cross-field event identity is enforced by the deterministic validator"
 
 
 def test_schema_negative_run_terminal_conditions():

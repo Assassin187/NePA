@@ -3,10 +3,12 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from nepa.speclib.delivery import compile_delivery_constraints
 from nepa.speclib.planning import build_test_manifest_metadata, prepare_architecture_inputs
-from nepa.speclib.plan import PlanError, blueprint_task_semantic_projection, link_plan, normalize_plan_draft
+from nepa.schemas import load_schema
+from nepa.speclib.plan import PlanError, blueprint_task_semantic_projection, link_plan, normalize_plan_draft, plan_to_draft_ir
 
 
 ROOT = Path(__file__).parents[1]
@@ -72,7 +74,8 @@ def test_linker_assigns_stable_topology_identifier_order_and_derives_identity_fi
     assert first["blueprint"] == second["blueprint"]
     assert first["link_report"] == second["link_report"]
     assert [task["id"] for task in first["plan"]["tasks"]] == ["T-001", "T-002"]
-    assert all(all(field in task for field in ("task_uid", "obligation_digest", "guidance_digest")) for task in first["plan"]["tasks"])
+    assert first["plan"]["schema_version"] == "5.0"
+    assert all(all(field in task for field in ("local_task_id", "task_uid", "obligation_digest", "guidance_digest")) for task in first["plan"]["tasks"])
     assert first["plan"]["tasks"][1]["context_refs"]
     assert all(task["acceptance"]["tests"] == [] for task in first["plan"]["tasks"])
 
@@ -102,7 +105,7 @@ def test_blueprint_uses_the_explicit_semantic_projection_without_derived_metadat
     prepared, constraints, manifest, architecture = _inputs()
     linked = link_plan(architecture, architecture["work_packages"], _shards(architecture), constraints, spec=prepared.spec, manifest=manifest)
     tasks_without_derived_fields = [
-        {key: value for key, value in task.items() if key not in {"task_uid", "obligation_digest", "guidance_digest"}}
+        {key: value for key, value in task.items() if key not in {"local_task_id", "task_uid", "obligation_digest", "guidance_digest"}}
         for task in linked["plan"]["tasks"]
     ]
     assert blueprint_task_semantic_projection(linked["plan"]["tasks"]) == tasks_without_derived_fields
@@ -114,6 +117,23 @@ def test_blueprint_uses_the_explicit_semantic_projection_without_derived_metadat
         tasks_without_derived_fields,
     )
     assert replay == linked["blueprint"]
+
+
+def test_plan_v5_round_trip_preserves_local_identity_and_rejects_v4():
+    prepared, constraints, manifest, architecture = _inputs()
+    linked = link_plan(architecture, architecture["work_packages"], _shards(architecture), constraints, spec=prepared.spec, manifest=manifest)
+    restored = plan_to_draft_ir(linked["plan"])
+    relinked = link_plan(restored, constraints=constraints, spec=prepared.spec, manifest=manifest)
+    assert [task["local_task_id"] for task in relinked["plan"]["tasks"]] == [task["local_task_id"] for task in linked["plan"]["tasks"]]
+    assert [task["task_uid"] for task in relinked["plan"]["tasks"]] == [task["task_uid"] for task in linked["plan"]["tasks"]]
+    assert relinked["plan"] == linked["plan"]
+
+    legacy = copy.deepcopy(linked["plan"])
+    legacy["schema_version"] = "4.0"
+    assert list(Draft202012Validator(load_schema("plan.schema.json")).iter_errors(legacy))
+    with pytest.raises(PlanError) as exc:
+        plan_to_draft_ir(legacy)
+    assert exc.value.code == "PLAN_SCHEMA_INVALID"
 
 
 def test_linker_rejects_dependency_cycles_and_does_not_publish_partial_results():

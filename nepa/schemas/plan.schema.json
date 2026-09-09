@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nepa.local/schemas/plan.schema.json",
-  "title": "NePA Plan v4",
+  "title": "NePA Plan v5",
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "input_refs", "delivery_blueprint_sha256", "architecture", "work_packages", "tasks", "coverage", "review"],
   "properties": {
-    "schema_version": {"const": "4.0"}, "input_refs": {"$ref": "#/$defs/inputRefs"}, "delivery_blueprint_sha256": {"$ref": "#/$defs/sha256"},
+    "schema_version": {"const": "5.0"}, "input_refs": {"$ref": "#/$defs/inputRefs"}, "delivery_blueprint_sha256": {"$ref": "#/$defs/sha256"},
     "architecture": {"$ref": "#/$defs/finalArchitecture"}, "work_packages": {"type": "array", "items": {"$ref": "#/$defs/workPackage"}},
     "tasks": {"type": "array", "items": {"$ref": "#/$defs/task"}}, "coverage": {"$ref": "#/$defs/coverage"}, "review": {"$ref": "#/$defs/review"}
   },
@@ -26,9 +26,9 @@
     "finalArchitecture": {"type": "object", "additionalProperties": false, "required": ["schema_version", "decisions", "assumptions", "contracts", "modules", "layout"], "properties": {"schema_version": {"const": "2.0"}, "decisions": {"type": "array", "items": {"$ref": "#/$defs/decision"}}, "assumptions": {"type": "array", "items": {"type": "string", "minLength": 1}}, "contracts": {"type": "array", "items": {"$ref": "#/$defs/contract"}}, "modules": {"type": "array", "items": {"$ref": "#/$defs/module"}}, "layout": {"$ref": "#/$defs/layout"}}},
     "acceptance": {"type": "object", "additionalProperties": false, "required": ["build_variant_ids", "tests"], "properties": {"build_variant_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "tests": {"const": []}}},
     "task": {
-      "type": "object", "additionalProperties": false, "required": ["id", "work_package", "title", "goal", "kind", "instructions", "deliverable_files", "context_refs", "requirement_responsibilities", "provides_contracts", "consumes_contracts", "depends_on", "acceptance", "task_uid", "obligation_digest", "guidance_digest"],
+      "type": "object", "additionalProperties": false, "required": ["id", "local_task_id", "work_package", "title", "goal", "kind", "instructions", "deliverable_files", "context_refs", "requirement_responsibilities", "provides_contracts", "consumes_contracts", "depends_on", "acceptance", "task_uid", "obligation_digest", "guidance_digest"],
       "properties": {
-        "id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "work_package": {"type": "string", "minLength": 1}, "title": {"type": "string", "minLength": 1}, "goal": {"type": "string", "minLength": 1}, "kind": {"enum": ["codec", "state", "logic", "transport", "app", "integration"]}, "instructions": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "pattern": "^T-[0-9]{3}$"}, "local_task_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"}, "work_package": {"type": "string", "minLength": 1}, "title": {"type": "string", "minLength": 1}, "goal": {"type": "string", "minLength": 1}, "kind": {"enum": ["codec", "state", "logic", "transport", "app", "integration"]}, "instructions": {"type": "string", "minLength": 1},
         "deliverable_files": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "context_refs": {"type": "array", "items": {"$ref": "#/$defs/contextRef"}}, "requirement_responsibilities": {"type": "array", "items": {"$ref": "#/$defs/responsibility"}}, "provides_contracts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "consumes_contracts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "depends_on": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^T-[0-9]{3}$"}}, "acceptance": {"$ref": "#/$defs/acceptance"}, "task_uid": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "obligation_digest": {"$ref": "#/$defs/sha256"}, "guidance_digest": {"$ref": "#/$defs/sha256"}
       }
     },

@@ -35,6 +35,7 @@ def build_orchestrator(
     executor: Any | None = None,
     fault_hook: Any | None = None,
     lease_authorization_provider: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None,
+    revision_patch_provider: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None,
 ) -> Orchestrator:
     orchestrator = Orchestrator(fault_hook=fault_hook)
     invoker = agent
@@ -48,7 +49,7 @@ def build_orchestrator(
         invoker = AgentInvoker(config, client)
     orchestrator.register_s4(S4Controller(invoker))
     orchestrator.register_controller("s5", S5MaterializationController(executor))
-    orchestrator.register_controller("s6", S6ExecutionController(invoker, executor, fault_hook=fault_hook, lease_authorization_provider=lease_authorization_provider))
+    orchestrator.register_controller("s6", S6ExecutionController(invoker, executor, fault_hook=fault_hook, lease_authorization_provider=lease_authorization_provider, revision_patch_provider=revision_patch_provider))
     return orchestrator
 
 

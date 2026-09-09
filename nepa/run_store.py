@@ -256,6 +256,178 @@ class RunStore:
         self._write_atomic_at(path, data)
         return ArtifactRef(relative_path, sha256_bytes(data))
 
+    def stage_revision_candidate(self, event_seq: int, bundle: Mapping[str, object]) -> ArtifactRef:
+        """Write one complete non-authoritative candidate into its pending directory."""
+
+        from .speclib.revision_mechanism import RevisionMechanismError, validate_revision_candidate
+
+        candidate_value = bundle.get("candidate.json")
+        if not isinstance(candidate_value, Mapping):
+            raise RunValidationError("revision candidate bundle has no candidate.json commit marker")
+        try:
+            candidate = validate_revision_candidate(candidate_value)
+        except RevisionMechanismError as exc:
+            raise RunValidationError(str(exc)) from exc
+        if candidate["selected_event_seq"] != event_seq:
+            raise RunValidationError("candidate event sequence disagrees with staging identity")
+        expected_names = set(candidate["content_hashes"])
+        if set(bundle) != expected_names | {"candidate.json"}:
+            raise RunValidationError("candidate bundle filenames do not equal its content-hash closure")
+        encoded: dict[str, bytes] = {}
+        for name in expected_names:
+            data = canonical_json_bytes(bundle[name])
+            if sha256_bytes(data) != candidate["content_hashes"][name]:
+                raise RunValidationError(f"candidate content hash differs for {name}")
+            encoded[name] = data
+        pending_relative = f"plan/_s4r/.candidate_{event_seq}.pending"
+        pending = self._confined(pending_relative)
+        final = self._confined(f"plan/_s4r/candidate_{event_seq}")
+        if final.exists():
+            committed, ref = self._validate_revision_candidate_directory(final, event_seq)
+            if committed != candidate or any((final / name).read_bytes() != data for name, data in encoded.items()):
+                raise ArtifactConflict("committed revision candidate conflicts with replay")
+            return ref
+        pending.mkdir(parents=True, exist_ok=True)
+        for name in sorted(expected_names, key=lambda value: value.encode("utf-8")):
+            target = pending / name
+            data = encoded[name]
+            if target.exists() and target.read_bytes() != data:
+                raise ArtifactConflict(f"staged revision candidate conflicts at {name}")
+            self._write_atomic_at(target, data)
+        marker_bytes = canonical_json_bytes(candidate)
+        marker = pending / "candidate.json"
+        if marker.exists() and marker.read_bytes() != marker_bytes:
+            raise ArtifactConflict("staged candidate marker conflicts with replay")
+        self._write_atomic_at(marker, marker_bytes)
+        self._directory_fsync(pending)
+        _candidate, ref = self._validate_revision_candidate_directory(pending, event_seq)
+        return ArtifactRef(f"{pending_relative}/candidate.json", ref.sha256)
+
+    def _validate_revision_candidate_directory(
+        self,
+        directory: Path,
+        event_seq: int,
+    ) -> tuple[dict[str, Any], ArtifactRef]:
+        """Validate one staged/final candidate's closed file and hash set."""
+
+        from .speclib.revision_mechanism import RevisionMechanismError, validate_revision_candidate
+
+        marker = directory / "candidate.json"
+        if not directory.is_dir() or not marker.is_file():
+            raise ArtifactConflict("revision candidate directory has no commit marker")
+        try:
+            marker_bytes = marker.read_bytes()
+            raw = json.loads(marker_bytes)
+            if canonical_json_bytes(raw) != marker_bytes:
+                raise ArtifactConflict("revision candidate marker is not canonical")
+            candidate = validate_revision_candidate(raw)
+        except (OSError, UnicodeError, json.JSONDecodeError, RevisionMechanismError) as exc:
+            raise ArtifactConflict(f"revision candidate marker is invalid: {exc}") from exc
+        if candidate["selected_event_seq"] != event_seq:
+            raise ArtifactConflict("revision candidate marker has the wrong event identity")
+        expected = set(candidate["content_hashes"]) | {"candidate.json"}
+        actual = {path.name for path in directory.iterdir() if path.is_file()}
+        if actual != expected or any(path.is_dir() for path in directory.iterdir()):
+            raise ArtifactConflict("revision candidate directory is not a closed bundle")
+        for name, expected_hash in candidate["content_hashes"].items():
+            if sha256_bytes((directory / name).read_bytes()) != expected_hash:
+                raise ArtifactConflict(f"revision candidate content hash differs for {name}")
+        relative = directory.relative_to(self.root).as_posix() + "/candidate.json"
+        return candidate, ArtifactRef(relative, sha256_bytes(marker_bytes))
+
+    @staticmethod
+    def _candidate_matches_trigger(candidate: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
+        payload = entry.get("payload", {})
+        return (
+            candidate.get("selected_trigger")
+            == {"code": payload.get("hit_code"), "signature": payload.get("hit_signature")}
+            and candidate.get("source", {}).get("plan_ref") == payload.get("plan_ref")
+            and candidate.get("source", {}).get("revision_seq") == payload.get("boundary_key", {}).get("revision_seq")
+        )
+
+    @staticmethod
+    def _candidate_matches_ledger_prefix(
+        candidate: Mapping[str, Any], ledger: Mapping[str, Any], selected: Mapping[str, Any]
+    ) -> bool:
+        boundary_key = selected.get("payload", {}).get("boundary_key")
+        entries = list(ledger.get("entries", []))
+        selected_index = next(
+            (index for index, entry in enumerate(entries) if entry.get("event_seq") == selected.get("event_seq")),
+            -1,
+        )
+        if selected_index < 0:
+            return False
+        batch_start = selected_index
+        while batch_start > 0:
+            previous = entries[batch_start - 1]
+            if previous.get("event_type") != "trigger_evaluated" or previous.get("payload", {}).get("boundary_key") != boundary_key:
+                break
+            batch_start -= 1
+        prefix = {"schema_version": ledger.get("schema_version"), "entries": entries[:batch_start]}
+        return candidate.get("source", {}).get("ledger_prefix_sha256") == sha256_bytes(canonical_json_bytes(prefix))
+
+    def commit_revision_candidate(self, event_seq: int) -> ArtifactRef:
+        """Atomically publish one staged candidate after its selected trigger exists."""
+
+        pending = self._confined(f"plan/_s4r/.candidate_{event_seq}.pending")
+        final = self._confined(f"plan/_s4r/candidate_{event_seq}")
+        ledger = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+        selected = [entry for entry in ledger["entries"] if entry["event_seq"] == event_seq and entry["event_type"] == "trigger_evaluated" and entry["payload"]["selected"] is True]
+        if len(selected) != 1:
+            raise RunValidationError("candidate commit requires its unique accepted selected trigger")
+        pending_candidate = None
+        if pending.exists():
+            pending_candidate, _pending_ref = self._validate_revision_candidate_directory(pending, event_seq)
+            if not self._candidate_matches_trigger(pending_candidate, selected[0]) or not self._candidate_matches_ledger_prefix(pending_candidate, ledger, selected[0]):
+                raise ArtifactConflict("staged candidate disagrees with its selected trigger")
+        if final.exists():
+            final_candidate, final_ref = self._validate_revision_candidate_directory(final, event_seq)
+            if not self._candidate_matches_trigger(final_candidate, selected[0]) or not self._candidate_matches_ledger_prefix(final_candidate, ledger, selected[0]):
+                raise ArtifactConflict("committed candidate disagrees with its selected trigger")
+            if pending_candidate is not None:
+                names = set(final_candidate["content_hashes"]) | {"candidate.json"}
+                if final_candidate != pending_candidate or any((final / name).read_bytes() != (pending / name).read_bytes() for name in names):
+                    raise ArtifactConflict("staged and committed candidate bytes conflict")
+                shutil.rmtree(pending)
+                self._directory_fsync(final.parent)
+            return final_ref
+        if pending_candidate is None:
+            raise RunValidationError("revision candidate has not been completely staged")
+        final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(pending, final)
+        self._directory_fsync(final.parent)
+        _candidate, ref = self._validate_revision_candidate_directory(final, event_seq)
+        return ref
+
+    def reconcile_revision_candidate(self, event_seq: int) -> ArtifactRef | None:
+        """Converge the sole legal staged/final/ledger candidate state forward."""
+
+        pending = self._confined(f"plan/_s4r/.candidate_{event_seq}.pending")
+        final = self._confined(f"plan/_s4r/candidate_{event_seq}")
+        ledger = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+        selected_entries = [entry for entry in ledger["entries"] if entry["event_seq"] == event_seq and entry["event_type"] == "trigger_evaluated" and entry["payload"]["selected"] is True]
+        if len(selected_entries) > 1:
+            raise ArtifactConflict("candidate has multiple selected trigger anchors")
+        selected = selected_entries[0] if selected_entries else None
+        pending_candidate = self._validate_revision_candidate_directory(pending, event_seq)[0] if pending.exists() else None
+        final_candidate = self._validate_revision_candidate_directory(final, event_seq)[0] if final.exists() else None
+        if final.exists():
+            if selected is None or final_candidate is None or not self._candidate_matches_trigger(final_candidate, selected) or not self._candidate_matches_ledger_prefix(final_candidate, ledger, selected):
+                raise ArtifactConflict("committed candidate has no accepted selected trigger or marker")
+            if pending_candidate is not None:
+                names = set(final_candidate["content_hashes"]) | {"candidate.json"}
+                if final_candidate != pending_candidate or any((final / name).read_bytes() != (pending / name).read_bytes() for name in names):
+                    raise ArtifactConflict("staged and committed candidate bytes conflict")
+                shutil.rmtree(pending)
+                self._directory_fsync(final.parent)
+            marker = final / "candidate.json"
+            return ArtifactRef(f"plan/_s4r/candidate_{event_seq}/candidate.json", sha256_bytes(marker.read_bytes()))
+        if pending_candidate is not None and selected is not None:
+            if not self._candidate_matches_trigger(pending_candidate, selected) or not self._candidate_matches_ledger_prefix(pending_candidate, ledger, selected):
+                raise ArtifactConflict("staged candidate disagrees with its selected trigger")
+            return self.commit_revision_candidate(event_seq)
+        return None
+
     def append_state_history(
         self,
         state: Mapping[str, Any],
@@ -1277,10 +1449,14 @@ class RunStore:
                     trigger_event = next((item for item in typed["entries"] if item.get("event_type") == "trigger_evaluated"), None)
                     if trigger_event is None:
                         trigger = entry.get("trigger", {})
+                        trigger_code = trigger.get("code")
+                        if trigger_code not in {f"TR-{index}" for index in range(1, 9)}:
+                            trigger_code = "TR-4"
                         trigger_payload = {
-                            "boundary_key": {"revision_seq": new_pointer["revision_seq"]},
+                            "boundary_key": {"phase": "task_boundary", "revision_seq": old_pointer["revision_seq"], "tasks": []},
                             "plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
-                            "hit_code": str(trigger.get("code", "revision_activation")),
+                            "hit_code": trigger_code,
+                            "route": entry["level"],
                             "hit_signature": self._canonical_value_hash(trigger),
                             "evidence_refs": list(trigger.get("evidence_refs", [])),
                             "selected": True,

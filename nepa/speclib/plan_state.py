@@ -73,6 +73,22 @@ def _plan_tasks(plan: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {task["id"]: task for task in plan.get("tasks", []) if isinstance(task, Mapping) and isinstance(task.get("id"), str)}
 
 
+def lease_lender_directly_related(
+    current: Mapping[str, Any], lender: Mapping[str, Any], plan: Mapping[str, Any]
+) -> bool:
+    """Return the shared pure F1 same-package/direct-provider predicate."""
+
+    if lender.get("work_package") == current.get("work_package"):
+        return True
+    consumed = set(current.get("consumes_contracts", []))
+    return any(
+        isinstance(contract, Mapping)
+        and contract.get("id") in consumed
+        and contract.get("provider_task_id") == lender.get("id")
+        for contract in plan.get("architecture", {}).get("contracts", [])
+    )
+
+
 def validate_lease_authorization(
     authorization: Mapping[str, Any],
     *,
@@ -136,18 +152,6 @@ def validate_lease_authorization(
     seen_paths: set[str] = set()
     total_paths = 0
 
-    def directly_related(lender: Mapping[str, Any]) -> bool:
-        if lender.get("work_package") == current.get("work_package"):
-            return True
-        consumed = set(current.get("consumes_contracts", []))
-        contracts = plan.get("architecture", {}).get("contracts", [])
-        for contract in contracts:
-            if not isinstance(contract, Mapping) or contract.get("id") not in consumed:
-                continue
-            if contract.get("provider_task_id") == lender.get("id"):
-                return True
-        return False
-
     for lender in value["lenders"]:
         uid = lender["task_uid"]
         if uid in seen_uids or uid == current_uid:
@@ -162,7 +166,7 @@ def validate_lease_authorization(
         accepted_ref = lender_row.get("acceptance_evidence", {}).get("task_evidence_ref") if isinstance(lender_row.get("acceptance_evidence"), Mapping) else None
         if isinstance(accepted_ref, Mapping) and accepted_ref not in lender.get("evidence_refs", []):
             raise PlanStateError("lease lender evidence does not bind its accepted done proof")
-        if not directly_related(lender_task):
+        if not lease_lender_directly_related(current, lender_task, plan):
             raise PlanStateError("lease lender is outside the same-package/provider neighborhood")
         for path in lender["paths"]:
             if not path or path.startswith("/") or "\\" in path or ".." in PurePath(path).parts:
@@ -1137,4 +1141,4 @@ def complete_execution_lint(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return execution_state_lint(*args, **kwargs)
 
 
-__all__ = ["PlanStateError", "complete_execution_lint", "execution_state_lint", "initialize_plan_state", "plan_state_snapshot_lint", "project_state_transition", "validate_lease_authorization", "validate_state_transition"]
+__all__ = ["PlanStateError", "complete_execution_lint", "execution_state_lint", "initialize_plan_state", "lease_lender_directly_related", "plan_state_snapshot_lint", "project_state_transition", "validate_lease_authorization", "validate_state_transition"]

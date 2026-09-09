@@ -38,7 +38,7 @@ from ..schemas import (
 from ..speclib.architecture import ArchitectureError, load_architecture_draft, validate_architecture
 from ..speclib.delivery import DeliveryConstraintError, compile_delivery_blueprint, compile_delivery_constraints, expand_file_rules
 from ..speclib.lint import canonical_json_bytes
-from ..speclib.plan import PlanError, link_plan, plan_lint, normalize_plan_draft
+from ..speclib.plan import CandidateCompletion, PlanError, complete_plan_candidate, link_plan, plan_lint, normalize_plan_draft
 from ..speclib.planning import (
     PlanningContextError,
     PlanningInputError,
@@ -82,20 +82,6 @@ class ApprovedArchitecturePromptBundle:
     repair_ref: dict[str, str]
     initial_bytes: bytes
     repair_bytes: bytes
-
-
-@dataclass(frozen=True)
-class CandidateCompletion:
-    plan_draft_ir: dict[str, Any]
-    plan: dict[str, Any]
-    blueprint: dict[str, Any]
-    link_report: dict[str, Any]
-    lint_report: dict[str, Any]
-    constraints: dict[str, Any]
-    manifest: dict[str, Any]
-    spec: dict[str, Any]
-    config_snapshot: dict[str, Any]
-    input_refs: dict[str, dict[str, str]]
 
 
 def _sha(data: bytes) -> str:
@@ -471,57 +457,6 @@ def _expand_layout_paths(architecture: Mapping[str, Any], constraints: Mapping[s
         placeholder = "{" + ("message_id" if domain == "messages" else "type_id") + "}"
         paths.extend(item["path_pattern"].replace(placeholder, value) for value in domains.get(domain, []))
     return sorted(set(paths), key=lambda value: value.encode("utf-8"))
-
-
-def complete_plan_candidate(
-    plan_draft_ir: Mapping[str, Any],
-    constraints: Mapping[str, Any],
-    frozen_refs: Mapping[str, Any],
-    manifest: Mapping[str, Any],
-    config_snapshot: Mapping[str, Any],
-) -> CandidateCompletion:
-    """Run the one common deterministic normalize/link/Blueprint/full-lint path."""
-
-    source = copy.deepcopy(dict(plan_draft_ir))
-    _require_schema(source, "plan-draft-ir.schema.json", "PlanDraftIR")
-    spec = frozen_refs.get("spec_value") or frozen_refs.get("spec")
-    target = frozen_refs.get("target_profile_value") or frozen_refs.get("target_profile")
-    if not isinstance(spec, Mapping) or not isinstance(target, Mapping):
-        raise S4ControlledError("complete_plan_candidate requires frozen Spec and Target values", code="S4_INPUT_REF_INVALID")
-    refs_value = frozen_refs.get("refs") or frozen_refs.get("input_refs")
-    if refs_value is None:
-        refs_value = {name: frozen_refs[name] for name in ("spec", "target_profile", "test_bundle") if isinstance(frozen_refs.get(name), Mapping) and "path" in frozen_refs[name]}
-    input_refs = {name: _safe_ref(refs_value[name], f"candidate input {name}") for name in ("spec", "target_profile", "test_bundle")}
-    normalized = normalize_plan_draft(source["architecture"], source["work_packages"], source["task_shards"], constraints=constraints)
-    linked = link_plan(
-        normalized,
-        constraints=constraints,
-        spec=dict(spec),
-        manifest=dict(manifest),
-        config_snapshot=dict(config_snapshot),
-        input_refs=input_refs,
-    )
-    lint_manifest = frozen_refs.get("test_bundle_value") or manifest
-    # The shared lint API compares semantic companions using canonical JSON
-    # bytes.  Preserve the run's raw frozen refs in the Plan, while linting a
-    # canonical companion projection for this deterministic gate.
-    lint_plan_value = copy.deepcopy(linked["plan"])
-    lint_plan_value["input_refs"] = {
-        "spec": {"path": input_refs["spec"]["path"], "sha256": _sha(canonical_json_bytes(dict(spec)))},
-        "target_profile": {"path": input_refs["target_profile"]["path"], "sha256": _sha(canonical_json_bytes(dict(target)))},
-        "test_bundle": {"path": input_refs["test_bundle"]["path"], "sha256": _sha(canonical_json_bytes(dict(lint_manifest)))},
-    }
-    lint_report = plan_lint(
-        lint_plan_value, dict(spec), dict(lint_manifest), dict(config_snapshot), level="full",
-        constraints=dict(constraints), blueprint=linked["blueprint"], target_profile=dict(target),
-    )
-    if not lint_report.get("valid"):
-        raise S4ControlledError("candidate failed S4-G0 through S4-G6 full lint", code="S4_FULL_LINT_INVALID")
-    return CandidateCompletion(
-        plan_draft_ir=linked["plan_draft_ir"], plan=linked["plan"], blueprint=linked["blueprint"],
-        link_report=linked["link_report"], lint_report=lint_report, constraints=dict(constraints),
-        manifest=dict(manifest), spec=dict(spec), config_snapshot=dict(config_snapshot), input_refs=input_refs,
-    )
 
 
 def _ledger_paths(completion: CandidateCompletion) -> list[str]:

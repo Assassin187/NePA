@@ -40,6 +40,7 @@ markers = [
   "s6_execution: end-to-end S6 ordinary task execution checks",
   "s6_lease: end-to-end S6 F1 lease execution checks",
   "metric_contract: deterministic M1 metric contract checks",
+  "revision_mechanism: deterministic M1 revision trigger and patch checks",
 ]
 
 [tool.ruff]

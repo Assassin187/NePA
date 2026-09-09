@@ -49,9 +49,21 @@ class UsageDelta:
 
 
 @dataclass(frozen=True)
+class StagePause:
+    kind: str
+    selected_event_seq: int
+    candidate_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind != "revision_handoff" or self.selected_event_seq < 1:
+            raise ValueError("invalid revision handoff pause")
+
+
+@dataclass(frozen=True)
 class StageResult:
     output_refs: Mapping[str, ArtifactRef | Mapping[str, Any] | str] = field(default_factory=dict)
     usage: UsageDelta | None = None
+    pause: StagePause | None = None
 
 
 @dataclass(frozen=True)
@@ -191,8 +203,33 @@ class Orchestrator:
             usage = result.get("usage")
             if isinstance(usage, Mapping):
                 usage = UsageDelta(**dict(usage))
-            return StageResult(output_refs=result.get("output_refs", {}), usage=usage)
+            pause = result.get("pause")
+            if isinstance(pause, Mapping):
+                pause = StagePause(**dict(pause))
+            return StageResult(output_refs=result.get("output_refs", {}), usage=usage, pause=pause)
         raise OrchestrationError("stage controller returned an unsupported result")
+
+    def _pause_stage(self, store: RunStore, run: dict[str, Any], stage_name: str, pause: StagePause) -> dict[str, Any]:
+        if stage_name != "s6":
+            raise OrchestrationError("revision handoff is only legal from S6")
+        updated = copy.deepcopy(run)
+        stage = updated["stages"][stage_name]
+        if stage["status"] != "running":
+            raise OrchestrationError("S6 is not running at revision handoff")
+        stage.update({"status": "pending", "started_at": None, "ended_at": None, "error": None})
+        stage.pop("output_refs", None)
+        updated.pop("termination_request", None)
+        store.replace_run(updated)
+        event = {
+            "run_id": run["run_id"],
+            "stage": stage_name,
+            "event": "paused",
+            "kind": pause.kind,
+            "selected_event_seq": pause.selected_event_seq,
+            "candidate_ref": pause.candidate_ref,
+        }
+        store.append_stage_event(event)
+        return updated
 
     def _transition_running(self, store: RunStore, run: dict[str, Any], stage_name: str) -> dict[str, Any]:
         stage = run["stages"][stage_name]
@@ -431,6 +468,9 @@ class Orchestrator:
                     self._fault(f"{stage_name}_output_published")
                     if result.usage is not None:
                         self.record_external_usage(store, result.usage)
+                    if result.pause is not None:
+                        self._pause_stage(store, store.load_run(), stage_name, result.pause)
+                        return 0
                     if stage_name == "s4" and hasattr(controller, "verify_result"):
                         controller.verify_result(store, result)  # type: ignore[attr-defined]
                     run = self._commit_stage(store, store.load_run(), stage_name, result)

@@ -6,9 +6,11 @@ import copy
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
+from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping, Sequence
 
@@ -17,14 +19,16 @@ from jsonschema import Draft202012Validator
 from ..agents.s6 import CODER_INPUTS, FIXER_INPUTS, LEASE_FIXER_INPUTS, S6AgentError, candidate_tree_hash, coding_contract, normalize_candidate, project_s6_context
 from ..agents.base import AgentInvoker
 from ..llm.client import StructuredOutputError
-from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StageResult
+from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StagePause, StageResult
 from ..run_store import ArtifactRef, RunStore, RunStoreError, sha256_bytes
 from ..schemas import load_schema
 from ..speclib.lint import canonical_json_bytes
-from ..speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints
+from ..speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints, expand_file_rules
 from ..speclib.materialization import MaterializationError, attribute_pending_repair, build_artifact_manifest, build_contract_map, derive_rendering_view, parse_c99_declaration, render_e0_files, validate_completed_epoch
-from ..speclib.plan import blueprint_task_semantic_projection
-from ..speclib.plan_state import PlanStateError, execution_state_lint, initialize_plan_state, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
+from ..speclib.plan import blueprint_task_semantic_projection, plan_to_draft_ir
+from ..speclib.planning import build_test_manifest_metadata
+from ..speclib.revision_mechanism import append_trigger_batch, complete_revision_candidate, evaluate_revision_triggers, project_revision_boundary
+from ..speclib.plan_state import PlanStateError, execution_state_lint, initialize_plan_state, lease_lender_directly_related, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
 from ..speclib.plan_revision import append_lease_finished, append_verification_committed, latest_activation, validate_file_ledger, validate_revision_ledger
 from ..tools.build import _tree_sha256, run_build_variants, run_smoke_checks
 from ..tools.git_ops import GitOperationError, prepare_joint_commit, prepare_task_commit, publish_joint_commit, publish_task_commit
@@ -37,6 +41,10 @@ class S6AdmissionError(RuntimeError):
 
 class S6ExecutionError(RuntimeError):
     """An ordinary candidate cannot be accepted."""
+
+
+class ContractExportDrift(S6ExecutionError):
+    """Typed controller rejection for provider-submission contract drift."""
 
 
 def _hash(value: Any) -> str:
@@ -384,11 +392,11 @@ def _validate_candidate_bindings(
                 continue
             implementation = export.get("implementation_file")
             if not isinstance(implementation, str) or implementation not in files:
-                raise S6ExecutionError(f"sealed export {export.get('symbol', '')} has no candidate implementation")
+                raise ContractExportDrift(f"sealed export {export.get('symbol', '')} has no candidate implementation")
             text = files[implementation].decode("utf-8")
             symbol = str(export.get("symbol", ""))
             if not symbol or re.search(rf"\b{re.escape(symbol)}\b", text) is None:
-                raise S6ExecutionError(f"candidate does not implement sealed export {symbol}")
+                raise ContractExportDrift(f"candidate does not implement sealed export {symbol}")
             try:
                 declaration = parse_c99_declaration(str(export.get("signature", "")))
             except Exception as exc:
@@ -399,7 +407,7 @@ def _validate_candidate_bindings(
                     text,
                 )
                 if definition is None:
-                    raise S6ExecutionError(f"candidate declaration drifts for sealed export {symbol}")
+                    raise ContractExportDrift(f"candidate declaration drifts for sealed export {symbol}")
                 try:
                     candidate_declaration = parse_c99_declaration(
                         f"{declaration['return_type']} {symbol}({definition.group('parameters')});"
@@ -409,7 +417,7 @@ def _validate_candidate_bindings(
                 expected_types = [item["c_type"] for item in declaration.get("parameters", [])]
                 candidate_types = [item["c_type"] for item in candidate_declaration.get("parameters", [])]
                 if candidate_declaration.get("return_type") != declaration.get("return_type") or candidate_types != expected_types:
-                    raise S6ExecutionError(f"candidate declaration drifts for sealed export {symbol}")
+                    raise ContractExportDrift(f"candidate declaration drifts for sealed export {symbol}")
 
 
 def _attribute_group_members(
@@ -620,11 +628,12 @@ def _state_after_lease(
 class S6ExecutionController:
     """Run ordinary tasks serially with durable candidate and commit boundaries."""
 
-    def __init__(self, agent: AgentInvoker, executor: Any | None = None, *, fault_hook: Any | None = None, lease_authorization_provider: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None) -> None:
+    def __init__(self, agent: AgentInvoker, executor: Any | None = None, *, fault_hook: Any | None = None, lease_authorization_provider: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None, revision_patch_provider: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None) -> None:
         self.agent = agent
         self.executor = executor
         self.fault_hook = fault_hook
         self.lease_authorization_provider = lease_authorization_provider
+        self.revision_patch_provider = revision_patch_provider
 
     def _fault(self, point: str) -> None:
         if self.fault_hook is not None:
@@ -2440,11 +2449,28 @@ class S6ExecutionController:
         lease_authorization: Mapping[str, Any] | None = None
         lease_authorization_ref: Mapping[str, Any] | None = None
         if role == "fixer" and self.lease_authorization_provider is not None:
+            revision_ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+            revision_trigger = next(
+                (
+                    copy.deepcopy(entry["payload"])
+                    for entry in reversed(revision_ledger["entries"])
+                    if entry.get("event_type") == "trigger_evaluated"
+                    and entry.get("payload", {}).get("hit_code") == "TR-3"
+                    and entry.get("payload", {}).get("route") == "F1"
+                    and any(
+                        f"/{task['task_uid']}/" in f"/{ref.get('path', '')}"
+                        for ref in entry.get("payload", {}).get("evidence_refs", [])
+                        if isinstance(ref, Mapping)
+                    )
+                ),
+                None,
+            )
             request = {
                 "plan": copy.deepcopy(dict(plan)),
                 "state": copy.deepcopy(state),
                 "file_ledger": _load(store, "plan/file_ledger.json", "file-ledger.schema.json"),
-                "revision_ledger": _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json"),
+                "revision_ledger": revision_ledger,
+                "revision_trigger": revision_trigger,
                 "config_snapshot": copy.deepcopy(context.run["config_snapshot"]),
                 "task": copy.deepcopy(dict(task)),
                 "baseline_commit": baseline_commit,
@@ -2529,7 +2555,10 @@ class S6ExecutionController:
             parsed = None
             responses = exc.responses if isinstance(exc, StructuredOutputError) else []
             model_ref = _model_output_ref(store, task["task_uid"], attempt, responses[-1].text) if responses else None
-            error = {"attempt": attempt, "code": "AGENT_FAILURE", "detail": str(exc), "candidate": {}, "model_output_ref": model_ref.as_dict() if model_ref else None, "feedback": {"error": str(exc)}, "diagnosis": {}}
+            controller_facts: dict[str, Any] = {}
+            if responses and str(responses[-1].provider_metadata.get("finish_reason", "")).lower() in {"length", "max_tokens"}:
+                controller_facts["finish_reason"] = str(responses[-1].provider_metadata["finish_reason"]).lower()
+            error = {"attempt": attempt, "code": "AGENT_FAILURE", "detail": str(exc), "candidate": {}, "model_output_ref": model_ref.as_dict() if model_ref else None, "feedback": {"error": str(exc)}, "diagnosis": {}, "controller_facts": controller_facts}
             self._record_failure(store, task, attempt, error)
             call_refs = _call_refs_for_attempt(store, task["id"], attempt)
             self._finish_failed_lease(store, lease_id, str(exc), call_refs or ([{"path": model_ref.path}] if model_ref else []))
@@ -2538,6 +2567,8 @@ class S6ExecutionController:
         candidate_refs: dict[str, ArtifactRef] = {}
         builds: list[Mapping[str, Any]] = []
         smokes: list[Mapping[str, Any]] = []
+        build_refs: list[dict[str, str]] = []
+        smoke_refs: list[dict[str, str]] = []
         candidate_manifest_ref = _archive_candidate_response(store, task["task_uid"], attempt, parsed)
         try:
             files = normalize_candidate(parsed, task, _load(store, "plan/file_ledger.json", "file-ledger.schema.json"), leased_paths=leased_paths)
@@ -2556,7 +2587,7 @@ class S6ExecutionController:
             build_refs, smoke_refs = _publish_results(store, f"attempts/{task['task_uid']}/attempt_{attempt:03d}", builds, smokes)
             passed = bool(builds) and all(item["status"] == "passed" for item in builds) and bool(smokes) and all(item["status"] == "passed" for item in smokes)
             if not passed:
-                error = {"attempt": attempt, "code": "CANDIDATE_VALIDATION_FAILED", "detail": "build or smoke failed", "candidate": {path: content.decode("utf-8") for path, content in files.items()}, "candidate_manifest_ref": candidate_manifest_ref.as_dict() if candidate_manifest_ref else None, "candidate_refs": {path: ref.as_dict() for path, ref in candidate_refs.items()}, "candidate_tree": _tree_sha256(candidate), "model_output_ref": model_output_ref.as_dict(), "feedback": {"build": builds, "smoke": smokes}, "diagnosis": {}}
+                error = {"attempt": attempt, "code": "CANDIDATE_VALIDATION_FAILED", "detail": "build or smoke failed", "candidate": {path: content.decode("utf-8") for path, content in files.items()}, "candidate_manifest_ref": candidate_manifest_ref.as_dict() if candidate_manifest_ref else None, "candidate_refs": {path: ref.as_dict() for path, ref in candidate_refs.items()}, "candidate_tree": _tree_sha256(candidate), "model_output_ref": model_output_ref.as_dict(), "feedback": {"build": builds, "smoke": smokes}, "diagnosis": {}, "controller_facts": {"build_result_refs": build_refs}}
                 self._record_failure(store, task, attempt, error)
                 self._finish_failed_lease(store, lease_id, "build or smoke failed", _call_refs_for_attempt(store, task["id"], attempt))
                 return
@@ -2613,7 +2644,30 @@ class S6ExecutionController:
             if _git(workspace, "rev-parse", "HEAD") != baseline_commit:
                 raise RunStoreError(f"post-commit S6 publication failed: {exc}") from exc
             candidate_text = {path: content.decode("utf-8") for path, content in files.items()} or _candidate_text(parsed)
-            error = {"attempt": attempt, "code": "CANDIDATE_FAILURE", "detail": str(exc), "candidate": candidate_text, "candidate_manifest_ref": candidate_manifest_ref.as_dict() if candidate_manifest_ref else None, "candidate_refs": {path: ref.as_dict() for path, ref in candidate_refs.items()}, "model_output_ref": model_output_ref.as_dict(), "feedback": {"build": builds, "smoke": smokes, "error": str(exc)}, "diagnosis": {}}
+            candidate_controller_facts: dict[str, Any] = {}
+            returned_paths = {
+                str(item.get("path"))
+                for item in parsed.get("files", [])
+                if isinstance(parsed, Mapping) and isinstance(item, Mapping) and isinstance(item.get("path"), str)
+            } if isinstance(parsed, Mapping) else set()
+            owners = {
+                str(path): {"task_uid": str(owner["task_uid"]), "task_id": str(owner["id"]), "work_package": str(owner["work_package"])}
+                for owner in plan.get("tasks", []) if isinstance(owner, Mapping)
+                for path in owner.get("deliverable_files", [])
+            }
+            foreign = [
+                {"path": path, "owner": owners[path]}
+                for path in sorted(returned_paths - set(task.get("deliverable_files", [])), key=lambda value: value.encode("utf-8"))
+                if path in owners
+            ]
+            if foreign:
+                candidate_controller_facts["foreign_owned_write_rejections"] = foreign
+            if build_refs:
+                candidate_controller_facts["build_result_refs"] = build_refs
+            detail = str(exc)
+            if isinstance(exc, ContractExportDrift):
+                candidate_controller_facts["export_drift"] = True
+            error = {"attempt": attempt, "code": "CANDIDATE_FAILURE", "detail": detail, "candidate": candidate_text, "candidate_manifest_ref": candidate_manifest_ref.as_dict() if candidate_manifest_ref else None, "candidate_refs": {path: ref.as_dict() for path, ref in candidate_refs.items()}, "model_output_ref": model_output_ref.as_dict(), "feedback": {"build": builds, "smoke": smokes, "error": detail}, "diagnosis": {}, "controller_facts": candidate_controller_facts}
             self._record_failure(store, task, attempt, error)
             if lease_id and not store._confined("plan/verification_pending.json").exists():
                 call_refs = _call_refs_for_attempt(store, task["id"], attempt)
@@ -2658,6 +2712,395 @@ class S6ExecutionController:
         self._fault("s6_receipt_published")
         return StageResult(output_refs={"s6_receipt": receipt_ref})
 
+    @staticmethod
+    def _revision_facts(
+        store: RunStore,
+        state: Mapping[str, Any],
+        plan: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        contract_map: Mapping[str, Any],
+        config_snapshot: Mapping[str, Any],
+        constraints: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Project only current, controller-verifiable S6 facts."""
+
+        tasks = {str(task["task_uid"]): task for task in plan.get("tasks", []) if isinstance(task, Mapping)}
+        rows = {str(row["task_uid"]): row for row in state.get("tasks", []) if isinstance(row, Mapping)}
+        all_uids = sorted(tasks, key=lambda value: value.encode("utf-8"))
+        blocked_uids = sorted((uid for uid, row in rows.items() if row.get("status") == "blocked"), key=lambda value: value.encode("utf-8"))
+        dependency_blocked_uids = sorted((uid for uid, row in rows.items() if row.get("status") == "blocked_by_dependency"), key=lambda value: value.encode("utf-8"))
+        facts: dict[str, Any] = {
+            "all_task_uids": all_uids,
+            "blocked_task_uids": blocked_uids,
+            "dependency_blocked_task_uids": dependency_blocked_uids,
+            "revision_ready": not any(row.get("status") == "in_progress" for row in rows.values()),
+        }
+        declared_symbols = {
+            str(export["symbol"])
+            for contract in plan.get("architecture", {}).get("contracts", [])
+            if isinstance(contract, Mapping)
+            for export in contract.get("exports", [])
+            if isinstance(export, Mapping) and isinstance(export.get("symbol"), str)
+        }
+        blueprint_paths = {
+            str(rule["path"])
+            for rule in expand_file_rules(blueprint, constraints)
+            if isinstance(rule, Mapping) and isinstance(rule.get("path"), str)
+        } if constraints is not None else {
+            str(rule["path_pattern"])
+            for rule in blueprint.get("file_rules", [])
+            if isinstance(rule, Mapping) and rule.get("expansion") == "none" and isinstance(rule.get("path_pattern"), str)
+        }
+        roots = {
+            str(value).rstrip("/")
+            for value in plan.get("architecture", {}).get("layout", {}).get("roots", {}).values()
+            if isinstance(value, str) and value
+        }
+        uid_by_id = {str(task["id"]): uid for uid, task in tasks.items()}
+        dependents: dict[str, set[str]] = {uid: set() for uid in tasks}
+        for uid, task in tasks.items():
+            for dependency_id in task.get("depends_on", []):
+                dependency_uid = uid_by_id.get(str(dependency_id))
+                if dependency_uid is not None:
+                    dependents[dependency_uid].add(uid)
+
+        def downstream(seed: set[str]) -> set[str]:
+            result = set(seed)
+            stack = list(seed)
+            while stack:
+                current = stack.pop()
+                discovered = dependents.get(current, set()) - result
+                result.update(discovered)
+                stack.extend(discovered)
+            return result
+
+        verified_failures: dict[str, list[tuple[dict[str, Any], dict[str, str], list[tuple[dict[str, Any], dict[str, str]]]]]] = defaultdict(list)
+        undefined_pattern = re.compile(r"(?:undefined reference to|undefined symbol:?)\s*[`'\"]?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+        missing_patterns = (
+            re.compile(r"fatal error:\s*([^:\n]+):\s*No such file", re.IGNORECASE),
+            re.compile(r"No rule to make target\s+[`'\"]([^`'\"]+)[`'\"]", re.IGNORECASE),
+        )
+        for uid, task in tasks.items():
+            row = rows.get(uid)
+            if row is None or not isinstance(row.get("attempts"), int):
+                continue
+            for attempt in range(1, int(row["attempts"]) + 1):
+                attempt_path = f"attempts/{uid}/attempt_{attempt:03d}.json"
+                if not store._confined(attempt_path).is_file():
+                    continue
+                record = _load(store, attempt_path, "s6-attempt.schema.json")
+                if record.get("status") not in {"failed", "exhausted"} or record.get("task_uid") != uid or record.get("task_id") != task.get("id") or record.get("plan_ref") != state.get("plan_ref"):
+                    continue
+                failure_ref = record.get("failure_ref")
+                if not isinstance(failure_ref, Mapping) or failure_ref.get("path") != f"attempts/{uid}/attempt_{attempt:03d}/failure.json":
+                    continue
+                try:
+                    store.verify_ref(failure_ref)
+                    failure = _load(store, str(failure_ref["path"]))
+                except RunStoreError:
+                    continue
+                if failure.get("attempt") != attempt:
+                    continue
+                evidence_ref = {"path": str(failure_ref["path"]), "sha256": str(failure_ref["sha256"])}
+                builds: list[tuple[Mapping[str, Any], dict[str, str]]] = []
+                raw_controller_facts = failure.get("controller_facts")
+                controller_facts = dict(raw_controller_facts) if isinstance(raw_controller_facts, Mapping) else {}
+                for build_ref in controller_facts.get("build_result_refs", []):
+                    if not isinstance(build_ref, Mapping):
+                        continue
+                    relative = str(build_ref.get("path", ""))
+                    expected_prefix = f"attempts/{uid}/attempt_{attempt:03d}/build_"
+                    if not relative.startswith(expected_prefix) or not relative.endswith(".json"):
+                        continue
+                    try:
+                        store.verify_ref(build_ref, schema_name="build-result.schema.json")
+                        build = _load(store, relative, "build-result.schema.json")
+                    except RunStoreError:
+                        continue
+                    builds.append((build, {"path": relative, "sha256": str(build_ref["sha256"])}))
+                verified_failures[uid].append((failure, evidence_ref, builds))
+
+        for uid, failures in verified_failures.items():
+            task = tasks[uid]
+            for failure_value, evidence_ref, build_results in failures:
+                raw_controller_facts = failure_value.get("controller_facts")
+                controller_facts = dict(raw_controller_facts) if isinstance(raw_controller_facts, Mapping) else {}
+                finish_reason = str(controller_facts.get("finish_reason", "")).lower()
+                if finish_reason in {"length", "max_tokens"}:
+                    facts.setdefault("truncations", []).append({"task_uid": uid, "task_uids": [uid], "evidence_refs": [evidence_ref]})
+                if controller_facts.get("export_drift") is True:
+                    facts["boundary_phase"] = "provider_submission"
+                    facts.setdefault("export_drifts", []).append({"task_uid": uid, "task_uids": [uid], "matches_frozen_contract": False, "evidence_refs": [evidence_ref]})
+                for rejection in controller_facts.get("foreign_owned_write_rejections", []):
+                    if not isinstance(rejection, Mapping) or not isinstance(rejection.get("path"), str) or not isinstance(rejection.get("owner"), Mapping):
+                        continue
+                    owner_uid = str(rejection["owner"].get("task_uid"))
+                    owner = tasks.get(owner_uid)
+                    owner_row = rows.get(owner_uid)
+                    if owner is None or owner_row is None or rejection["path"] not in owner.get("deliverable_files", []):
+                        continue
+                    file_ledger = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+                    revision_ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+                    workspace = store._confined("workspace")
+                    baseline_commit = _git(workspace, "rev-parse", "HEAD")
+                    baseline_tree = _git(workspace, "rev-parse", "HEAD^{tree}")
+                    directly_related = lease_lender_directly_related(task, owner, plan)
+                    same_package = owner.get("work_package") == task.get("work_package")
+                    lease_limit = int(config_snapshot.get("budgets", {}).get("s6_lease_limit", 0))
+                    lease_starts = sum(entry.get("event_type") == "lease_started" for entry in revision_ledger.get("entries", []))
+                    accepted_ref = owner_row.get("acceptance_evidence", {}).get("task_evidence_ref") if isinstance(owner_row.get("acceptance_evidence"), Mapping) else None
+                    authorization = {
+                        "schema_version": "1.0", "active_plan_ref": state.get("plan_ref"),
+                        "baseline_commit": baseline_commit, "baseline_tree": baseline_tree,
+                        "current_task_id": task.get("id"), "current_task_uid": uid,
+                        "lenders": [{
+                            "task_id": owner.get("id"), "task_uid": owner_uid,
+                            "paths": [rejection["path"]],
+                            "evidence_refs": [accepted_ref] if isinstance(accepted_ref, Mapping) else [],
+                        }],
+                        "authorization_evidence_refs": [evidence_ref],
+                    }
+                    f1_eligible = False
+                    if directly_related:
+                        try:
+                            validate_lease_authorization(
+                                authorization, plan=plan, state=state, file_ledger=file_ledger,
+                                revision_ledger=revision_ledger, config_snapshot=config_snapshot,
+                                baseline_commit=baseline_commit, baseline_tree=baseline_tree,
+                            )
+                            f1_eligible = True
+                        except PlanStateError:
+                            pass
+                    facts.setdefault("write_rejections", []).append({
+                        "task_uid": uid, "task_uids": [uid], "path": rejection["path"], "paths": [rejection["path"]],
+                        "f1_eligible": f1_eligible,
+                        "f1_exhausted": lease_limit <= 0 or lease_starts >= lease_limit,
+                        "same_package_reassignment_legal": same_package,
+                        "evidence_refs": [evidence_ref],
+                    })
+                for build_value, build_ref in build_results:
+                    if build_value.get("status") != "failed":
+                        continue
+                    diagnostics = f"{build_value.get('stdout', '')}\n{build_value.get('stderr', '')}"
+                    refs = [evidence_ref, build_ref]
+                    for symbol in undefined_pattern.findall(diagnostics):
+                        facts.setdefault("undefined_symbols", []).append({
+                            "task_uid": uid, "task_uids": [uid], "symbol": symbol,
+                            "declared": symbol in declared_symbols, "consumes_closure_complete": True,
+                            "evidence_refs": refs,
+                        })
+                    for pattern in missing_patterns:
+                        for missing in pattern.findall(diagnostics):
+                            path = posixpath.normpath(str(missing).strip())
+                            safe = not path.startswith("/") and ".." not in PurePosixPath(path).parts and "\\" not in path
+                            work_package = next(
+                                (row for row in plan.get("work_packages", []) if isinstance(row, Mapping) and row.get("id") == task.get("work_package")),
+                                None,
+                            )
+                            module_id = work_package.get("module") if isinstance(work_package, Mapping) else None
+                            module = next(
+                                (row for row in plan.get("architecture", {}).get("modules", []) if isinstance(row, Mapping) and row.get("id") == module_id),
+                                None,
+                            )
+                            owned = {
+                                str(value)
+                                for value in [
+                                    *(work_package.get("allowed_files", []) if isinstance(work_package, Mapping) else []),
+                                    *(module.get("owns_files", []) if isinstance(module, Mapping) else []),
+                                ]
+                            }
+                            owned_directories = {PurePosixPath(value).parent.as_posix() for value in owned}
+                            fits = (
+                                safe
+                                and module is not None
+                                and PurePosixPath(path).parent.as_posix() in owned_directories
+                                and any(path == root or path.startswith(root + "/") for root in roots)
+                            )
+                            facts.setdefault("missing_inputs", []).append({
+                                "task_uid": uid, "task_uids": [uid], "paths": [path],
+                                "absent_from_blueprint": path not in blueprint_paths,
+                                "fits_existing_architecture": fits,
+                                "evidence_refs": refs,
+                            })
+
+        remaining_primary = {
+            uid for uid, task in tasks.items()
+            if rows.get(uid, {}).get("status") != "done"
+            and any(item.get("role") == "primary" for item in task.get("requirement_responsibilities", []))
+        }
+        for contract in contract_map.get("contracts", []):
+            if not isinstance(contract, Mapping) or contract.get("ready_gate") != "task":
+                continue
+            provider_uid = uid_by_id.get(str(contract.get("provider_task_id")))
+            if provider_uid is None or rows.get(provider_uid, {}).get("status") != "blocked":
+                continue
+            consumers = {uid for uid, task in tasks.items() if contract.get("contract_id") in task.get("consumes_contracts", [])}
+            closure = downstream(consumers)
+            evidence_refs = [item[1] for item in verified_failures.get(provider_uid, [])[-1:]]
+            facts.setdefault("blocked_providers", []).append({
+                "task_uids": [provider_uid], "unique_provider": True, "task_ready": True,
+                "consumer_task_uids": sorted(closure, key=lambda value: value.encode("utf-8")),
+                "remaining_incomplete_primary_task_uids": sorted(remaining_primary, key=lambda value: value.encode("utf-8")),
+                "evidence_refs": evidence_refs,
+            })
+
+        role_limits: list[int] = []
+        for role_name in ("coder", "fixer"):
+            role = config_snapshot.get("roles", {}).get(role_name, {})
+            tier = config_snapshot.get("tiers", {}).get(role.get("tier"), {}) if isinstance(role, Mapping) else {}
+            value = role.get("max_tokens") if isinstance(role, Mapping) and role.get("max_tokens") is not None else tier.get("max_tokens")
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                role_limits.append(value)
+        if len(role_limits) == 2:
+            frozen_tokens = min(role_limits)
+            for uid, task in tasks.items():
+                paths = sorted({str(path) for path in task.get("deliverable_files", [])}, key=lambda value: value.encode("utf-8"))
+                owned_paths = {
+                    str(rule["path_pattern"])
+                    for rule in blueprint.get("file_rules", [])
+                    if isinstance(rule, Mapping) and rule.get("mutability") == "s6_owned" and rule.get("owner_task_id") == task.get("id") and isinstance(rule.get("path_pattern"), str)
+                }
+                deliverable_paths = [path for path in paths if path in owned_paths]
+                if not deliverable_paths:
+                    continue
+                envelope = {"micro_plan": [], "files": [{"path": path, "content": ""} for path in deliverable_paths], "notes": ""}
+                projected_tokens = 4000 * len(deliverable_paths) + (len(canonical_json_bytes(envelope)) + 3) // 4
+                if projected_tokens > frozen_tokens:
+                    facts.setdefault("lint_output_overflows", []).append({
+                        "task_uids": [uid], "paths": deliverable_paths,
+                        "projected_output_tokens": projected_tokens, "frozen_output_tokens": frozen_tokens,
+                        "evidence_refs": [],
+                    })
+        blocked_refs = []
+        for uid in blocked_uids + dependency_blocked_uids:
+            blocked_refs.extend(item[1] for item in verified_failures.get(uid, [])[-1:])
+        facts["blocked_evidence_refs"] = blocked_refs
+        return facts
+
+    def _revision_handoff(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        active: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+    ) -> StageResult | None:
+        store = context.store
+        ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        consumed_trigger_events = {
+            int(entry["payload"]["trigger_event_seq"])
+            for entry in ledger["entries"]
+            if entry.get("event_type") in {"candidate_rejected", "revision_activated"}
+            and isinstance(entry.get("payload", {}).get("trigger_event_seq"), int)
+        }
+        selected_entries = [
+            entry for entry in ledger["entries"]
+            if entry.get("event_type") == "trigger_evaluated"
+            and entry.get("payload", {}).get("selected") is True
+            and int(entry["event_seq"]) not in consumed_trigger_events
+        ]
+        if selected_entries:
+            selected = selected_entries[-1]
+            event_seq = int(selected["event_seq"])
+            reconciled = store.reconcile_revision_candidate(event_seq)
+            return StageResult(pause=StagePause("revision_handoff", event_seq, reconciled.path if reconciled is not None else None))
+        revision_config = context.run["config_snapshot"].get("revision")
+        if not isinstance(revision_config, Mapping):
+            return None
+        state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        started_attempt = False
+        for row in state["tasks"]:
+            if row.get("status") != "in_progress" or not isinstance(row.get("attempts"), int) or row["attempts"] < 1:
+                continue
+            attempt_path = f"attempts/{row['task_uid']}/attempt_{row['attempts']:03d}.json"
+            if not store._confined(attempt_path).is_file() or _load(store, attempt_path, "s6-attempt.schema.json").get("status") == "started":
+                started_attempt = True
+                break
+        lease_starts = {
+            str(entry.get("payload", {}).get("lease_id"))
+            for entry in ledger.get("entries", []) if entry.get("event_type") == "lease_started"
+        }
+        lease_finishes = {
+            str(entry.get("payload", {}).get("lease_id"))
+            for entry in ledger.get("entries", []) if entry.get("event_type") == "lease_finished"
+        }
+        unresolved_group = any(row.get("group_id") is not None and row.get("status") in {"pending", "in_progress"} for row in state["tasks"])
+        revision_wal = any(store._confined("_s4r").glob("rev_*/activation.json")) if store._confined("_s4r").is_dir() else False
+        if started_attempt or lease_starts - lease_finishes or unresolved_group or revision_wal or store._confined("plan/verification_pending.json").exists():
+            return None
+        state_history_path = "plan/state_history.json"
+        if not store._confined(state_history_path).is_file():
+            return None
+        workspace = store._confined("workspace")
+        contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        facts = self._revision_facts(store, state, plan, blueprint, contract_map, context.run["config_snapshot"], constraints)
+        boundary = project_revision_boundary(
+            phase=str(facts.get("boundary_phase", "task_boundary")),
+            revision_seq=int(active["revision_seq"]),
+            tasks=state["tasks"],
+            plan_ref={"path": active["path"], "sha256": active["sha256"]},
+            epoch=str(active["epoch"]),
+            state_history_ref={"path": state_history_path, "sha256": store._json_artifact_hash(state_history_path)},
+            workspace_commit=_git(workspace, "rev-parse", "HEAD"),
+            workspace_tree=_git(workspace, "rev-parse", "HEAD^{tree}"),
+            blueprint_ref={"path": "plan/_s4/delivery_blueprint.json", "sha256": _hash(blueprint)},
+            contract_map_ref={"path": "plan/contract_map.json", "sha256": store._json_artifact_hash("plan/contract_map.json")},
+            file_ledger_ref={"path": "plan/file_ledger.json", "sha256": store._json_artifact_hash("plan/file_ledger.json")},
+            revision_ledger=ledger,
+            thresholds={
+                "theta_2": revision_config["theta2"],
+                "theta_6": revision_config["theta6"],
+            },
+            facts=facts,
+        )
+        evaluation = evaluate_revision_triggers(boundary, ledger)
+        if not evaluation["hits"]:
+            return None
+        new_ledger = append_trigger_batch(ledger, evaluation)
+        selection = evaluation["selection"]
+        candidate_ref: str | None = None
+        if selection is not None:
+            selected_index = next(index for index, hit in enumerate(evaluation["hits"]) if hit["selected"])
+            event_seq = len(ledger["entries"]) + selected_index + 1
+            if self.revision_patch_provider is not None:
+                source_ir = plan_to_draft_ir(plan)
+                provider_input = {
+                    "source_plan": copy.deepcopy(dict(plan)),
+                    "source_plan_ref": copy.deepcopy(dict(active)),
+                    "source_plan_draft_ir": source_ir,
+                    "selected_event_seq": event_seq,
+                    "selection": copy.deepcopy(selection),
+                    "evaluation": copy.deepcopy(evaluation),
+                }
+                patch = self.revision_patch_provider(provider_input)
+                if patch is not None:
+                    spec = _load(store, "spec/spec.json")
+                    target = _load(store, "inputs/target.json")
+                    test_bundle = _load(store, "inputs/test_bundle.json")
+                    test_manifest = build_test_manifest_metadata(test_bundle, constraints)
+                    frozen = {
+                        "spec_value": spec, "target_profile_value": target, "test_bundle_value": test_bundle,
+                        "refs": {
+                            key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]}
+                            for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))
+                        },
+                    }
+                    bundle = complete_revision_candidate(
+                        plan, active, patch, constraints, frozen, test_manifest, context.run["config_snapshot"], state,
+                        _load(store, "plan/file_ledger.json", "file-ledger.schema.json"), ledger_prefix_sha256=evaluation["ledger_prefix_sha256"],
+                    )
+                    store.stage_revision_candidate(event_seq, bundle)
+                    self._fault("revision_candidate_staged")
+            store.replace_json("plan/revision_ledger.json", new_ledger, schema_name="revision-ledger.schema.json")
+            self._fault("revision_trigger_ledger_replaced")
+            if self.revision_patch_provider is not None and store._confined(f"plan/_s4r/.candidate_{event_seq}.pending").is_dir():
+                candidate_ref = store.commit_revision_candidate(event_seq).path
+                self._fault("revision_candidate_committed")
+            return StageResult(pause=StagePause("revision_handoff", event_seq, candidate_ref))
+        store.replace_json("plan/revision_ledger.json", new_ledger, schema_name="revision-ledger.schema.json")
+        self._fault("revision_trigger_ledger_replaced")
+        return None
+
     def run(self, context: StageContext) -> StageResult:
         store = context.store
         self.reconcile_verification_wal(store)
@@ -2685,6 +3128,9 @@ class S6ExecutionController:
             run, plan, active, blueprint, constraints, epoch = self._admit(store)
         except (S6AdmissionError, RunStoreError, S6ExecutionError) as exc:
             raise ControlledStageFailure({"code": "S6_ADMISSION_INVALID", "detail": str(exc)}) from exc
+        handoff = self._revision_handoff(context, plan, active, blueprint, constraints)
+        if handoff is not None:
+            return handoff
         while True:
             self._propagate_dependency_blocks(store, plan)
             state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
@@ -2703,6 +3149,9 @@ class S6ExecutionController:
                 self._run_group(context, plan, blueprint, constraints, epoch, str(row["group_id"]))
             else:
                 self._run_task(context, plan, blueprint, constraints, task)
+            handoff = self._revision_handoff(context, plan, active, blueprint, constraints)
+            if handoff is not None:
+                return handoff
         final = self._finalize(context, plan, active, blueprint, constraints, epoch)
         return StageResult(output_refs=final.output_refs)
 

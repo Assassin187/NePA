@@ -116,6 +116,11 @@ class SmokeConfig(_Model):
     term_grace_seconds: int = Field(gt=0)
 
 
+class RevisionConfig(_Model):
+    theta2: float = Field(gt=0, le=1)
+    theta6: float = Field(gt=0, le=1)
+
+
 class ResolvedConfig(_Model):
     providers: dict[str, ProviderConfig]
     calibration_models: dict[str, ModelConfig]
@@ -129,6 +134,7 @@ class ResolvedConfig(_Model):
     assets: AssetsConfig
     sandbox: SandboxConfig
     smoke: SmokeConfig
+    revision: RevisionConfig | None = None
 
     @property
     def snapshot(self) -> dict[str, Any]:
@@ -253,9 +259,15 @@ def public_config_snapshot(config: ResolvedConfig | Mapping[str, Any]) -> dict[s
     """Return the canonical, secret-free configuration representation."""
 
     if isinstance(config, ResolvedConfig):
-        return config.model_dump(mode="json")
+        value = config.model_dump(mode="json")
+        if value.get("revision") is None:
+            value.pop("revision", None)
+        return value
     try:
-        return ResolvedConfig.model_validate(config).model_dump(mode="json")
+        value = ResolvedConfig.model_validate(config).model_dump(mode="json")
+        if value.get("revision") is None:
+            value.pop("revision", None)
+        return value
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
 
