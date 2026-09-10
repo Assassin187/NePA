@@ -276,10 +276,18 @@ class PlanCriticContractBinding:
         self.invoker = invoker
         self.schema, self.example = plan_critic_contract()
 
-    def invoke(self, *, inputs: Mapping[str, Any], run_id: str, task_id: str, attempt: int = 1) -> Any:
+    def invoke(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        run_id: str,
+        task_id: str,
+        attempt: int = 1,
+        stage: str = "S4",
+    ) -> Any:
         return self.invoker.invoke(
             role="plan_critic", inputs=inputs, output_schema=self.schema, output_example=self.example,
-            run_id=run_id, stage="S4", task_id=task_id, attempt=attempt, use_cache=False,
+            run_id=run_id, stage=stage, task_id=task_id, attempt=attempt, use_cache=False,
         )
 
 

@@ -22,7 +22,7 @@ S6 SHALL reconcile pending verification transactions before admission and SHALL 
 - **THEN** S6 changes no execution state and fails through the designed controlled or corruption route
 
 ### Requirement: Ordinary tasks execute in stable dependency order with bounded role routing
-S6 SHALL select the first pending task in stable topological order whose dependencies are done. A normal task's first started attempt SHALL invoke Coder, later started attempts SHALL invoke Fixer, attempts one through three SHALL use T2 and attempt four SHALL use T1. Before provider I/O, S6 SHALL atomically persist the task attempt, increment the run-wide `s6_attempts_used`, allocate a non-reusable evidence sequence and bind the accepted execution baseline. It SHALL NOT exceed the per-task or frozen run-wide cap or refund an interrupted call. M1-7 MAY authorize one otherwise legal current Fixer attempt as F1 under the lease capability, but the lease SHALL NOT create another attempt; F2/F3 activation remains unavailable. (Design: §4.6-§4.7, §5.2.4, §6.6.1; pipeline §6.5/§7.1-§7.2; D1.6; M1-6/M1-7.)
+S6 SHALL reconcile activation, current-epoch materialization and verification transactions in that order before selecting work, then SHALL select the first pending task in stable topological order whose dependencies are done. A normal task's first started attempt SHALL invoke Coder, later started attempts SHALL invoke Fixer, attempts one through three SHALL use T2 and attempt four SHALL use T1. Before provider I/O, S6 SHALL atomically persist the task attempt, increment the run-wide `s6_attempts_used`, allocate a non-reusable evidence sequence and bind the accepted execution baseline. It SHALL NOT exceed the per-task or frozen run-wide cap or refund an interrupted call. M1-7 MAY authorize one otherwise legal current Fixer attempt as F1 under the lease capability without creating another attempt. At a transaction-free task boundary, an accepted M1-10 F2/F3 `revision_handoff` SHALL be consumed by the M1-11 gate/activation capability before ordinary selection resumes: rejection preserves the current execution view, F2 activation selects from the migrated execution view in the same epoch, and F3 activation requires the new S5 epoch and its registered repair groups before further ordinary work. (Design: system design §4.6-§4.8, §5.2.4, §5.6.7, §6.6.1; pipeline §5.6-§5.6.1, §6.3-§7.2; D1.6/D1.13/D1.15; M1-6/M1-11.)
 
 #### Scenario: First normal attempt starts
 - **WHEN** a ready pending task has zero attempts and both local and global budgets remain
@@ -43,6 +43,18 @@ S6 SHALL select the first pending task in stable topological order whose depende
 #### Scenario: Fixer attempt receives an F1 lease
 - **WHEN** the next ordinary Fixer attempt satisfies every deterministic F1 authorization condition
 - **THEN** the same persisted attempt may use the exact leased paths and consumes no additional local execution allowance
+
+#### Scenario: Selected revision reaches a clean task boundary
+- **WHEN** M1-10 has accepted a current F2/F3 handoff and no execution transaction is in flight
+- **THEN** S6 runs M1-11 gate/reconciliation handling before selecting another ordinary task
+
+#### Scenario: F2 activation returns to S6
+- **WHEN** the pointer commits an F2 successor with a valid same-epoch binding
+- **THEN** S6 selects work only from the migrated State and does not rematerialize the workspace
+
+#### Scenario: F3 activation requires materialization
+- **WHEN** the pointer commits an F3 successor whose activation is pending materialization
+- **THEN** S6 performs no further ordinary selection until the new S5 epoch and affected repair-group prerequisites are accepted
 
 ### Requirement: Candidate application and acceptance are controller-owned
 Each model response SHALL satisfy the closed full-file output contract and contain a non-empty subset of the effective whitelist. For an ordinary attempt that whitelist is the current task's declared `s6_owned` deliverable files; an accepted F1 lease MAY add only its exact external paths for that one Fixer invocation. Before modifying the live workspace, S6 SHALL reject unknown, duplicate, unsafe, frozen or out-of-whitelist paths and SHALL reject a candidate whose exported declarations disagree with the sealed contract map. S6 SHALL assemble the candidate from its persisted baseline, run all required default build variants and executable smoke checks, and SHALL run no M1 Test Bundle tests. A candidate is successful only if every required build and smoke result passes; an F1 candidate also requires the joint acceptance and publication contract. (Design: §5.5, §6.6.1, §6.6.3; pipeline §7.2; M1-6/M1-7.)
@@ -98,7 +110,7 @@ For a successful normal task, S6 SHALL allocate and publish immutable Task Evide
 - **THEN** reconciliation reports artifact damage instead of selecting or rewriting one version
 
 ### Requirement: Exhaustion and dependency blocking do not claim success
-After four failed normal attempts, S6 SHALL mark the task blocked with its final immutable failure reference. It SHALL derive `blocked_by_dependency` only for not-yet-started tasks having a transitive dependency on a currently blocked task and SHALL continue any topologically independent task that can still receive complete acceptance. M1-7 MAY use an eligible F1 lease before the current Fixer attempt begins but SHALL keep trigger evaluation and F2/F3 revision activation closed. Static-valid unresolved execution SHALL terminate as `EXECUTION_UNRESOLVED` with degraded exit code 10; static contract invalidity SHALL use the designed failed exit code 20. (Design: §4.7, §5.2.4, §6.6.1; pipeline §7.1-§7.3; M1-6/M1-7.)
+After four failed normal attempts, S6 SHALL mark the task blocked with its final immutable failure reference. It SHALL derive `blocked_by_dependency` only for not-yet-started tasks having a transitive dependency on a currently blocked task and SHALL continue any topologically independent task that can still receive complete acceptance. M1-7 MAY use an eligible F1 lease before the current Fixer attempt begins. At a legal transaction-free boundary, accepted deterministic trigger/candidate facts MAY produce an M1-11 revision handoff; a rejected candidate SHALL NOT reopen or erase any blocked fact, while an activated migration SHALL change status or mode only through its accepted migration proof. If no revision activates, static-valid unresolved execution SHALL terminate as `EXECUTION_UNRESOLVED` with degraded exit code 10; static contract invalidity SHALL use the designed failed exit code 20. (Design: system design §4.7, §5.2.4, §6.6.1; pipeline §6.1-§7.3; D1.13; M1-6/M1-11.)
 
 #### Scenario: Four normal attempts fail
 - **WHEN** attempts one through four fail and no success transaction exists
@@ -112,9 +124,17 @@ After four failed normal attempts, S6 SHALL mark the task blocked with its final
 - **WHEN** another pending task shares no blocking dependency and can pass its complete build/smoke gate
 - **THEN** S6 may execute that task before producing the controlled degraded result
 
-#### Scenario: No eligible F1 repair exists
-- **WHEN** the current failure cannot satisfy every lease condition or the run lease allowance is exhausted
-- **THEN** S6 continues only with remaining ordinary attempts or the existing controlled exhaustion path and does not activate a revision
+#### Scenario: No eligible F1 or accepted revision exists
+- **WHEN** the current failure cannot satisfy every lease condition and no F2/F3 candidate activates
+- **THEN** S6 continues only with remaining ordinary work or the existing controlled exhaustion path
+
+#### Scenario: Candidate rejection preserves blocking history
+- **WHEN** an RG gate rejects a candidate derived from a blocked boundary
+- **THEN** the original blocked and dependency-blocked facts remain accepted and no execution allowance is refreshed
+
+#### Scenario: Activation migrates a blocked view
+- **WHEN** an F2/F3 candidate activates with a complete migration mapping
+- **THEN** only the WAL-bound migrated State and accepted activation proof may assign successor status, mode and group membership
 
 ### Requirement: S6 seals only a complete exit validation result
 After no executable task remains, S6 SHALL rerun every default build variant, every Blueprint executable smoke check and complete snapshot/execution State lint against the final clean HEAD. If every Plan task is done and every exit check passes, S6 SHALL publish an immutable receipt binding the active Plan, current binding, Plan State, file ledger, immutable revision-ledger prefix, workspace HEAD, build results and smoke results, and SHALL atomically mark Run S6 done with exact output refs. Replaying completed S6 SHALL be read-only. A final validation failure SHALL produce `S6_EXIT_VALIDATION_FAILED`/degraded and SHALL NOT reopen done tasks. (Design: §5.5, §5.6.7, §6.6.1; M1-6.)

@@ -5,7 +5,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import os
+import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 from collections.abc import Mapping
 
@@ -103,6 +106,112 @@ class S5MaterializationController:
             return self.executor
         sandbox = run["config_snapshot"]["sandbox"]
         return SandboxExecutor(sandbox["image"], sandbox["cpu"], sandbox["mem_gb"])
+
+    def rehearse_epoch(self, context: Mapping[str, Any], workspace_root: Path) -> dict[str, Any]:
+        """Run the existing E1+ materialization algorithm in an isolated workspace."""
+
+        required = {
+            "run", "plan", "spec", "target", "blueprint", "old_blueprint", "constraints",
+            "file_ledger", "migration", "epoch", "plan_version",
+        }
+        if not required <= set(context):
+            raise S5AdmissionError("revision rehearsal context is incomplete", code="S5_REHEARSAL_INVALID")
+        source = Path(workspace_root).resolve()
+        if not source.is_dir():
+            raise S5AdmissionError("revision rehearsal source workspace is missing", code="S5_REHEARSAL_INVALID")
+        temporary = Path(tempfile.mkdtemp(prefix="nepa-rehearsal-"))
+        try:
+            isolated = temporary / "workspace"
+            shutil.copytree(source, isolated, symlinks=False)
+            temp_store = RunStore(temporary)
+            before = self._workspace_files(temp_store)
+            view = derive_rendering_view(
+                context["plan"], context["spec"], context["target"],
+                context["blueprint"], context["constraints"],
+            )
+            candidates = render_e0_files(
+                view, context["spec"], context["target"], context["blueprint"], context["constraints"]
+            )
+            planned = plan_epoch_materialization(
+                context["old_blueprint"], context["blueprint"], candidates,
+                context["file_ledger"], context["migration"], constraints=context["constraints"],
+                workspace_files=before, epoch=str(context["epoch"]), plan_version=str(context["plan_version"]),
+            )
+            self._apply_epoch_actions(
+                temp_store, planned["actions"],
+                {item["path"]: item for item in planned["expected_path_facts"]}, None,
+            )
+            executor = self._executor_for(context["run"])
+            builds = run_build_variants(executor, isolated, context["blueprint"], context["constraints"], fail_fast=False)
+            smokes: list[dict[str, Any]] = []
+            attribution = {"publishable": False, "group_ids": [], "reason": None}
+            if any(item.get("status") != "passed" for item in builds):
+                attribution = attribute_pending_repair(
+                    builds, context["migration"],
+                    changed_paths={
+                        path for action in planned["actions"]
+                        for path in (action.get("path"), action.get("source_path"), action.get("target_path"))
+                        if isinstance(path, str)
+                    },
+                )
+            else:
+                smokes = run_smoke_checks(
+                    executor, isolated, context["blueprint"], builds,
+                    context["run"]["config_snapshot"]["smoke"]["dwell_seconds"],
+                    context["run"]["config_snapshot"]["smoke"]["term_grace_seconds"],
+                )
+            subprocess.run(["git", "-C", str(isolated), "add", "-A"], check=True, capture_output=True)
+            tree = subprocess.run(
+                ["git", "-C", str(isolated), "write-tree"], check=True, capture_output=True, text=True
+            ).stdout.strip()
+            after = self._workspace_files(temp_store)
+            action_by_path: dict[str, str] = {}
+            for item in planned["actions"]:
+                kind = str(item.get("kind"))
+                for key in ("path", "source_path", "target_path"):
+                    if isinstance(item.get(key), str):
+                        action_by_path[str(item[key])] = kind
+            realized = {
+                row["path"] for row in context["file_ledger"].get("files", [])
+                if row.get("state") == "realized"
+            }
+            differences = []
+            for path in sorted(set(before) | set(after), key=lambda value: value.encode("utf-8")):
+                before_hash = sha256_bytes(before[path]) if path in before else None
+                after_hash = sha256_bytes(after[path]) if path in after else None
+                materialization_action = action_by_path.get(path)
+                if path in realized and before_hash != after_hash and materialization_action not in {"quarantine", "re_adopt"}:
+                    raise S5AdmissionError(
+                        f"revision rehearsal changes realized content at {path}", code="S5_REHEARSAL_REALIZED_DRIFT"
+                    )
+                if before_hash == after_hash:
+                    action = "preserve"
+                elif materialization_action == "quarantine" or path.startswith("_orphan/"):
+                    action = "quarantine"
+                elif path not in before:
+                    action = "add"
+                elif materialization_action == "re_adopt":
+                    action = "re_adopt"
+                else:
+                    action = "preserve"
+                differences.append({"path": path, "action": action, "before_sha256": before_hash, "after_sha256": after_hash})
+            projection = {
+                "tree": tree, "actions": planned["actions"], "file_differences": differences,
+                "build_results": builds, "smoke_results": smokes, "group_attribution": attribution,
+                "canonical_build_results": [
+                    {key: value for key, value in item.items() if key != "duration_ms"} for item in builds
+                ],
+                "canonical_smoke_results": [
+                    {key: value for key, value in item.items() if key != "duration_ms"} for item in smokes
+                ],
+            }
+            projection["result_sha256"] = _sha_json({
+                key: value for key, value in projection.items()
+                if key not in {"build_results", "smoke_results", "result_sha256"}
+            })
+            return projection
+        finally:
+            shutil.rmtree(temporary)
 
     @staticmethod
     def _workspace_files(store: RunStore) -> dict[str, bytes]:

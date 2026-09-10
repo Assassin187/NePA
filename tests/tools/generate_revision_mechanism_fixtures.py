@@ -1,4 +1,4 @@
-"""Generate byte-stable MQTT/non-MQTT M1-10 coverage fixtures."""
+"""Generate byte-stable MQTT/non-MQTT M1-10/M1-11 mechanism fixtures."""
 
 from __future__ import annotations
 
@@ -74,6 +74,24 @@ def _case(case_id: str) -> dict[str, Any]:
             "f2_owner_change",
             "f3_interface_extension",
             "f3_slot_retirement_re_adoption",
+        ],
+        "gate_cases": [
+            {"gate": f"RG-{index}", "first_failure": f"RG-{index}", "later_status": "not_evaluated"}
+            for index in range(1, 6)
+        ],
+        "rehearsal_cases": [
+            {"level": "F2", "status": "not_applicable", "materialization_calls": 0},
+            {"level": "F3", "status": "ready", "isolated_runs": 2},
+            {"level": "F3", "status": "pending_repair", "isolated_runs": 2},
+        ],
+        "activation_cases": [
+            {"level": "F2", "version": "1.0.1", "epoch": "E0", "binding": "published"},
+            {"level": "F3", "version": "1.1.0", "epoch": "E1", "binding": "pending"},
+        ],
+        "recovery_cases": [
+            {"pointer": "old", "ledger": "new", "result": "rollback"},
+            {"pointer": "new", "projections": "old", "result": "forward_complete"},
+            {"pointer": "third", "result": "artifact_damage"},
         ],
     }
 

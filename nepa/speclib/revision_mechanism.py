@@ -1238,12 +1238,381 @@ def complete_revision_candidate(
     return {**artifacts, "candidate.json": candidate}
 
 
+_GATE_NAMES = tuple(f"RG-{index}" for index in range(1, 6))
+
+
+def project_plan_critic_delta(
+    source_plan: Mapping[str, Any],
+    candidate_plan: Mapping[str, Any],
+    patch: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the compact changed Plan closure admitted to the RG-4 critic."""
+
+    changed_uids = {
+        str(uid)
+        for row in patch.get("lineage", [])
+        if isinstance(row, Mapping)
+        for uid in [row.get("old_task_uid"), *list(row.get("new_task_uids", []))]
+        if isinstance(uid, str)
+    }
+    for operation in patch.get("patch_ops", []):
+        if not isinstance(operation, Mapping):
+            continue
+        for key in ("task_uid", "owner_task_uid", "provider_task_uid", "new_owner_task_uid"):
+            if isinstance(operation.get(key), str):
+                changed_uids.add(str(operation[key]))
+    old_tasks = {str(row.get("task_uid")): row for row in source_plan.get("tasks", []) if isinstance(row, Mapping)}
+    new_tasks = {str(row.get("task_uid")): row for row in candidate_plan.get("tasks", []) if isinstance(row, Mapping)}
+    changed_uids.update(uid for uid in set(old_tasks) | set(new_tasks) if old_tasks.get(uid) != new_tasks.get(uid))
+    new_by_id = {str(row.get("id")): row for row in new_tasks.values()}
+    affected_ids = {str(new_tasks[uid].get("id")) for uid in changed_uids if uid in new_tasks}
+    affected_contracts = {
+        str(contract_id)
+        for task in new_tasks.values()
+        if str(task.get("id")) in affected_ids
+        for contract_id in [*task.get("provides_contracts", []), *task.get("consumes_contracts", [])]
+    }
+    while True:
+        expanded = {
+            task_id
+            for task_id, task in new_by_id.items()
+            if task_id in affected_ids
+            or bool(set(task.get("depends_on", [])) & affected_ids)
+            or bool(set(task.get("provides_contracts", [])) & affected_contracts)
+            or bool(set(task.get("consumes_contracts", [])) & affected_contracts)
+        }
+        contracts = {
+            str(contract_id)
+            for task_id in expanded
+            for contract_id in [*new_by_id[task_id].get("provides_contracts", []), *new_by_id[task_id].get("consumes_contracts", [])]
+        }
+        if expanded == affected_ids and contracts == affected_contracts:
+            break
+        affected_ids, affected_contracts = expanded, contracts
+    changed_uids.update(str(task["task_uid"]) for task_id, task in new_by_id.items() if task_id in affected_ids)
+    changed_tasks = [dict(new_tasks[uid]) for uid in sorted(changed_uids, key=lambda value: value.encode("utf-8")) if uid in new_tasks]
+    contract_ids = {
+        str(contract_id)
+        for task in changed_tasks
+        for contract_id in [*task.get("provides_contracts", []), *task.get("consumes_contracts", [])]
+    }
+    contracts = [
+        dict(row)
+        for row in candidate_plan.get("architecture", {}).get("contracts", [])
+        if isinstance(row, Mapping) and row.get("id") in contract_ids
+    ]
+    changed_task_ids = {str(row.get("id")) for row in changed_tasks}
+    coverage = [
+        dict(row)
+        for row in candidate_plan.get("coverage", {}).get("requirements", [])
+        if isinstance(row, Mapping)
+        and any(value in changed_task_ids for value in [row.get("primary_task_id"), *list(row.get("supporting_task_ids", []))])
+    ]
+    return {
+        "level": patch.get("level"),
+        "patch_ops": _canonical(list(patch.get("patch_ops", []))),
+        "tasks": _canonical(changed_tasks),
+        "contracts": _canonical(contracts),
+        "coverage": _canonical(coverage),
+    }
+
+
+def _role_call_cost(config: Mapping[str, Any], role: str, *, tier_override: str | None = None) -> float:
+    roles = config.get("roles", {})
+    tiers = config.get("tiers", {})
+    pricing = config.get("pricing", {}).get("models", {})
+    role_config = roles.get(role) if isinstance(roles, Mapping) else None
+    if not isinstance(role_config, Mapping):
+        raise RevisionMechanismError(f"missing {role} route", code="REVISION_BUDGET_INVALID")
+    tier_name = tier_override or role_config.get("tier")
+    tier = tiers.get(tier_name) if isinstance(tiers, Mapping) else None
+    if not isinstance(tier, Mapping):
+        raise RevisionMechanismError(f"missing {role} tier", code="REVISION_BUDGET_INVALID")
+    provider = tier.get("provider") if tier_override else (role_config.get("provider") or tier.get("provider"))
+    model = tier.get("model") if tier_override else (role_config.get("model") or tier.get("model"))
+    output_tokens = tier.get("max_tokens") if tier_override else (role_config.get("max_tokens") or tier.get("max_tokens"))
+    price = pricing.get(f"{provider}/{model}") if isinstance(pricing, Mapping) else None
+    if not isinstance(price, Mapping):
+        raise RevisionMechanismError(f"missing configured price for {provider}/{model}", code="REVISION_BUDGET_INVALID")
+    input_tokens = config.get("budgets", {}).get("coder_context_max_tokens")
+    if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
+        raise RevisionMechanismError("revision pricing token bounds are invalid", code="REVISION_BUDGET_INVALID")
+    return (
+        input_tokens * float(price.get("input_usd_per_million_tokens", -1))
+        + output_tokens * float(price.get("output_usd_per_million_tokens", -1))
+    ) / 1_000_000
+
+
+def estimate_revision_rework(
+    migration: Mapping[str, Any],
+    candidate_plan: Mapping[str, Any],
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compute RG-3 execution-call and build upper bounds exactly once per unit."""
+
+    revision = config.get("revision")
+    if not isinstance(revision, Mapping) or not isinstance(revision.get("cost_rates"), Mapping):
+        raise RevisionMechanismError("enabled revision has no frozen cost rates", code="REVISION_BUDGET_INVALID")
+    build_rate = float(revision["cost_rates"].get("build_usd", -1))
+    if build_rate < 0:
+        raise RevisionMechanismError("revision build cost is invalid", code="REVISION_BUDGET_INVALID")
+    tasks_by_uid = {str(row.get("task_uid")): row for row in candidate_plan.get("tasks", []) if isinstance(row, Mapping)}
+    coder_calls = 0
+    fixer_calls = 0
+    build_units = 0
+    task_fix_attempts = int(config.get("budgets", {}).get("task_fix_attempts", 0))
+    for row in migration.get("tasks", []):
+        if not isinstance(row, Mapping) or row.get("new_task_uid") is None:
+            continue
+        classification = row.get("classification")
+        task = tasks_by_uid.get(str(row.get("new_task_uid")), {})
+        variants = set(task.get("acceptance", {}).get("build_variant_ids", [])) if isinstance(task, Mapping) else set()
+        if classification == "REVALIDATE":
+            build_units += max(1, len(variants))
+        elif classification == "AMEND":
+            fixer_calls += 1
+            build_units += max(1, len(variants))
+        elif classification == "REGENERATE":
+            coder_calls += 1
+            fixer_calls += task_fix_attempts
+            build_units += max(1, len(variants)) * (1 + task_fix_attempts)
+    for group in migration.get("pending_groups", []):
+        if not isinstance(group, Mapping):
+            continue
+        members = [tasks_by_uid.get(str(uid), {}) for uid in group.get("member_task_uids", [])]
+        build_units += max(
+            [len(set(task.get("acceptance", {}).get("build_variant_ids", []))) for task in members if isinstance(task, Mapping)] or [1]
+        )
+    coder_cost = _role_call_cost(config, "coder") if coder_calls else 0.0
+    fixer_cost = _role_call_cost(config, "fixer", tier_override="T1") if fixer_calls else 0.0
+    total = coder_calls * coder_cost + fixer_calls * fixer_cost + build_units * build_rate
+    if total < 0 or not float(total) < float("inf"):
+        raise RevisionMechanismError("revision rework cost overflowed", code="REVISION_BUDGET_INVALID")
+    return {
+        "coder_calls": coder_calls,
+        "fixer_calls": fixer_calls,
+        "build_units": build_units,
+        "execution_calls": coder_calls + fixer_calls,
+        "cost_usd": total,
+    }
+
+
+def evaluate_revision_budget(
+    *,
+    level: str,
+    migration: Mapping[str, Any],
+    candidate_plan: Mapping[str, Any],
+    config: Mapping[str, Any],
+    run: Mapping[str, Any],
+    revision_ledger: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    estimate = estimate_revision_rework(migration, candidate_plan, config)
+    revision = config.get("revision")
+    budgets = config.get("budgets")
+    if level not in {"F2", "F3"} or not isinstance(revision, Mapping) or not isinstance(budgets, Mapping):
+        raise RevisionMechanismError("revision budget inputs are incomplete", code="REVISION_BUDGET_INVALID")
+    preservation = float(migration.get("preservation_rate", -1))
+    minimum = float(revision[f"rho_min_{level.lower()}"])
+    remaining_cost = float(budgets["max_cost_usd"]) - float(run.get("budget_used", {}).get("cost_usd", 0))
+    activations = sum(
+        entry.get("event_type") == "revision_activated" and entry.get("payload", {}).get("level") == level
+        for entry in revision_ledger.get("entries", [])
+    )
+    level_limit = int(budgets[f"revision_{level.lower()}_limit"])
+    remaining_calls = int(budgets["s6_total_attempts_cap"]) - int(state.get("s6_attempts_used", 0))
+    checks = {
+        "preservation": preservation >= minimum,
+        "cost": estimate["cost_usd"] <= max(0.0, remaining_cost) * 0.5,
+        "level_limit": activations < level_limit,
+        "execution_calls": estimate["execution_calls"] <= remaining_calls,
+    }
+    return {"pass": all(checks.values()), "checks": checks, "estimate": estimate, "preservation_rate": preservation, "rho_min": minimum, "remaining_cost_usd": remaining_cost, "activations": activations, "level_limit": level_limit, "remaining_execution_calls": remaining_calls}
+
+
+def build_gate_result(
+    *,
+    candidate: Mapping[str, Any],
+    candidate_ref: Mapping[str, Any],
+    boundary_hashes: Mapping[str, Any],
+    statuses: Mapping[str, str],
+    reasons: Mapping[str, str] | None = None,
+    evidence: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    critic_response_ref: Mapping[str, Any] | None = None,
+    critic_call_refs: Sequence[Mapping[str, Any]] = (),
+    rehearsal_ref: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build and validate the single ordered candidate gate record."""
+
+    reasons = reasons or {}
+    evidence = evidence or {}
+    rows = []
+    failed: str | None = None
+    for name in _GATE_NAMES:
+        status = statuses.get(name, "not_evaluated")
+        if failed is not None and status != "not_evaluated":
+            raise RevisionMechanismError("a gate after the first failure was evaluated", code="REVISION_GATE_ORDER_INVALID")
+        if status == "fail":
+            failed = name
+        if status == "not_applicable" and not (name == "RG-5" and candidate.get("level") == "F2" and failed is None):
+            raise RevisionMechanismError("gate not_applicable status is illegal", code="REVISION_GATE_ORDER_INVALID")
+        rows.append({"gate": name, "status": status, "reason": reasons.get(name), "evidence_refs": [dict(ref) for ref in evidence.get(name, [])]})
+    result = {
+        "schema_version": "1.0", "candidate_id": candidate["candidate_id"],
+        "selected_event_seq": candidate["selected_event_seq"], "level": candidate["level"],
+        "candidate_ref": dict(candidate_ref), "source_plan_ref": dict(candidate["source"]["plan_ref"]),
+        "boundary_hashes": dict(boundary_hashes), "gates": rows, "first_failed_gate": failed,
+        "critic_response_ref": dict(critic_response_ref) if critic_response_ref is not None else None,
+        "critic_call_refs": [dict(ref) for ref in critic_call_refs],
+        "rehearsal_ref": dict(rehearsal_ref) if rehearsal_ref is not None else None,
+        "disposition": (
+            "rejected" if failed else
+            "activate" if all(row["status"] in {"pass", "not_applicable"} for row in rows) else
+            "evaluating"
+        ),
+    }
+    _schema_validate(result, "revision-gate-result.schema.json")
+    return result
+
+
+def build_revision_rehearsal(
+    *,
+    candidate: Mapping[str, Any],
+    baseline_commit: str,
+    baseline_tree: str,
+    runs: Sequence[Mapping[str, Any]],
+    build_result_refs: Sequence[Sequence[Mapping[str, Any]]],
+    smoke_result_refs: Sequence[Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """Validate two isolated F3 results and project their closed rehearsal record."""
+
+    if candidate.get("level") != "F3" or len(runs) != 2 or len(build_result_refs) != 2 or len(smoke_result_refs) != 2:
+        raise RevisionMechanismError("RG-5 requires exactly two F3 rehearsal runs", code="REVISION_REHEARSAL_INVALID")
+    canonical = [
+        {
+            "tree": run.get("tree"), "actions": run.get("actions"),
+            "file_differences": run.get("file_differences"),
+            "build_results": run.get("canonical_build_results", run.get("build_results")),
+            "smoke_results": run.get("canonical_smoke_results", run.get("smoke_results")),
+            "group_attribution": run.get("group_attribution"),
+        }
+        for run in runs
+    ]
+    if canonical_json_bytes(canonical[0]) != canonical_json_bytes(canonical[1]):
+        raise RevisionMechanismError("isolated rehearsal results diverged", code="REVISION_REHEARSAL_DIVERGED")
+    if any(item.get("status") != "passed" for item in runs[0].get("smoke_results", [])):
+        verdict = "fail"
+    elif any(item.get("status") != "passed" for item in runs[0].get("build_results", [])):
+        attribution = runs[0].get("group_attribution", {})
+        if not isinstance(attribution, Mapping) or not attribution.get("publishable"):
+            verdict = "fail"
+        else:
+            verdict = "pending_repair"
+    else:
+        verdict = "ready"
+    if verdict == "fail":
+        raise RevisionMechanismError("rehearsal has smoke or unregistered build failures", code="REVISION_REHEARSAL_FAILED")
+    groups = []
+    if verdict == "pending_repair":
+        refs = [dict(ref) for ref in build_result_refs[0]]
+        groups = [
+            {"group_id": group_id, "failure_refs": refs, "complete": True}
+            for group_id in runs[0]["group_attribution"]["group_ids"]
+        ]
+    result = {
+        "schema_version": "1.0", "candidate_id": candidate["candidate_id"], "level": "F3",
+        "baseline_commit": baseline_commit, "baseline_tree": baseline_tree,
+        "candidate_plan_ref": dict(candidate["candidate_plan_ref"]),
+        "blueprint_ref": dict(candidate["blueprint_ref"]), "migration_ref": dict(candidate["migration_ref"]),
+        "runs": [
+            {
+                "tree": str(run["tree"]), "result_sha256": str(run["result_sha256"]),
+                "build_result_refs": [dict(ref) for ref in build_refs],
+                "smoke_result_refs": [dict(ref) for ref in smoke_refs],
+            }
+            for run, build_refs, smoke_refs in zip(runs, build_result_refs, smoke_result_refs, strict=True)
+        ],
+        "file_differences": _canonical(list(runs[0]["file_differences"])),
+        "group_attribution": groups, "verdict": verdict,
+    }
+    _schema_validate(result, "revision-rehearsal.schema.json")
+    return result
+
+
+def prepare_activation_wal(
+    *,
+    candidate: Mapping[str, Any],
+    candidate_plan: Mapping[str, Any],
+    candidate_plan_ref: Mapping[str, Any],
+    old: Mapping[str, Any],
+    new: Mapping[str, Any],
+    gates_ref: Mapping[str, Any],
+    binding: Mapping[str, Any] | None,
+    rehearsal_ref: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Freeze all activation bytes in the fresh-run v2 WAL contract."""
+
+    level = candidate.get("level")
+    if level not in {"F2", "F3"}:
+        raise RevisionMechanismError("activation candidate level is invalid", code="REVISION_ACTIVATION_INVALID")
+    try:
+        from .plan_revision import validate_plan_successor
+        validate_plan_successor(old["pointer"], new["pointer"], str(level))
+    except (KeyError, PlanRevisionError) as exc:
+        raise RevisionMechanismError(str(exc), code="REVISION_ACTIVATION_INVALID") from exc
+    if dict(candidate_plan_ref) != {
+        "path": new["pointer"]["path"], "sha256": new["pointer"]["sha256"]
+    } or _sha(candidate_plan) != candidate_plan_ref.get("sha256"):
+        raise RevisionMechanismError("activation candidate Plan binding is invalid", code="REVISION_ACTIVATION_INVALID")
+    if (level == "F2") != (binding is not None) or (level == "F3") != (rehearsal_ref is not None):
+        raise RevisionMechanismError("activation level has mixed binding/materialization intent", code="REVISION_ACTIVATION_INVALID")
+    view_names = ("pointer", "state", "file_ledger", "revision_ledger", "run", "manifest", "contract_map")
+    if set(old) != set(view_names) or set(new) != set(view_names):
+        raise RevisionMechanismError("activation views are incomplete", code="REVISION_ACTIVATION_INVALID")
+    if binding is not None:
+        for name, ref_name in (("manifest", "manifest_ref"), ("contract_map", "contract_map_ref"), ("receipt", "receipt_ref")):
+            if binding[ref_name].get("sha256") != _sha(binding[name]):
+                raise RevisionMechanismError(
+                    f"activation F2 {name} reference is invalid", code="REVISION_ACTIVATION_INVALID"
+                )
+        if binding["receipt"].get("manifest_ref") != binding["manifest_ref"] or binding["receipt"].get("contract_map_ref") != binding["contract_map_ref"]:
+            raise RevisionMechanismError("activation F2 receipt references are invalid", code="REVISION_ACTIVATION_INVALID")
+        if new["manifest"] != binding["manifest"] or new["contract_map"] != binding["contract_map"]:
+            raise RevisionMechanismError("activation F2 current copies differ from binding", code="REVISION_ACTIVATION_INVALID")
+        output_refs = new["run"].get("stages", {}).get("s5", {}).get("output_refs", {})
+        if output_refs.get("binding_receipt") != binding["receipt_ref"]:
+            raise RevisionMechanismError("activation F2 Run binding reference is invalid", code="REVISION_ACTIVATION_INVALID")
+    value = {
+        "schema_version": "2.0", "candidate_id": candidate["candidate_id"],
+        "selected_event_seq": candidate["selected_event_seq"],
+        "revision_seq": new["pointer"]["revision_seq"], "level": level, "phase": "prepared",
+        "old": _canonical(dict(old)), "new": _canonical(dict(new)),
+        "candidate_plan": _canonical(dict(candidate_plan)), "candidate_plan_ref": dict(candidate_plan_ref),
+        "binding": _canonical(dict(binding)) if binding is not None else None,
+        "pending_materialization": level == "F3", "gates_ref": dict(gates_ref),
+        "rehearsal_ref": dict(rehearsal_ref) if rehearsal_ref is not None else None,
+        "hashes": {
+            "old": {name: _sha(old[name]) for name in view_names},
+            "new": {name: _sha(new[name]) for name in view_names},
+            "candidate_plan": _sha(candidate_plan), "binding": _sha(binding) if binding is not None else None,
+        },
+    }
+    _schema_validate(value, "plan-activation.schema.json")
+    return value
+
+
 __all__ = [
     "RevisionMechanismError",
     "append_trigger_batch",
     "apply_revision_patch",
     "complete_revision_candidate",
+    "build_gate_result",
+    "build_revision_rehearsal",
+    "estimate_revision_rework",
+    "evaluate_revision_budget",
     "evaluate_revision_triggers",
+    "project_plan_critic_delta",
+    "prepare_activation_wal",
     "project_revision_boundary",
     "validate_revision_candidate",
 ]

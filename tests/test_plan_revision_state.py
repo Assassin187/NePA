@@ -38,9 +38,12 @@ def _done_state(plan, attempts=1):
 
 def _typed_ledger(old_ref, new_ref, report, level="F2"):
     ledger = {"schema_version": "2.0", "entries": []}
-    trigger_payload = {"boundary_key": {"phase": "task_boundary", "revision_seq": new_ref["revision_seq"], "tasks": []}, "plan_ref": {"path": old_ref["path"], "sha256": old_ref["sha256"]}, "hit_code": "TR-4", "route": "F2", "hit_signature": "1" * 64, "evidence_refs": [], "selected": True, "reason": "test"}
+    trigger_payload = {"boundary_key": {"phase": "task_boundary", "revision_seq": new_ref["revision_seq"], "tasks": []}, "plan_ref": {"path": old_ref["path"], "sha256": old_ref["sha256"]}, "hit_code": "TR-4", "route": level, "hit_signature": "1" * 64, "evidence_refs": [], "selected": True, "reason": "test"}
     ledger["entries"].append(build_event_entry(ledger, "trigger_evaluated", trigger_payload))
-    activation = {"revision_seq": new_ref["revision_seq"], "from_version": old_ref["version"], "to_version": new_ref["version"], "from_plan_ref": {"path": old_ref["path"], "sha256": old_ref["sha256"]}, "to_plan_ref": {"path": new_ref["path"], "sha256": new_ref["sha256"]}, "level": level, "trigger_event_seq": 1, "trigger_signature": "1" * 64, "patch_ops": [], "migration": {key: copy.deepcopy(report[key]) for key in ("counts", "tasks", "files", "pending_groups", "re_adopt") if key in report}, "preservation_rate": report["preservation_rate"], "rework_cost_estimate_usd": 0.0, "gates": {f"RG-{index}": "pass" for index in range(1, 6)}, "epoch_after": new_ref["epoch"], "activated_at_commit": "c" * 40, "binding_ref": None, "pending_materialization": True}
+    gates = {f"RG-{index}": "pass" for index in range(1, 6)}
+    gates["RG-5"] = "not_applicable" if level == "F2" else "pass"
+    binding_ref = {"path": f"plan/bindings/{new_ref['version']}/receipt.json", "sha256": "d" * 64} if level == "F2" else None
+    activation = {"revision_seq": new_ref["revision_seq"], "from_version": old_ref["version"], "to_version": new_ref["version"], "from_plan_ref": {"path": old_ref["path"], "sha256": old_ref["sha256"]}, "to_plan_ref": {"path": new_ref["path"], "sha256": new_ref["sha256"]}, "level": level, "trigger_event_seq": 1, "trigger_signature": "1" * 64, "patch_ops": [], "migration": {key: copy.deepcopy(report[key]) for key in ("counts", "tasks", "files", "pending_groups", "re_adopt") if key in report}, "preservation_rate": report["preservation_rate"], "rework_cost_estimate_usd": 0.0, "gates": gates, "epoch_after": new_ref["epoch"], "activated_at_commit": "c" * 40, "binding_ref": binding_ref, "pending_materialization": level == "F3"}
     ledger["entries"].append(build_event_entry(ledger, "revision_activated", activation))
     return ledger
 

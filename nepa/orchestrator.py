@@ -164,6 +164,11 @@ class Orchestrator:
 
         self._sync_budget(store, enforce=True)
 
+    def synchronize_budget(self, store: RunStore) -> dict[str, Any]:
+        """Refresh authoritative usage before a non-Agent commit boundary."""
+
+        return self._sync_budget(store, enforce=True)
+
     def record_external_usage(self, store: RunStore, usage: UsageDelta) -> None:
         """Persist returned usage before allowing a controller to continue."""
 
@@ -214,7 +219,7 @@ class Orchestrator:
             raise OrchestrationError("revision handoff is only legal from S6")
         updated = copy.deepcopy(run)
         stage = updated["stages"][stage_name]
-        if stage["status"] != "running":
+        if stage["status"] not in {"running", "pending"}:
             raise OrchestrationError("S6 is not running at revision handoff")
         stage.update({"status": "pending", "started_at": None, "ended_at": None, "error": None})
         stage.pop("output_refs", None)
@@ -378,6 +383,8 @@ class Orchestrator:
                 return self._finalize_internal_error(store, run, "terminal controlled-exit report is corrupt")
             try:
                 store.verify_frozen_inputs()
+                store.reconcile_revision_activations()
+                run = store.load_run()
                 stage = run["stages"]["s4"]
                 if stage["status"] == "done" and run["stages"]["s6"].get("status") != "done":
                     controller = self.controllers.get("s4")
@@ -412,6 +419,8 @@ class Orchestrator:
             return self._run_s9(store, run)
         if resume:
             try:
+                store.reconcile_revision_activations()
+                run = store.load_run()
                 controller = self.controllers.get("s5")
                 if run["stages"]["s6"].get("status") != "done" and controller is not None and hasattr(controller, "reconcile"):
                     controller.reconcile(store)  # type: ignore[attr-defined]
@@ -426,6 +435,10 @@ class Orchestrator:
         if self._planned_target_reached(run, "s3"):
             return self._finalize_planned_stop(store, run)
         for stage_name in ("s4", "s5", "s6"):
+            try:
+                store.reconcile_revision_activations()
+            except Exception as exc:
+                return self._finalize_internal_error(store, store.load_run(), str(exc))
             run = store.load_run()
             if run.get("termination_request"):
                 return self._run_s9(store, run)

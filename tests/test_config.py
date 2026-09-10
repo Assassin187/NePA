@@ -62,3 +62,77 @@ def test_snapshot_drift_is_rejected():
 
     with pytest.raises(ConfigSnapshotDrift):
         verify_config_snapshot(changed, config_snapshot_sha256(snapshot))
+
+
+def test_revision_limits_and_explicit_enabled_configuration():
+    disabled = load_config()
+    assert disabled.budgets.revision_f2_limit == 0
+    assert disabled.budgets.revision_f3_limit == 0
+    assert "revision" not in public_config_snapshot(disabled)
+
+    enabled = load_config(overrides={
+        "budgets": {"revision_f2_limit": 3, "revision_f3_limit": 1},
+        "revision": {
+            "theta2": 0.5,
+            "theta6": 0.5,
+            "rho_min_f2": 0.75,
+            "rho_min_f3": 0.5,
+            "cost_rates": {"build_usd": 0},
+        },
+    })
+    assert enabled.revision is not None
+    assert enabled.revision.cost_rates.build_usd == 0
+
+    for overrides in (
+        {"budgets": {"revision_f2_limit": 4}},
+        {"budgets": {"revision_f3_limit": 2}},
+        {"budgets": {"revision_f2_limit": 1}},
+        {"budgets": {"revision_f2_limit": True}},
+        {"budgets": {"revision_f2_limit": 1.0}},
+        {"budgets": {"revision_f3_limit": "1"}},
+        {"revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": -0.1, "rho_min_f3": 0.5, "cost_rates": {"build_usd": 0}}},
+        {"revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": True, "rho_min_f3": 0.5, "cost_rates": {"build_usd": 0}}},
+        {"revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": 0.5, "rho_min_f3": "0.5", "cost_rates": {"build_usd": 0}}},
+        {"revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": 0.5, "rho_min_f3": 0.5, "cost_rates": {"build_usd": False}}},
+        {"revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": 0.5, "rho_min_f3": 0.5, "cost_rates": {"build_usd": "0"}}},
+    ):
+        with pytest.raises(ConfigError):
+            load_config(overrides=overrides)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("revision_f2_limit", True),
+    ("revision_f2_limit", "3"),
+    ("revision_f2_limit", 3.0),
+    ("revision_f3_limit", False),
+    ("revision_f3_limit", "1"),
+    ("revision_f3_limit", 1.0),
+])
+def test_enabled_revision_activation_limits_are_strict_integers(field, value):
+    budgets = {"revision_f2_limit": 3, "revision_f3_limit": 1, field: value}
+    with pytest.raises(ConfigError):
+        load_config(overrides={
+            "budgets": budgets,
+            "revision": {
+                "theta2": 0.5, "theta6": 0.5,
+                "rho_min_f2": 0.0, "rho_min_f3": 1.0,
+                "cost_rates": {"build_usd": 0.0},
+            },
+        })
+
+
+def test_revision_numeric_boundaries_remain_valid():
+    config = load_config(overrides={
+        "budgets": {"revision_f2_limit": 3, "revision_f3_limit": 1},
+        "revision": {
+            "theta2": 0.5, "theta6": 0.5,
+            "rho_min_f2": 0.0, "rho_min_f3": 1.0,
+            "cost_rates": {"build_usd": 0.0},
+        },
+    })
+    assert config.budgets.revision_f2_limit == 3
+    assert config.budgets.revision_f3_limit == 1
+    assert config.revision is not None
+    assert config.revision.rho_min_f2 == 0.0
+    assert config.revision.rho_min_f3 == 1.0
+    assert config.revision.cost_rates.build_usd == 0.0

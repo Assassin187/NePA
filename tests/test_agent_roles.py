@@ -27,7 +27,7 @@ def test_closed_catalog_has_exact_roles_inputs_and_stage_associations():
     assert set(ROLE_REGISTRY) == set(EXPECTED_INPUTS)
     assert ROLE_REGISTRY["architecture_planner"].stages == ("S4",)
     assert ROLE_REGISTRY["task_planner"].stages == ("S4",)
-    assert ROLE_REGISTRY["plan_critic"].stages == ("S4",)
+    assert ROLE_REGISTRY["plan_critic"].stages == ("S4", "S6")
     assert ROLE_REGISTRY["flat_plan_baseline"].stages == ("S4",)
     assert ROLE_REGISTRY["coder"].stages == ("S6",)
     assert ROLE_REGISTRY["diagnoser"].stages == ("S6", "S8")

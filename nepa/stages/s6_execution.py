@@ -19,17 +19,27 @@ from jsonschema import Draft202012Validator
 from ..agents.s6 import CODER_INPUTS, FIXER_INPUTS, LEASE_FIXER_INPUTS, S6AgentError, candidate_tree_hash, coding_contract, normalize_candidate, project_s6_context
 from ..agents.base import AgentInvoker
 from ..llm.client import StructuredOutputError
-from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StagePause, StageResult
-from ..run_store import ArtifactRef, RunStore, RunStoreError, sha256_bytes
+from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StagePause, StageResult, UsageDelta
+from ..run_store import ArtifactConflict, ArtifactRef, RunStore, RunStoreError, sha256_bytes
 from ..schemas import load_schema
 from ..speclib.lint import canonical_json_bytes
 from ..speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints, expand_file_rules
-from ..speclib.materialization import MaterializationError, attribute_pending_repair, build_artifact_manifest, build_contract_map, derive_rendering_view, parse_c99_declaration, render_e0_files, validate_completed_epoch
+from ..speclib.materialization import MaterializationError, attribute_pending_repair, build_artifact_manifest, build_contract_map, derive_rendering_view, parse_c99_declaration, project_version_binding, render_e0_files, validate_completed_epoch
 from ..speclib.plan import blueprint_task_semantic_projection, plan_to_draft_ir
 from ..speclib.planning import build_test_manifest_metadata
-from ..speclib.revision_mechanism import append_trigger_batch, complete_revision_candidate, evaluate_revision_triggers, project_revision_boundary
+from ..speclib.revision_mechanism import (
+    RevisionMechanismError, append_trigger_batch, build_gate_result, build_revision_rehearsal,
+    complete_revision_candidate, estimate_revision_rework, evaluate_revision_budget, evaluate_revision_triggers,
+    prepare_activation_wal, project_plan_critic_delta, project_revision_boundary,
+)
 from ..speclib.plan_state import PlanStateError, execution_state_lint, initialize_plan_state, lease_lender_directly_related, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
-from ..speclib.plan_revision import append_lease_finished, append_verification_committed, latest_activation, validate_file_ledger, validate_revision_ledger
+from ..speclib.plan_revision import (
+    PlanRevisionError, append_candidate_rejected, append_lease_finished, append_verification_committed,
+    build_event_entry, latest_activation, project_file_ledger, project_plan_state, successor_pointer,
+    validate_file_ledger, validate_revision_ledger,
+)
+from .s4_planning import bind_plan_critic_contract, validate_plan_critic_result
+from .s5_materialization import S5MaterializationController
 from ..tools.build import _tree_sha256, run_build_variants, run_smoke_checks
 from ..tools.git_ops import GitOperationError, prepare_joint_commit, prepare_task_commit, publish_joint_commit, publish_task_commit
 from ..tools.sandbox import SandboxExecutor
@@ -2977,6 +2987,488 @@ class S6ExecutionController:
         facts["blocked_evidence_refs"] = blocked_refs
         return facts
 
+    def _activate_revision_handoff(
+        self,
+        context: StageContext,
+        *,
+        candidate: Mapping[str, Any],
+        bundle: Mapping[str, Any],
+        selected: Mapping[str, Any],
+        active: Mapping[str, Any],
+        state: Mapping[str, Any],
+        file_ledger: Mapping[str, Any],
+        gates_ref: Mapping[str, Any],
+        rehearsal_ref: Mapping[str, Any] | None,
+        rework: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+    ) -> StageResult:
+        store = context.store
+        wal_path = f"plan/_s4r/candidate_{selected['event_seq']}/activation.json"
+        if store._confined(wal_path).is_file():
+            accepted_wal = _load(store, wal_path, "plan-activation.schema.json")
+            if (
+                accepted_wal.get("phase") == "reconciled"
+                and accepted_wal.get("candidate_id") == candidate.get("candidate_id")
+                and accepted_wal.get("selected_event_seq") == selected.get("event_seq")
+                and accepted_wal.get("level") == candidate.get("level")
+                and accepted_wal.get("old", {}).get("pointer") == active
+                and accepted_wal.get("gates_ref") == gates_ref
+                and accepted_wal.get("rehearsal_ref") == rehearsal_ref
+            ):
+                replay_wal = copy.deepcopy(accepted_wal)
+                replay_wal["phase"] = "prepared"
+                current_run = store.load_run()
+                expected_run = accepted_wal["old"]["run"]
+                comparable_run = copy.deepcopy(current_run)
+                comparable_run["stages"]["s6"] = copy.deepcopy(expected_run["stages"]["s6"])
+                comparable_run["budget_used"]["wall_clock_s"] = expected_run["budget_used"]["wall_clock_s"]
+                if comparable_run != expected_run:
+                    raise ArtifactConflict("activation replay Run state differs beyond resume bookkeeping")
+                store.replace_run(expected_run)
+                store.activate_revision_v2(replay_wal, fault_hook=self.fault_hook)
+                return StageResult(pause=StagePause(
+                    "revision_handoff", int(selected["event_seq"]),
+                    f"plan/_s4r/candidate_{selected['event_seq']}/candidate.json",
+                ))
+        plan = bundle["plan.json"]
+        plan_hash = _hash(plan)
+        new_pointer = successor_pointer(active, {"sha256": plan_hash}, candidate["level"])
+        plan_ref = {"path": new_pointer["path"], "sha256": plan_hash}
+        migration = copy.deepcopy(bundle["migration.json"])
+        migration["from_version"] = active["version"]
+        migration["to_version"] = new_pointer["version"]
+        new_state = project_plan_state(
+            state, plan, migration, new_pointer,
+            activation_event_seq=len(_load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")["entries"]) + 1,
+            config_snapshot=store.load_run()["config_snapshot"],
+        )
+        new_paths = {row["path"] for row in expand_file_rules(bundle["blueprint.json"], constraints)}
+        new_file_ledger = project_file_ledger(
+            file_ledger, plan, migration, epoch=new_pointer["epoch"], new_paths=new_paths,
+        )
+        old_run, new_run = store._run_with_active_pointer(new_pointer)
+        new_run["stages"]["s6"].update({
+            "status": "pending", "started_at": None, "ended_at": None, "error": None,
+        })
+        new_run["stages"]["s6"].pop("output_refs", None)
+        old_manifest = _load(store, "plan/artifact_manifest.json", "artifact-manifest.schema.json")
+        old_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        spec = _load(store, "spec/spec.json")
+        target = _load(store, "inputs/target.json")
+        view = derive_rendering_view(plan, spec, target, bundle["blueprint.json"], constraints)
+        binding: dict[str, Any] | None = None
+        if candidate["level"] == "F2":
+            epoch_receipt_path = f"plan/epochs/{active['epoch']}/receipt.json"
+            epoch_receipt = _load(store, epoch_receipt_path, "epoch-receipt.schema.json")
+            workspace = store._confined("workspace")
+            hashes = {
+                item.relative_to(workspace).as_posix(): sha256_bytes(item.read_bytes())
+                for item in workspace.rglob("*") if item.is_file() and ".git" not in item.parts
+            }
+            quarantined = sorted(path for path in hashes if path.startswith("_orphan/"))
+            projected = project_version_binding(
+                plan_ref, bundle["blueprint.json"], view, epoch_receipt,
+                {"file_hashes": hashes, "ignored_paths": quarantined, "constraints": constraints},
+                existing_manifest=old_manifest, existing_contract_map=old_map,
+            )
+            manifest, contract_map = projected["manifest"], projected["contract_map"]
+            base = f"plan/bindings/{new_pointer['version']}"
+            manifest_ref = {"path": f"{base}/artifact_manifest.json", "sha256": _hash(manifest)}
+            map_ref = {"path": f"{base}/contract_map.json", "sha256": _hash(contract_map)}
+            receipt = projected["binding_receipt"]
+            receipt.update({"manifest_ref": manifest_ref, "contract_map_ref": map_ref})
+            receipt_ref = {"path": f"{base}/receipt.json", "sha256": _hash(receipt)}
+            binding = {
+                "manifest": manifest, "contract_map": contract_map, "receipt": receipt,
+                "manifest_ref": manifest_ref, "contract_map_ref": map_ref, "receipt_ref": receipt_ref,
+            }
+            new_run["stages"]["s5"]["output_refs"]["binding_receipt"] = receipt_ref
+            binding_ref: dict[str, Any] | None = receipt_ref
+        else:
+            rendered = render_e0_files(view, spec, target, bundle["blueprint.json"], constraints)
+            rendered_view = {**view, "rendered_files": rendered}
+            manifest = build_artifact_manifest(plan_ref, bundle["blueprint.json"], rendered_view, new_pointer["epoch"])
+            contract_map = build_contract_map(plan_ref, bundle["blueprint.json"], rendered_view, new_pointer["epoch"])
+            binding_ref = None
+        ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        payload = {
+            "revision_seq": new_pointer["revision_seq"], "from_version": active["version"],
+            "to_version": new_pointer["version"],
+            "from_plan_ref": {"path": active["path"], "sha256": active["sha256"]}, "to_plan_ref": plan_ref,
+            "level": candidate["level"], "trigger_event_seq": selected["event_seq"],
+            "trigger_signature": candidate["selected_trigger"]["signature"],
+            "patch_ops": copy.deepcopy(bundle["patch.json"]["patch_ops"]),
+            "migration": {key: copy.deepcopy(migration[key]) for key in ("counts", "tasks", "files", "pending_groups", "re_adopt") if key in migration},
+            "preservation_rate": migration["preservation_rate"],
+            "rework_cost_estimate_usd": rework["estimate"]["cost_usd"],
+            "gates": {f"RG-{index}": ("not_applicable" if index == 5 and candidate["level"] == "F2" else "pass") for index in range(1, 6)},
+            "epoch_after": new_pointer["epoch"], "activated_at_commit": _git(store._confined("workspace"), "rev-parse", "HEAD"),
+            "binding_ref": binding_ref, "pending_materialization": candidate["level"] == "F3",
+        }
+        new_ledger = copy.deepcopy(ledger)
+        new_ledger["entries"].append(build_event_entry(new_ledger, "revision_activated", payload))
+        validate_revision_ledger(new_ledger)
+        old = {
+            "pointer": copy.deepcopy(dict(active)), "state": copy.deepcopy(dict(state)),
+            "file_ledger": copy.deepcopy(dict(file_ledger)), "revision_ledger": ledger, "run": old_run,
+            "manifest": old_manifest, "contract_map": old_map,
+        }
+        new = {
+            "pointer": new_pointer, "state": new_state, "file_ledger": new_file_ledger,
+            "revision_ledger": new_ledger, "run": new_run, "manifest": manifest, "contract_map": contract_map,
+        }
+        wal = prepare_activation_wal(
+            candidate=candidate, candidate_plan=plan, candidate_plan_ref=plan_ref, old=old, new=new,
+            gates_ref=gates_ref, binding=binding, rehearsal_ref=rehearsal_ref,
+        )
+        store.activate_revision_v2(wal, fault_hook=self.fault_hook)
+        return StageResult(pause=StagePause(
+            "revision_handoff", int(selected["event_seq"]), f"plan/_s4r/candidate_{selected['event_seq']}/candidate.json"
+        ))
+
+    def _consume_revision_handoff(
+        self,
+        context: StageContext,
+        *,
+        selected: Mapping[str, Any],
+        candidate_ref: ArtifactRef,
+        plan: Mapping[str, Any],
+        active: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+    ) -> StageResult | None:
+        """Evaluate RG-1..RG-5 once, then reject or atomically activate."""
+
+        store = context.store
+        event_seq = int(selected["event_seq"])
+        candidate, bundle, _ = store.read_revision_candidate(event_seq)
+        state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        file_ledger = _load(store, "plan/file_ledger.json", "file-ledger.schema.json")
+        ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+        contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+        workspace = store._confined("workspace")
+        boundary_hashes = {
+            "active_pointer": store._json_artifact_hash("plan/active_plan.json"),
+            "plan_state": store._json_artifact_hash("plan/plan_state.json"),
+            "file_ledger": store._json_artifact_hash("plan/file_ledger.json"),
+            "revision_ledger": store._json_artifact_hash("plan/revision_ledger.json"),
+            "workspace_commit": _git(workspace, "rev-parse", "HEAD"),
+            "workspace_tree": _git(workspace, "rev-parse", "HEAD^{tree}"),
+            "blueprint": _hash(blueprint), "contract_map": _hash(contract_map),
+        }
+
+        def assert_frozen_boundary() -> None:
+            current = {
+                "active_pointer": store._json_artifact_hash("plan/active_plan.json"),
+                "plan_state": store._json_artifact_hash("plan/plan_state.json"),
+                "file_ledger": store._json_artifact_hash("plan/file_ledger.json"),
+                "revision_ledger": store._json_artifact_hash("plan/revision_ledger.json"),
+                "workspace_commit": _git(workspace, "rev-parse", "HEAD"),
+                "workspace_tree": _git(workspace, "rev-parse", "HEAD^{tree}"),
+                "blueprint": _hash(blueprint),
+                "contract_map": store._json_artifact_hash("plan/contract_map.json"),
+            }
+            if current != boundary_hashes:
+                raise ArtifactConflict("revision gate authoritative boundary drifted")
+            store.verify_ref(candidate_ref, schema_name="revision-candidate.schema.json")
+        run_before_gates = store.load_run()
+        rejection_snapshot = {
+            "pointer": boundary_hashes["active_pointer"], "state": boundary_hashes["plan_state"],
+            "file_ledger": boundary_hashes["file_ledger"], "manifest": store._json_artifact_hash("plan/artifact_manifest.json"),
+            "contract_map": boundary_hashes["contract_map"],
+            "versions": {
+                path.name: sha256_bytes(path.read_bytes())
+                for path in store._confined("plan/versions").glob("plan-*.json")
+            },
+            "run_s4_active": copy.deepcopy(run_before_gates["stages"]["s4"]["output_refs"]["active_plan"]),
+            "run_s5_outputs": copy.deepcopy(run_before_gates["stages"]["s5"].get("output_refs")),
+            "workspace_commit": boundary_hashes["workspace_commit"], "workspace_tree": boundary_hashes["workspace_tree"],
+        }
+        statuses: dict[str, str] = {}
+        reasons: dict[str, str] = {}
+        critic_ref: dict[str, str] | None = None
+        critic_calls: list[dict[str, str]] = []
+        rehearsal_ref: dict[str, str] | None = None
+        rework: dict[str, Any] | None = None
+        gates_path = f"plan/_s4r/candidate_{event_seq}/gates.json"
+        if store._confined(gates_path).is_file():
+            accepted_gates = _load(store, gates_path, "revision-gate-result.schema.json")
+            if (
+                accepted_gates["candidate_id"] != candidate["candidate_id"]
+                or accepted_gates["candidate_ref"] != candidate_ref.as_dict()
+                or accepted_gates["source_plan_ref"] != candidate["source"]["plan_ref"]
+                or accepted_gates["boundary_hashes"] != boundary_hashes
+            ):
+                raise S6ExecutionError("accepted revision gate evidence conflicts with the current boundary")
+            statuses.update({row["gate"]: row["status"] for row in accepted_gates["gates"] if row["status"] != "not_evaluated"})
+            reasons.update({row["gate"]: row["reason"] for row in accepted_gates["gates"] if row["reason"] is not None})
+            critic_ref = accepted_gates["critic_response_ref"]
+            critic_calls = list(accepted_gates["critic_call_refs"])
+            rehearsal_ref = accepted_gates["rehearsal_ref"]
+            if critic_ref is not None:
+                store.verify_ref(critic_ref, schema_name="plan-critic-result.schema.json")
+            for ref in critic_calls:
+                store.verify_ref(ref)
+            if rehearsal_ref is not None:
+                store.verify_ref(rehearsal_ref, schema_name="revision-rehearsal.schema.json")
+
+        def fail(gate: str, reason: str) -> None:
+            statuses[gate] = "fail"; reasons[gate] = reason
+
+        def checkpoint() -> None:
+            assert_frozen_boundary()
+            partial = build_gate_result(
+                candidate=candidate, candidate_ref=candidate_ref.as_dict(), boundary_hashes=boundary_hashes,
+                statuses=statuses, reasons=reasons, critic_response_ref=critic_ref,
+                critic_call_refs=critic_calls, rehearsal_ref=rehearsal_ref,
+            )
+            store.replace_json(gates_path, partial, schema_name="revision-gate-result.schema.json")
+
+        revision_config = context.run["config_snapshot"].get("revision")
+        try:
+            if "RG-1" in statuses:
+                raise StopIteration
+            if not isinstance(revision_config, Mapping):
+                raise RevisionMechanismError("revision configuration is absent")
+            started_attempt = any(
+                row.get("status") == "in_progress"
+                and isinstance(row.get("attempts"), int)
+                and row["attempts"] > 0
+                and (
+                    not store._confined(f"attempts/{row['task_uid']}/attempt_{row['attempts']:03d}.json").is_file()
+                    or _load(store, f"attempts/{row['task_uid']}/attempt_{row['attempts']:03d}.json", "s6-attempt.schema.json").get("status") == "started"
+                )
+                for row in state["tasks"]
+            )
+            lease_starts = {entry["payload"]["lease_id"] for entry in ledger["entries"] if entry["event_type"] == "lease_started"}
+            lease_finishes = {entry["payload"]["lease_id"] for entry in ledger["entries"] if entry["event_type"] == "lease_finished"}
+            pending_group = any(row.get("group_id") and row.get("status") in {"pending", "in_progress"} for row in state["tasks"])
+            pending_epoch = any(
+                _load(store, path.relative_to(store.root).as_posix(), "s5-pending-state.schema.json").get("phase") != "accepted"
+                for path in store._confined("plan/epochs").glob("E*/pending.json")
+            ) if store._confined("plan/epochs").is_dir() else False
+            if started_attempt or lease_starts - lease_finishes or pending_group or pending_epoch or store._confined("plan/verification_pending.json").exists() or not _clean(workspace):
+                raise RevisionMechanismError("revision handoff boundary has an in-flight transaction")
+            if candidate["source"]["plan_ref"] != {"path": active["path"], "sha256": active["sha256"]} or candidate["source"]["revision_seq"] != active["revision_seq"]:
+                raise RevisionMechanismError("candidate source is no longer active")
+            facts = self._revision_facts(store, state, plan, blueprint, contract_map, context.run["config_snapshot"], constraints)
+            boundary = project_revision_boundary(
+                phase=str(facts.get("boundary_phase", "task_boundary")), revision_seq=int(active["revision_seq"]),
+                tasks=state["tasks"], plan_ref={"path": active["path"], "sha256": active["sha256"]}, epoch=str(active["epoch"]),
+                state_history_ref={"path": "plan/state_history.json", "sha256": store._json_artifact_hash("plan/state_history.json")},
+                workspace_commit=boundary_hashes["workspace_commit"], workspace_tree=boundary_hashes["workspace_tree"],
+                blueprint_ref={"path": "plan/_s4/delivery_blueprint.json", "sha256": boundary_hashes["blueprint"]},
+                contract_map_ref={"path": "plan/contract_map.json", "sha256": boundary_hashes["contract_map"]},
+                file_ledger_ref={"path": "plan/file_ledger.json", "sha256": boundary_hashes["file_ledger"]},
+                revision_ledger=ledger, thresholds={"theta_2": revision_config["theta2"], "theta_6": revision_config["theta6"]}, facts=facts,
+            )
+            evaluation = evaluate_revision_triggers(boundary, ledger)
+            selection = evaluation.get("selection")
+            expected = selected["payload"]
+            if not isinstance(selection, Mapping) or selection.get("level") != candidate["level"] or selection.get("code") != expected.get("hit_code") or selection.get("signature") != expected.get("hit_signature"):
+                raise RevisionMechanismError("selected trigger is no longer the same eligible revision")
+            statuses["RG-1"] = "pass"
+            checkpoint()
+        except StopIteration:
+            pass
+        except (KeyError, RevisionMechanismError) as exc:
+            fail("RG-1", str(exc))
+
+        if statuses.get("RG-1") == "pass" and "RG-2" not in statuses:
+            try:
+                frozen = {
+                    "spec_value": _load(store, "spec/spec.json"),
+                    "target_profile_value": _load(store, "inputs/target.json"),
+                    "test_bundle_value": _load(store, "inputs/test_bundle.json"),
+                    "refs": {
+                        key: {"path": path, "sha256": context.run["inputs"][key]["sha256"]}
+                        for key, path in (("spec", "spec/spec.json"), ("target_profile", "inputs/target.json"), ("test_bundle", "inputs/test_bundle.json"))
+                    },
+                }
+                manifest = build_test_manifest_metadata(frozen["test_bundle_value"], constraints)
+                replay = complete_revision_candidate(
+                    plan, active, bundle["patch.json"], constraints, frozen, manifest,
+                    context.run["config_snapshot"], state, file_ledger,
+                    ledger_prefix_sha256=candidate["source"]["ledger_prefix_sha256"],
+                )
+                if canonical_json_bytes(replay) != canonical_json_bytes(bundle):
+                    raise RevisionMechanismError("candidate validation replay differs from committed bytes")
+                statuses["RG-2"] = "pass"
+                checkpoint()
+            except (KeyError, RevisionMechanismError) as exc:
+                fail("RG-2", str(exc))
+
+        if statuses.get("RG-2") == "pass" and "RG-3" not in statuses:
+            try:
+                rework = evaluate_revision_budget(
+                    level=candidate["level"], migration=bundle["migration.json"], candidate_plan=bundle["plan.json"],
+                    config=context.run["config_snapshot"], run=store.load_run(), revision_ledger=ledger, state=state,
+                )
+                if not rework["pass"]:
+                    failed = ", ".join(key for key, value in rework["checks"].items() if not value)
+                    raise RevisionMechanismError(f"revision budget checks failed: {failed}")
+                statuses["RG-3"] = "pass"
+                checkpoint()
+            except (KeyError, RevisionMechanismError, TypeError, ValueError) as exc:
+                fail("RG-3", str(exc))
+        elif statuses.get("RG-3") == "pass":
+            rework = {"estimate": estimate_revision_rework(
+                bundle["migration.json"], bundle["plan.json"], context.run["config_snapshot"]
+            )}
+
+        if statuses.get("RG-3") == "pass" and "RG-4" not in statuses:
+            try:
+                critic_path = store._confined(f"plan/_s4r/candidate_{event_seq}/critic.json")
+                if critic_path.is_file():
+                    review = _load(store, f"plan/_s4r/candidate_{event_seq}/critic.json", "plan-critic-result.schema.json")
+                    critic_ref = {"path": f"plan/_s4r/candidate_{event_seq}/critic.json", "sha256": sha256_bytes(critic_path.read_bytes())}
+                else:
+                    assert_frozen_boundary()
+                    context.orchestrator.admit_external_call(store)
+                    critic_delta = project_plan_critic_delta(plan, bundle["plan.json"], bundle["patch.json"])
+                    result = bind_plan_critic_contract(self.agent).invoke(
+                        inputs={
+                            "candidate_plan_graph": critic_delta,
+                            "coverage_matrix": {"requirements": critic_delta["coverage"], "tests": [
+                                row for row in bundle["plan.json"]["coverage"]["tests"]
+                                if row.get("task_id") in {task["id"] for task in critic_delta["tasks"]}
+                            ]},
+                            "lint_report": bundle["lint.json"],
+                        },
+                        run_id=context.run["run_id"], task_id=f"revision-critic-{event_seq}", stage="S6",
+                    )
+                    response = result.response
+                    context.orchestrator.record_external_usage(store, UsageDelta(
+                        tokens_in=response.tokens_in, tokens_out=response.tokens_out,
+                        cost_usd=response.cost_usd, cached=response.cached,
+                    ))
+                    review = result.parsed
+                    critic_ref = store.publish_revision_candidate_evidence(
+                        event_seq, "critic.json", review, schema_name="plan-critic-result.schema.json"
+                    ).as_dict()
+                    for ref in _call_refs_for_attempt(store, f"revision-critic-{event_seq}", 1):
+                        path = ref["path"]
+                        if store._confined(path).is_file():
+                            critic_calls.append({"path": path, "sha256": sha256_bytes(store._confined(path).read_bytes())})
+                validated = validate_plan_critic_result(review)
+                if validated["verdict"] != "pass" or any(item["severity"] in {"blocker", "major"} for item in validated["issues"]):
+                    raise RevisionMechanismError("PlanCritic reported blocker or major issues")
+                statuses["RG-4"] = "pass"
+                checkpoint()
+            except (ArtifactConflict, RunStoreError):
+                raise
+            except Exception as exc:
+                fail("RG-4", str(exc))
+
+        if statuses.get("RG-4") == "pass" and "RG-5" not in statuses:
+            if candidate["level"] == "F2":
+                statuses["RG-5"] = "not_applicable"
+                checkpoint()
+            else:
+                try:
+                    assert_frozen_boundary()
+                    successor = successor_pointer(active, {"path": "unused", "sha256": _hash(bundle["plan.json"])}, "F3")
+                    rehearsal_context = {
+                        "run": store.load_run(), "plan": bundle["plan.json"], "spec": _load(store, "spec/spec.json"),
+                        "target": _load(store, "inputs/target.json"), "blueprint": bundle["blueprint.json"],
+                        "old_blueprint": blueprint, "constraints": constraints, "file_ledger": file_ledger,
+                        "migration": bundle["migration.json"], "epoch": successor["epoch"], "plan_version": successor["version"],
+                    }
+                    materializer = S5MaterializationController(self.executor)
+                    runs = []
+                    for _ in range(2):
+                        assert_frozen_boundary()
+                        runs.append(materializer.rehearse_epoch(rehearsal_context, workspace))
+                    build_refs: list[list[dict[str, str]]] = []
+                    smoke_refs: list[list[dict[str, str]]] = []
+                    for index, run in enumerate(runs, start=1):
+                        build_refs.append([
+                            store.publish_immutable_json(
+                                f"plan/_s4r/candidate_{event_seq}/rehearsal-{index}-build-{number}.json", item,
+                                schema_name="build-result.schema.json",
+                            ).as_dict()
+                            for number, item in enumerate(run["build_results"], start=1)
+                        ])
+                        smoke_refs.append([
+                            store.publish_immutable_json(
+                                f"plan/_s4r/candidate_{event_seq}/rehearsal-{index}-smoke-{number}.json", item,
+                                schema_name="smoke-result.schema.json",
+                            ).as_dict()
+                            for number, item in enumerate(run["smoke_results"], start=1)
+                        ])
+                    rehearsal = build_revision_rehearsal(
+                        candidate=candidate, baseline_commit=boundary_hashes["workspace_commit"],
+                        baseline_tree=boundary_hashes["workspace_tree"], runs=runs,
+                        build_result_refs=build_refs, smoke_result_refs=smoke_refs,
+                    )
+                    rehearsal_ref = store.publish_revision_candidate_evidence(
+                        event_seq, "rehearsal.json", rehearsal, schema_name="revision-rehearsal.schema.json"
+                    ).as_dict()
+                    if _git(workspace, "rev-parse", "HEAD") != boundary_hashes["workspace_commit"] or _git(workspace, "rev-parse", "HEAD^{tree}") != boundary_hashes["workspace_tree"] or not _clean(workspace):
+                        raise RevisionMechanismError("live workspace changed during rehearsal")
+                    statuses["RG-5"] = "pass"
+                    checkpoint()
+                except (ArtifactConflict, RunStoreError):
+                    raise
+                except Exception as exc:
+                    fail("RG-5", str(exc))
+
+        if all(statuses.get(f"RG-{index}") in {"pass", "not_applicable"} for index in range(1, 6)):
+            assert_frozen_boundary()
+            current_run = context.orchestrator.synchronize_budget(store)
+            final_rework = evaluate_revision_budget(
+                level=candidate["level"], migration=bundle["migration.json"], candidate_plan=bundle["plan.json"],
+                config=current_run["config_snapshot"], run=current_run,
+                revision_ledger=_load(store, "plan/revision_ledger.json", "revision-ledger.schema.json"),
+                state=_load(store, "plan/plan_state.json", "plan-state.schema.json"),
+            )
+            rework = final_rework
+            if not final_rework["pass"]:
+                failed = ", ".join(key for key, value in final_rework["checks"].items() if not value)
+                statuses = {"RG-1": "pass", "RG-2": "pass", "RG-3": "fail"}
+                reasons["RG-3"] = f"revision budget checks changed before activation: {failed}"
+
+        gate_result = build_gate_result(
+            candidate=candidate, candidate_ref=candidate_ref.as_dict(), boundary_hashes=boundary_hashes,
+            statuses=statuses, reasons=reasons, critic_response_ref=critic_ref,
+            critic_call_refs=critic_calls, rehearsal_ref=rehearsal_ref,
+        )
+        gates_ref = store.replace_json(gates_path, gate_result, schema_name="revision-gate-result.schema.json")
+        if gate_result["disposition"] == "rejected":
+            assert_frozen_boundary()
+            updated = append_candidate_rejected(
+                _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json"),
+                candidate_id=candidate["candidate_id"], trigger_event_seq=event_seq, level=candidate["level"],
+                failed_gate=gate_result["first_failed_gate"],
+                reason=reasons[gate_result["first_failed_gate"]], evidence_refs=[gates_ref.as_dict()],
+            )
+            store.replace_json("plan/revision_ledger.json", updated, schema_name="revision-ledger.schema.json")
+            run_after_rejection = store.load_run()
+            rejection_after = {
+                "pointer": store._json_artifact_hash("plan/active_plan.json"),
+                "state": store._json_artifact_hash("plan/plan_state.json"),
+                "file_ledger": store._json_artifact_hash("plan/file_ledger.json"),
+                "manifest": store._json_artifact_hash("plan/artifact_manifest.json"),
+                "contract_map": store._json_artifact_hash("plan/contract_map.json"),
+                "versions": {
+                    path.name: sha256_bytes(path.read_bytes())
+                    for path in store._confined("plan/versions").glob("plan-*.json")
+                },
+                "run_s4_active": run_after_rejection["stages"]["s4"]["output_refs"]["active_plan"],
+                "run_s5_outputs": run_after_rejection["stages"]["s5"].get("output_refs"),
+                "workspace_commit": _git(workspace, "rev-parse", "HEAD"),
+                "workspace_tree": _git(workspace, "rev-parse", "HEAD^{tree}"),
+            }
+            if rejection_after != rejection_snapshot:
+                raise S6ExecutionError("revision rejection changed authoritative execution state")
+            return None
+        assert_frozen_boundary()
+        return self._activate_revision_handoff(
+            context, candidate=candidate, bundle=bundle, selected=selected, active=active,
+            state=state, file_ledger=file_ledger, gates_ref=gates_ref.as_dict(),
+            rehearsal_ref=rehearsal_ref, rework=rework or {}, constraints=constraints,
+        )
+
     def _revision_handoff(
         self,
         context: StageContext,
@@ -3003,7 +3495,15 @@ class S6ExecutionController:
             selected = selected_entries[-1]
             event_seq = int(selected["event_seq"])
             reconciled = store.reconcile_revision_candidate(event_seq)
-            return StageResult(pause=StagePause("revision_handoff", event_seq, reconciled.path if reconciled is not None else None))
+            if reconciled is None:
+                return StageResult(pause=StagePause("revision_handoff", event_seq, None))
+            budgets = context.run["config_snapshot"].get("budgets", {})
+            if not budgets.get("revision_f2_limit", 0) and not budgets.get("revision_f3_limit", 0):
+                return StageResult(pause=StagePause("revision_handoff", event_seq, reconciled.path))
+            return self._consume_revision_handoff(
+                context, selected=selected, candidate_ref=reconciled, plan=plan,
+                active=active, blueprint=blueprint, constraints=constraints,
+            )
         revision_config = context.run["config_snapshot"].get("revision")
         if not isinstance(revision_config, Mapping):
             return None
@@ -3025,7 +3525,10 @@ class S6ExecutionController:
             for entry in ledger.get("entries", []) if entry.get("event_type") == "lease_finished"
         }
         unresolved_group = any(row.get("group_id") is not None and row.get("status") in {"pending", "in_progress"} for row in state["tasks"])
-        revision_wal = any(store._confined("_s4r").glob("rev_*/activation.json")) if store._confined("_s4r").is_dir() else False
+        revision_wal = any(
+            _load(store, path.relative_to(store.root).as_posix(), "plan-activation.schema.json").get("phase") != "reconciled"
+            for path in store._confined("plan/_s4r").glob("candidate_*/activation.json")
+        ) if store._confined("plan/_s4r").is_dir() else False
         if started_attempt or lease_starts - lease_finishes or unresolved_group or revision_wal or store._confined("plan/verification_pending.json").exists():
             return None
         state_history_path = "plan/state_history.json"

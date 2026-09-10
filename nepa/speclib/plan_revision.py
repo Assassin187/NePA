@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
@@ -713,6 +713,10 @@ def project_file_ledger(
             result.append(quarantined)
         elif path not in active_paths and old.get("state") == "quarantined":
             result.append(copy.deepcopy(old))
+        elif path not in active_paths and old.get("state") == "slot_only":
+            # The activation ledger records the predecessor slot until the new
+            # S5 epoch performs and receipts its physical retirement.
+            result.append(copy.deepcopy(old))
     ledger = {"schema_version": "2.0" if old_ledger.get("schema_version") == "2.0" else "1.0", "files": result}
     validate_file_ledger(ledger)
     return ledger
@@ -796,12 +800,18 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
     verification_evidence: set[tuple[str, str]] = set()
     lease_starts: dict[str, Mapping[str, Any]] = {}
     lease_finishes: set[str] = set()
+    rejected_candidates: set[str] = set()
     for entry in ledger.get("entries", []):
         if entry["event_seq"] != expected_seq or entry["prev_entry_sha256"] != previous:
             raise PlanRevisionError("revision ledger event sequence or predecessor hash is invalid")
         if entry["event_type"] not in _EVENT_TYPES:
             raise PlanRevisionError("revision ledger event type is unsupported")
         payload = entry["payload"]
+        if entry["event_type"] == "candidate_rejected":
+            candidate_id = str(payload["candidate_id"])
+            if candidate_id != f"candidate-{payload['trigger_event_seq']}" or candidate_id in rejected_candidates:
+                raise PlanRevisionError("rejected candidate identity is invalid or duplicated")
+            rejected_candidates.add(candidate_id)
         if entry["event_type"] == "lease_started":
             payload = entry["payload"]
             lease_id = payload["lease_id"]
@@ -897,7 +907,18 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
                 raise PlanRevisionError("revision activation sequence is not consecutive")
             if payload["pending_materialization"] is False and payload.get("binding_ref") is None:
                 raise PlanRevisionError("accepted activation without pending materialization requires a binding ref")
-            validate_activation_binding(payload, payload.get("binding_ref") if payload.get("pending_materialization") is False else None)
+            binding_ref = payload.get("binding_ref")
+            if payload["level"] == "F2":
+                if not isinstance(binding_ref, Mapping) or binding_ref.get("path") != f"plan/bindings/{payload['to_version']}/receipt.json":
+                    raise PlanRevisionError("F2 activation binding ref is not candidate-version scoped")
+            elif binding_ref is not None or payload.get("pending_materialization") is not True:
+                raise PlanRevisionError("F3 activation must remain pending without a binding ref")
+            expected_rg5 = "not_applicable" if payload["level"] == "F2" else "pass"
+            expected_gates = {"RG-1": "pass", "RG-2": "pass", "RG-3": "pass", "RG-4": "pass", "RG-5": expected_rg5}
+            if payload.get("gates") != expected_gates:
+                raise PlanRevisionError("revision activation does not bind all applicable passed gates")
+            if f"candidate-{payload['trigger_event_seq']}" in rejected_candidates:
+                raise PlanRevisionError("a rejected candidate cannot be activated")
             validate_migration_extensions(payload["migration"], level=payload["level"], revision_seq=payload["revision_seq"])
             latest_revision = payload["revision_seq"]
             activation_by_seq[latest_revision] = payload
@@ -1010,6 +1031,38 @@ def append_revision_entry(ledger: Mapping[str, Any], entry: Mapping[str, Any]) -
     if candidate["revision_seq"] != len(entries) + 1 or candidate["prev_entry_sha256"] != (_ZERO_HASH if not entries else _sha(entries[-1])):
         raise PlanRevisionError("revision entry is not the unique append successor")
     entries.append(candidate)
+    validate_revision_ledger(current)
+    return current
+
+
+def append_candidate_rejected(
+    ledger: Mapping[str, Any],
+    *,
+    candidate_id: str,
+    trigger_event_seq: int,
+    level: str,
+    failed_gate: str,
+    reason: str,
+    evidence_refs: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Append one deterministic rejection or reuse its byte-equivalent fact."""
+
+    current = copy.deepcopy(dict(ledger))
+    validate_revision_ledger(current)
+    payload = {
+        "candidate_id": candidate_id, "trigger_event_seq": trigger_event_seq,
+        "level": level, "failed_gate": failed_gate, "reason": reason,
+        "evidence_refs": [copy.deepcopy(dict(ref)) for ref in evidence_refs],
+    }
+    matches = [entry for entry in current.get("entries", []) if entry.get("event_type") == "candidate_rejected" and entry.get("payload", {}).get("candidate_id") == candidate_id]
+    if matches:
+        if len(matches) != 1 or matches[0].get("payload") != payload:
+            raise PlanRevisionError("conflicting candidate rejection fact")
+        return current
+    trigger = [entry for entry in current.get("entries", []) if entry.get("event_seq") == trigger_event_seq and entry.get("event_type") == "trigger_evaluated" and entry.get("payload", {}).get("selected") is True]
+    if len(trigger) != 1 or trigger[0].get("payload", {}).get("route") != level:
+        raise PlanRevisionError("candidate rejection has no matching selected trigger")
+    current["entries"].append(build_event_entry(current, "candidate_rejected", payload))
     validate_revision_ledger(current)
     return current
 
@@ -1161,5 +1214,5 @@ def build_revision_entry(
 
 
 __all__ = [
-    "PlanRevisionError", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_activation_binding", "validate_file_ledger", "validate_migration_extensions", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
+    "PlanRevisionError", "append_candidate_rejected", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_activation_binding", "validate_file_ledger", "validate_migration_extensions", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
 ]

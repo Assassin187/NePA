@@ -122,6 +122,7 @@ class RunStore:
     def __init__(self, run_dir: Path | str):
         self.root = Path(run_dir).resolve()
         self.run_path = self.root / "run.json"
+        self._controller_lock_depth = 0
 
     @property
     def run_id(self) -> str:
@@ -326,14 +327,57 @@ class RunStore:
         if candidate["selected_event_seq"] != event_seq:
             raise ArtifactConflict("revision candidate marker has the wrong event identity")
         expected = set(candidate["content_hashes"]) | {"candidate.json"}
+        process_files = {"gates.json", "rehearsal.json", "activation.json", "critic.json"}
+        process_directories = {"isolated"}
         actual = {path.name for path in directory.iterdir() if path.is_file()}
-        if actual != expected or any(path.is_dir() for path in directory.iterdir()):
+        directories = {path.name for path in directory.iterdir() if path.is_dir()}
+        extra_files = actual - expected - process_files
+        if (
+            not expected.issubset(actual)
+            or any(re.fullmatch(r"rehearsal-[12]-(?:build|smoke)-[1-9][0-9]*\.json", name) is None for name in extra_files)
+            or directories - process_directories
+        ):
             raise ArtifactConflict("revision candidate directory is not a closed bundle")
         for name, expected_hash in candidate["content_hashes"].items():
             if sha256_bytes((directory / name).read_bytes()) != expected_hash:
                 raise ArtifactConflict(f"revision candidate content hash differs for {name}")
         relative = directory.relative_to(self.root).as_posix() + "/candidate.json"
         return candidate, ArtifactRef(relative, sha256_bytes(marker_bytes))
+
+    def read_revision_candidate(self, event_seq: int) -> tuple[dict[str, Any], dict[str, Any], ArtifactRef]:
+        """Read and hash-verify one committed candidate and its content closure."""
+
+        directory = self._confined(f"plan/_s4r/candidate_{event_seq}")
+        candidate, ref = self._validate_revision_candidate_directory(directory, event_seq)
+        bundle = {}
+        for name in candidate["content_hashes"]:
+            path = directory / name
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ArtifactConflict(f"revision candidate content is invalid at {name}: {exc}") from exc
+            if canonical_json_bytes(value) != path.read_bytes():
+                raise ArtifactConflict(f"revision candidate content is not canonical at {name}")
+            bundle[name] = value
+        bundle["candidate.json"] = candidate
+        return candidate, bundle, ref
+
+    def publish_revision_candidate_evidence(
+        self,
+        event_seq: int,
+        name: str,
+        value: Mapping[str, Any],
+        *,
+        schema_name: str,
+    ) -> ArtifactRef:
+        """Idempotently publish one closed M1-11 evidence artifact."""
+
+        if name not in {"gates.json", "rehearsal.json", "activation.json", "critic.json"}:
+            raise RunValidationError("unsupported revision-candidate evidence name")
+        self._validate_revision_candidate_directory(self._confined(f"plan/_s4r/candidate_{event_seq}"), event_seq)
+        return self.publish_immutable_json(
+            f"plan/_s4r/candidate_{event_seq}/{name}", value, schema_name=schema_name
+        )
 
     @staticmethod
     def _candidate_matches_trigger(candidate: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
@@ -1232,16 +1276,6 @@ class RunStore:
         except OSError as exc:
             raise RunValidationError(f"missing artifact {relative_path}: {exc}") from exc
 
-    def _revision_wal_path(self, revision_seq: int) -> str:
-        if not isinstance(revision_seq, int) or revision_seq < 1:
-            raise RunValidationError("revision sequence must be a positive integer")
-        return f"_s4r/rev_{revision_seq:03d}/activation.json"
-
-    @staticmethod
-    def _call_activation_hook(hook: Callable[[str], None] | None, point: str) -> None:
-        if hook is not None:
-            hook(point)
-
     def _run_with_active_pointer(self, pointer: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """Prepare the sole fresh-run mutation made by revision activation."""
 
@@ -1282,351 +1316,387 @@ class RunStore:
             s5.pop("output_refs", None)
         return run, updated
 
-    def _normalize_activation_inputs(
-        self,
-        candidate_plan: Mapping[str, Any] | None,
-        migration_report: Mapping[str, Any] | None,
-        projected_state: Mapping[str, Any] | None,
-        projected_file_ledger: Mapping[str, Any] | None,
-        revision_entry: Mapping[str, Any] | None,
-        expected_active_pointer: Mapping[str, Any] | None,
-        bundle: Mapping[str, Any] | None,
-    ) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
-        values: Mapping[str, Any] = bundle or {}
-        if bundle is None and isinstance(candidate_plan, Mapping) and "candidate_plan" in candidate_plan:
-            values = candidate_plan
-        if values:
-            candidate_plan = values.get("candidate_plan", candidate_plan)
-            migration_report = values.get("migration_report", values.get("report", migration_report))
-            projected_state = values.get("new_state", values.get("state", projected_state))
-            projected_file_ledger = values.get("new_file_ledger", values.get("file_ledger", projected_file_ledger))
-            revision_entry = values.get("revision_entry", revision_entry)
-            expected_active_pointer = values.get("old_pointer", values.get("expected_active_pointer", expected_active_pointer))
-        if not all(isinstance(value, Mapping) for value in (candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer)):
-            raise RunValidationError("activation requires a complete candidate bundle and expected active pointer")
-        return candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer  # type: ignore[return-value]
+    @staticmethod
+    def _call_revision_boundary(fault_hook: Callable[[str], None] | None, boundary: str, when: str) -> None:
+        if fault_hook is not None:
+            fault_hook(f"{when}_{boundary}")
 
-    def activate_revision(
-        self,
-        candidate_plan: Mapping[str, Any] | None = None,
-        migration_report: Mapping[str, Any] | None = None,
-        projected_state: Mapping[str, Any] | None = None,
-        projected_file_ledger: Mapping[str, Any] | None = None,
-        revision_entry: Mapping[str, Any] | None = None,
-        expected_active_pointer: Mapping[str, Any] | None = None,
-        *,
-        level: str | None = None,
-        new_pointer: Mapping[str, Any] | None = None,
-        expected_hashes: Mapping[str, str] | None = None,
-        activated_at_commit: str | None = None,
-        fault_hook: Callable[[str], None] | None = None,
-        bundle: Mapping[str, Any] | None = None,
-        lineage: Any = None,
-    ) -> dict[str, Any]:
-        """Activate one fully validated revision through the locked commit order.
+    def _validate_activation_wal_bindings(self, value: Mapping[str, Any]) -> None:
+        """Validate the closed relations carried by one v2 activation WAL."""
 
-        The method deliberately accepts values rather than generating a revision
-        candidate.  Candidate generation and trigger policy belong to later
-        milestones; this API only binds an already validated bundle to the run.
-        """
+        old, new = value["old"], value["new"]
+        names = ("pointer", "state", "file_ledger", "revision_ledger", "run", "manifest", "contract_map")
+        for side_name, view in (("old", old), ("new", new)):
+            for name in names:
+                if value["hashes"][side_name][name] != self._canonical_value_hash(view[name]):
+                    raise RunValidationError(f"activation WAL {side_name} {name} hash is invalid")
+        plan_hash = self._canonical_value_hash(value["candidate_plan"])
+        if value["hashes"]["candidate_plan"] != plan_hash:
+            raise RunValidationError("activation WAL candidate Plan hash is invalid")
+        if value["candidate_plan_ref"] != {
+            "path": new["pointer"]["path"], "sha256": new["pointer"]["sha256"]
+        } or value["candidate_plan_ref"]["sha256"] != plan_hash:
+            raise RunValidationError("activation WAL candidate Plan reference is invalid")
+        binding = value["binding"]
+        if (self._canonical_value_hash(binding) if binding is not None else None) != value["hashes"]["binding"]:
+            raise RunValidationError("activation WAL binding hash is invalid")
+        if binding is None:
+            if value["level"] != "F3" or not value["pending_materialization"]:
+                raise RunValidationError("activation WAL F3 materialization intent is invalid")
+            s5 = new["run"].get("stages", {}).get("s5", {})
+            if (
+                s5.get("instance_id") != new["pointer"]["epoch"]
+                or s5.get("status") != "pending"
+                or "output_refs" in s5
+            ):
+                raise RunValidationError("activation WAL F3 pending S5 projection is invalid")
+        else:
+            if value["level"] != "F2" or value["pending_materialization"]:
+                raise RunValidationError("activation WAL F2 binding intent is invalid")
+            for name, ref_name in (
+                ("manifest", "manifest_ref"), ("contract_map", "contract_map_ref"), ("receipt", "receipt_ref")
+            ):
+                if binding[ref_name]["sha256"] != self._canonical_value_hash(binding[name]):
+                    raise RunValidationError(f"activation WAL F2 {name} reference is invalid")
+            if binding["receipt"].get("manifest_ref") != binding["manifest_ref"] or binding["receipt"].get("contract_map_ref") != binding["contract_map_ref"]:
+                raise RunValidationError("activation WAL F2 receipt references are invalid")
+            if new["manifest"] != binding["manifest"] or new["contract_map"] != binding["contract_map"]:
+                raise RunValidationError("activation WAL F2 current copies differ from its binding")
+            s5_refs = new["run"].get("stages", {}).get("s5", {}).get("output_refs", {})
+            if s5_refs.get("binding_receipt") != binding["receipt_ref"]:
+                raise RunValidationError("activation WAL F2 Run binding reference is invalid")
+        from .speclib.plan_revision import PlanRevisionError, latest_activation, validate_revision_ledger
 
-        from .speclib.plan_revision import (
-            PlanRevisionError,
-            append_revision_entry,
-            classify_migration,
-            successor_pointer,
-            validate_file_ledger,
-            validate_revision_ledger,
-        )
-
-        with self.controller_lock():
-            if lineage is None and isinstance(bundle, Mapping):
-                lineage = bundle.get("lineage")
-            candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer = self._normalize_activation_inputs(
-                candidate_plan, migration_report, projected_state, projected_file_ledger, revision_entry, expected_active_pointer, bundle,
-            )
-            try:
-                old_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
-                old_plan = self._read_json_artifact(old_pointer["path"], schema_name="plan.schema.json")
-                old_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
-                old_file_ledger = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
-                old_revision_ledger = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
-                candidate = json.loads(canonical_json_bytes(candidate_plan).decode("utf-8"))
-                report = json.loads(canonical_json_bytes(migration_report).decode("utf-8"))
-                state = json.loads(canonical_json_bytes(projected_state).decode("utf-8"))
-                file_ledger = json.loads(canonical_json_bytes(projected_file_ledger).decode("utf-8"))
-                entry = json.loads(canonical_json_bytes(revision_entry).decode("utf-8"))
-            except (KeyError, TypeError, ValueError) as exc:
-                raise RunValidationError(f"activation input is malformed: {exc}") from exc
-            if old_pointer != dict(expected_active_pointer):
-                raise RunValidationError("active pointer changed since activation precondition was read")
-            if self._json_artifact_hash(old_pointer["path"]) != old_pointer["sha256"]:
-                raise RunValidationError("active pointer does not hash-bind the current immutable Plan")
-            for label, relative in (("state", "plan/plan_state.json"), ("file_ledger", "plan/file_ledger.json"), ("revision_ledger", "plan/revision_ledger.json"), ("pointer", "plan/active_plan.json")):
-                expected = (expected_hashes or {}).get(label)
-                if expected is not None and self._json_artifact_hash(relative) != expected:
-                    raise RunValidationError(f"activation precondition hash drifted for {label}")
-            expected_plan_hash = (expected_hashes or {}).get("plan")
-            if expected_plan_hash is not None and old_pointer["sha256"] != expected_plan_hash:
-                raise RunValidationError("activation precondition hash drifted for plan")
-            try:
-                _schema_errors(candidate, "plan.schema.json")
-                if _schema_errors(candidate, "plan.schema.json"):
-                    raise RunValidationError("candidate Plan failed Schema validation")
-                if _schema_errors(report, "migration-report.schema.json"):
-                    raise RunValidationError("migration report failed Schema validation")
-                if _schema_errors(state, "plan-state.schema.json"):
-                    raise RunValidationError("projected Plan State failed Schema validation")
-                validate_file_ledger(file_ledger)
-                validate_revision_ledger(old_revision_ledger)
-            except PlanRevisionError as exc:
-                raise RunValidationError(str(exc)) from exc
-            if level is None:
-                level = entry.get("level")
-            if level not in {"F2", "F3"}:
-                raise RunValidationError("activation only accepts an explicit F2 or F3 revision level")
-            if entry.get("level") != level:
-                raise RunValidationError("revision entry level does not match the activation level")
-            if entry.get("gates") != {f"RG-{index}": "pass" for index in range(1, 6)}:
-                raise RunValidationError("activation requires every revision gate to pass")
-            candidate_hash = self._canonical_value_hash(candidate)
-            candidate_ref = {"path": f"plan/versions/plan-{candidate_hash}.json", "sha256": candidate_hash}
-            if new_pointer is None:
-                try:
-                    new_pointer = successor_pointer(old_pointer, candidate_ref, level)
-                except PlanRevisionError as exc:
-                    raise RunValidationError(str(exc)) from exc
-            else:
-                new_pointer = json.loads(canonical_json_bytes(new_pointer).decode("utf-8"))
-            if new_pointer.get("sha256") != candidate_hash or new_pointer.get("path") != f"plan/versions/plan-{new_pointer.get('version')}.json":
-                raise RunValidationError("candidate Plan hash or immutable version path does not match the new pointer")
-            try:
-                from .speclib.plan_revision import validate_plan_successor
-                validate_plan_successor(old_pointer, new_pointer, level)
-            except PlanRevisionError as exc:
-                raise RunValidationError(str(exc)) from exc
-            expected_candidate_path = new_pointer["path"]
-            existing_candidate = self._confined(expected_candidate_path)
-            if existing_candidate.exists() and self._json_artifact_hash(expected_candidate_path) != candidate_hash:
-                raise ArtifactConflict(f"immutable activated version differs at {expected_candidate_path}")
-            try:
-                expected_report = classify_migration(
-                    old_plan, candidate, old_state, old_file_ledger,
-                    lineage,
-                    from_version=old_pointer["version"], to_version=new_pointer["version"],
-                )
-            except PlanRevisionError as exc:
-                raise RunValidationError(str(exc)) from exc
-            report_base = {key: report[key] for key in expected_report}
-            if report_base != expected_report:
-                raise RunValidationError("migration report is not the deterministic complete classification")
-            if state.get("plan_ref") != new_pointer:
-                raise RunValidationError("projected Plan State does not bind the new active pointer")
-            _run_before, run_after = self._run_with_active_pointer(new_pointer)
-            try:
-                from .speclib.plan_revision import project_file_ledger, project_plan_state
-                trigger_exists = any(item.get("event_type") == "trigger_evaluated" for item in old_revision_ledger.get("entries", []))
-                activation_event_seq = len(old_revision_ledger.get("entries", [])) + (1 if trigger_exists else 2)
-                expected_state = project_plan_state(
-                    old_state, candidate, report, new_pointer,
-                    activation_event_seq=activation_event_seq,
-                    config_snapshot=_run_before["config_snapshot"],
-                )
-                expected_file_ledger = project_file_ledger(
-                    old_file_ledger, candidate, report, epoch=new_pointer["epoch"],
-                    new_paths={row["path"] for row in file_ledger["files"]},
-                )
-            except PlanRevisionError as exc:
-                raise RunValidationError(str(exc)) from exc
-            if state != expected_state:
-                raise RunValidationError("projected Plan State is not the deterministic migration projection")
-            if file_ledger != expected_file_ledger:
-                raise RunValidationError("projected file ledger is not the deterministic migration projection")
-            try:
-                if old_revision_ledger.get("schema_version") == "2.0":
-                    from .speclib.plan_revision import build_event_entry
-                    typed = json.loads(canonical_json_bytes(old_revision_ledger).decode("utf-8"))
-                    trigger_event = next((item for item in typed["entries"] if item.get("event_type") == "trigger_evaluated"), None)
-                    if trigger_event is None:
-                        trigger = entry.get("trigger", {})
-                        trigger_code = trigger.get("code")
-                        if trigger_code not in {f"TR-{index}" for index in range(1, 9)}:
-                            trigger_code = "TR-4"
-                        trigger_payload = {
-                            "boundary_key": {"phase": "task_boundary", "revision_seq": old_pointer["revision_seq"], "tasks": []},
-                            "plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
-                            "hit_code": trigger_code,
-                            "route": entry["level"],
-                            "hit_signature": self._canonical_value_hash(trigger),
-                            "evidence_refs": list(trigger.get("evidence_refs", [])),
-                            "selected": True,
-                            "reason": "caller-supplied dormant activation contract",
-                        }
-                        typed["entries"].append(build_event_entry(typed, "trigger_evaluated", trigger_payload))
-                        trigger_event = typed["entries"][-1]
-                    activation_payload = {
-                        "revision_seq": new_pointer["revision_seq"],
-                        "from_version": old_pointer["version"], "to_version": new_pointer["version"],
-                        "from_plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
-                        "to_plan_ref": {"path": new_pointer["path"], "sha256": new_pointer["sha256"]},
-                        "level": entry["level"], "trigger_event_seq": trigger_event["event_seq"],
-                        "trigger_signature": self._canonical_value_hash(entry.get("trigger", {})),
-                        "patch_ops": list(entry.get("patch_ops", [])),
-                        "migration": {
-                            key: copy.deepcopy(report[key])
-                            for key in ("counts", "tasks", "files", "pending_groups", "re_adopt")
-                            if key in report
-                        },
-                        "preservation_rate": report["preservation_rate"],
-                        "rework_cost_estimate_usd": entry.get("cost_usd", 0.0),
-                        "gates": dict(entry["gates"]), "epoch_after": new_pointer["epoch"],
-                        "activated_at_commit": entry["activated_at_commit"], "binding_ref": None,
-                        "pending_materialization": True,
-                    }
-                    typed["entries"].append(build_event_entry(typed, "revision_activated", activation_payload))
-                    validate_revision_ledger(typed)
-                    new_revision_ledger = typed
-                else:
-                    entry.setdefault("revision_seq", new_pointer["revision_seq"])
-                    if entry.get("prev_entry_sha256") == "0" * 64 and old_revision_ledger["entries"]:
-                        entry["prev_entry_sha256"] = self._canonical_value_hash(old_revision_ledger["entries"][-1])
-                    if entry.get("from_plan_ref") != {"path": old_pointer["path"], "sha256": old_pointer["sha256"]} or entry.get("to_plan_ref") != {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}:
-                        raise RunValidationError("revision entry Plan refs do not bind the activation pointers")
-                    if activated_at_commit is not None and entry.get("activated_at_commit") != activated_at_commit:
-                        raise RunValidationError("revision entry activation commit does not match the supplied activation commit")
-                    expected_migration = {
-                        key: report[key]
-                        for key in ("counts", "tasks", "files", "pending_groups", "re_adopt")
-                        if key in report
-                    }
-                    if entry.get("migration") != expected_migration or entry.get("preservation_rate") != report["preservation_rate"]:
-                        raise RunValidationError("revision entry migration does not bind the complete migration report")
-                    new_revision_ledger = append_revision_entry(old_revision_ledger, entry)
-            except PlanRevisionError as exc:
-                raise RunValidationError(str(exc)) from exc
-            if old_revision_ledger.get("schema_version") == "1.0" and new_revision_ledger["entries"][-1].get("epoch_after") != new_pointer["epoch"]:
-                raise RunValidationError("revision entry epoch does not bind the new pointer")
-            wal = {
-                "schema_version": "1.0", "revision_seq": new_pointer["revision_seq"],
-                "old_pointer": old_pointer, "new_pointer": new_pointer,
-                "old_state": old_state, "new_state": state,
-                "old_file_ledger": old_file_ledger, "new_file_ledger": file_ledger,
-                "old_revision_ledger": old_revision_ledger, "new_revision_ledger": new_revision_ledger,
-                "candidate_plan": candidate,
-                "old_hashes": {
-                    "pointer": self._canonical_value_hash(old_pointer), "state": self._canonical_value_hash(old_state),
-                    "file_ledger": self._canonical_value_hash(old_file_ledger), "revision_ledger": self._canonical_value_hash(old_revision_ledger),
-                    "plan": self._canonical_value_hash(old_plan),
-                },
-                "new_hashes": {
-                    "pointer": self._canonical_value_hash(new_pointer), "state": self._canonical_value_hash(state),
-                    "file_ledger": self._canonical_value_hash(file_ledger), "revision_ledger": self._canonical_value_hash(new_revision_ledger),
-                    "plan": candidate_hash,
-                },
+        try:
+            validate_revision_ledger(new["revision_ledger"])
+        except PlanRevisionError as exc:
+            raise RunValidationError(f"activation WAL revision ledger is invalid: {exc}") from exc
+        activation = latest_activation(new["revision_ledger"])
+        expected_binding = binding["receipt_ref"] if binding is not None else None
+        if (
+            not isinstance(activation, Mapping)
+            or activation.get("revision_seq") != value["revision_seq"]
+            or activation.get("from_plan_ref") != {
+                "path": old["pointer"]["path"], "sha256": old["pointer"]["sha256"]
             }
-            wal_path = self._revision_wal_path(new_pointer["revision_seq"])
-            self.publish_immutable_json(wal_path, wal, schema_name="plan-activation.schema.json")
-            self._call_activation_hook(fault_hook, "wal_written")
-            self.publish_immutable_json(new_pointer["path"], candidate, schema_name="plan.schema.json")
-            self._call_activation_hook(fault_hook, "version_published")
-            self.replace_plan_state(state, event_type="revision_projected", event={"revision_seq": new_pointer["revision_seq"]})
-            self._call_activation_hook(fault_hook, "state_replaced")
-            self.replace_json("plan/file_ledger.json", file_ledger, schema_name="file-ledger.schema.json")
-            self._call_activation_hook(fault_hook, "file_ledger_replaced")
-            self.replace_json("plan/revision_ledger.json", new_revision_ledger, schema_name="revision-ledger.schema.json")
-            self._call_activation_hook(fault_hook, "revision_ledger_replaced")
-            active_ref = self.replace_json("plan/active_plan.json", new_pointer, schema_name="active-plan.schema.json")
-            self._call_activation_hook(fault_hook, "active_pointer_replaced")
-            self.replace_run(run_after)
-            self._call_activation_hook(fault_hook, "run_reference_updated")
-            return {"revision_seq": new_pointer["revision_seq"], "active_pointer": new_pointer, "active_plan_ref": active_ref.as_dict(), "wal_ref": {"path": wal_path, "sha256": self._json_artifact_hash(wal_path)}, "committed": True}
+            or activation.get("to_plan_ref") != value["candidate_plan_ref"]
+            or activation.get("from_version") != old["pointer"]["version"]
+            or activation.get("to_version") != new["pointer"]["version"]
+            or activation.get("epoch_after") != new["pointer"]["epoch"]
+            or activation.get("level") != value["level"]
+            or activation.get("trigger_event_seq") != value["selected_event_seq"]
+            or activation.get("binding_ref") != expected_binding
+            or activation.get("pending_materialization") != value["pending_materialization"]
+        ):
+            raise RunValidationError("activation WAL revision event binding is invalid")
+        if new["state"].get("plan_ref") != new["pointer"]:
+            raise RunValidationError("activation WAL State pointer binding is invalid")
+        expected_active_ref = {
+            "path": "plan/active_plan.json", "sha256": self._canonical_value_hash(new["pointer"]),
+        }
+        if new["run"].get("stages", {}).get("s4", {}).get("output_refs", {}).get("active_plan") != expected_active_ref:
+            raise RunValidationError("activation WAL Run active pointer reference is invalid")
+        for artifact_name in ("manifest", "contract_map"):
+            artifact = new[artifact_name]
+            if (
+                artifact.get("plan_version") != new["pointer"]["version"]
+                or artifact.get("plan_sha256") != new["pointer"]["sha256"]
+                or artifact.get("epoch") != new["pointer"]["epoch"]
+            ):
+                raise RunValidationError(f"activation WAL {artifact_name} Plan binding is invalid")
+        if binding is not None:
+            if binding["receipt"].get("plan_ref") != value["candidate_plan_ref"]:
+                raise RunValidationError("activation WAL F2 receipt Plan reference is invalid")
+            self.verify_ref(binding["receipt"]["epoch_receipt_ref"], schema_name="epoch-receipt.schema.json")
+
+    def _assert_activation_named_view(
+        self, value: Mapping[str, Any], new_names: set[str],
+    ) -> None:
+        paths = {
+            "pointer": "plan/active_plan.json", "state": "plan/plan_state.json",
+            "file_ledger": "plan/file_ledger.json", "revision_ledger": "plan/revision_ledger.json",
+            "run": "run.json", "manifest": "plan/artifact_manifest.json",
+            "contract_map": "plan/contract_map.json",
+        }
+        for name, relative in paths.items():
+            side = "new" if name in new_names else "old"
+            if self._read_json_artifact(relative) != value[side][name]:
+                raise ArtifactConflict(f"activation boundary drifted for {name}")
+
+    def _assert_activation_live_view(self, value: Mapping[str, Any]) -> None:
+        """Re-read the exact expected mutable view at an activation boundary."""
+
+        phase = str(value["phase"])
+        new_names: set[str] = set()
+        if phase in {"state_published", "file_ledger_published", "revision_ledger_published", "pointer_committed", "projections_published"}:
+            new_names.add("state")
+        if phase in {"file_ledger_published", "revision_ledger_published", "pointer_committed", "projections_published"}:
+            new_names.add("file_ledger")
+        if phase in {"revision_ledger_published", "pointer_committed", "projections_published"}:
+            new_names.add("revision_ledger")
+        if phase in {"pointer_committed", "projections_published"}:
+            new_names.add("pointer")
+        if phase == "projections_published":
+            new_names.update({"run", "manifest", "contract_map"})
+        self._assert_activation_named_view(value, new_names)
+
+    def _verify_activation_new_view(self, value: Mapping[str, Any]) -> None:
+        """Verify every committed activation byte before declaring reconciliation."""
+
+        comparable = dict(value)
+        comparable["phase"] = "projections_published"
+        self._assert_activation_live_view(comparable)
+        plan = self._read_json_artifact(value["candidate_plan_ref"]["path"], schema_name="plan.schema.json")
+        if plan != value["candidate_plan"]:
+            raise ArtifactConflict("committed successor Plan conflicts with activation WAL")
+        gates = self._read_json_artifact(
+            value["gates_ref"]["path"], schema_name="revision-gate-result.schema.json",
+        )
+        self.verify_ref(value["gates_ref"], schema_name="revision-gate-result.schema.json")
+        if (
+            gates.get("candidate_id") != value["candidate_id"]
+            or gates.get("selected_event_seq") != value["selected_event_seq"]
+            or gates.get("level") != value["level"]
+            or gates.get("disposition") != "activate"
+        ):
+            raise ArtifactConflict("activation gate evidence has the wrong candidate identity")
+        gate_statuses = {row["gate"]: row["status"] for row in gates["gates"]}
+        activation = next(
+            row["payload"] for row in reversed(value["new"]["revision_ledger"]["entries"])
+            if row.get("event_type") == "revision_activated"
+        )
+        if activation.get("gates") != gate_statuses:
+            raise ArtifactConflict("activation ledger gate payload conflicts with gate evidence")
+        if value["rehearsal_ref"] is not None:
+            rehearsal = self._read_json_artifact(
+                value["rehearsal_ref"]["path"], schema_name="revision-rehearsal.schema.json",
+            )
+            self.verify_ref(value["rehearsal_ref"], schema_name="revision-rehearsal.schema.json")
+            if (
+                rehearsal.get("candidate_id") != value["candidate_id"]
+                or rehearsal.get("level") != "F3"
+                or rehearsal.get("candidate_plan_ref", {}).get("sha256")
+                != value["candidate_plan_ref"]["sha256"]
+            ):
+                raise ArtifactConflict("activation rehearsal evidence has the wrong candidate identity")
+        binding = value["binding"]
+        if binding is not None:
+            for name, ref_name, schema in (
+                ("manifest", "manifest_ref", "artifact-manifest.schema.json"),
+                ("contract_map", "contract_map_ref", "contract-map.schema.json"),
+                ("receipt", "receipt_ref", "binding-receipt.schema.json"),
+            ):
+                self.verify_ref(binding[ref_name], schema_name=schema)
+                if self._read_json_artifact(binding[ref_name]["path"], schema_name=schema) != binding[name]:
+                    raise ArtifactConflict(f"committed F2 {name} conflicts with activation WAL")
+
+    def activate_revision_v2(
+        self,
+        wal: Mapping[str, Any],
+        *,
+        fault_hook: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Publish a fully projected M1-11 activation; the pointer is the commit point."""
+
+        if self._controller_lock_depth < 1:
+            raise ControllerLockError("v2 revision activation requires the controller lock")
+        value = json.loads(canonical_json_bytes(wal).decode("utf-8"))
+        errors = _schema_errors(value, "plan-activation.schema.json")
+        if errors:
+            raise RunValidationError("invalid activation WAL: " + "; ".join(item["message"] for item in errors))
+        event_seq = int(value["selected_event_seq"])
+        wal_path = f"plan/_s4r/candidate_{event_seq}/activation.json"
+        old, new = value["old"], value["new"]
+        names = {
+            "pointer": "plan/active_plan.json",
+            "state": "plan/plan_state.json",
+            "file_ledger": "plan/file_ledger.json",
+            "revision_ledger": "plan/revision_ledger.json",
+            "run": "run.json",
+            "manifest": "plan/artifact_manifest.json",
+            "contract_map": "plan/contract_map.json",
+        }
+        self._validate_activation_wal_bindings(value)
+        binding = value["binding"]
+        for name, relative in names.items():
+            current = self._read_json_artifact(relative)
+            if current != old[name]:
+                raise ArtifactConflict(f"activation boundary drifted for {name}")
+        self.verify_ref(value["gates_ref"], schema_name="revision-gate-result.schema.json")
+        if value["rehearsal_ref"] is not None:
+            self.verify_ref(value["rehearsal_ref"], schema_name="revision-rehearsal.schema.json")
+
+        def phase(boundary: str, phase_name: str, action: Callable[[], Any]) -> Any:
+            self._assert_activation_live_view(value)
+            self._call_revision_boundary(fault_hook, boundary, "before")
+            self._assert_activation_live_view(value)
+            result = action()
+            value["phase"] = phase_name
+            self.replace_json(wal_path, value, schema_name="plan-activation.schema.json")
+            self._call_revision_boundary(fault_hook, boundary, "after")
+            return result
+
+        self._call_revision_boundary(fault_hook, "wal", "before")
+        self._assert_activation_live_view(value)
+        if self._confined(wal_path).is_file():
+            existing_wal = self._read_json_artifact(wal_path, schema_name="plan-activation.schema.json")
+            comparable_existing = copy.deepcopy(existing_wal)
+            comparable_existing["phase"] = "prepared"
+            if comparable_existing != value:
+                raise ArtifactConflict("activation WAL conflicts with replay")
+            self.replace_json(wal_path, value, schema_name="plan-activation.schema.json")
+        else:
+            self.publish_immutable_json(wal_path, value, schema_name="plan-activation.schema.json")
+        self._call_revision_boundary(fault_hook, "wal", "after")
+        phase("successor_plan", "plan_published", lambda: self.publish_immutable_json(
+            value["candidate_plan_ref"]["path"], value["candidate_plan"], schema_name="plan.schema.json"
+        ))
+        if binding is not None:
+            def publish_binding() -> None:
+                self.publish_immutable_json(binding["manifest_ref"]["path"], binding["manifest"], schema_name="artifact-manifest.schema.json")
+                self._assert_activation_live_view(value)
+                self.publish_immutable_json(binding["contract_map_ref"]["path"], binding["contract_map"], schema_name="contract-map.schema.json")
+                self._assert_activation_live_view(value)
+                self.publish_immutable_json(binding["receipt_ref"]["path"], binding["receipt"], schema_name="binding-receipt.schema.json")
+                self._assert_activation_live_view(value)
+            phase("f2_binding", "binding_published", publish_binding)
+        phase("state", "state_published", lambda: self.replace_json("plan/plan_state.json", new["state"], schema_name="plan-state.schema.json"))
+        phase("file_ledger", "file_ledger_published", lambda: self.replace_json("plan/file_ledger.json", new["file_ledger"], schema_name="file-ledger.schema.json"))
+        phase("revision_ledger", "revision_ledger_published", lambda: self.replace_json("plan/revision_ledger.json", new["revision_ledger"], schema_name="revision-ledger.schema.json"))
+        active_ref = phase("active_pointer", "pointer_committed", lambda: self.replace_json("plan/active_plan.json", new["pointer"], schema_name="active-plan.schema.json"))
+
+        def projections() -> None:
+            self.replace_run(new["run"])
+            self._assert_activation_named_view(value, {"pointer", "state", "file_ledger", "revision_ledger", "run"})
+            self.replace_json("plan/artifact_manifest.json", new["manifest"], schema_name="artifact-manifest.schema.json")
+            self._assert_activation_named_view(value, {"pointer", "state", "file_ledger", "revision_ledger", "run", "manifest"})
+            self.replace_json("plan/contract_map.json", new["contract_map"], schema_name="contract-map.schema.json")
+            self._assert_activation_named_view(value, {"pointer", "state", "file_ledger", "revision_ledger", "run", "manifest", "contract_map"})
+        phase("run_and_current_copies", "projections_published", projections)
+        phase("wal_finalization", "reconciled", lambda: self._verify_activation_new_view(value))
+        return {
+            "revision_seq": value["revision_seq"], "active_pointer": new["pointer"],
+            "active_plan_ref": active_ref.as_dict(),
+            "wal_ref": {"path": wal_path, "sha256": self._json_artifact_hash(wal_path)}, "committed": True,
+        }
+
+    def _recover_revision_v2(self, wal_path: str) -> dict[str, Any]:
+        wal = self._read_json_artifact(wal_path, schema_name="plan-activation.schema.json")
+        try:
+            self._validate_activation_wal_bindings(wal)
+        except RunValidationError as exc:
+            raise ArtifactConflict(str(exc)) from exc
+        old, new = wal["old"], wal["new"]
+        names = {
+            "pointer": ("plan/active_plan.json", "active-plan.schema.json"),
+            "state": ("plan/plan_state.json", "plan-state.schema.json"),
+            "file_ledger": ("plan/file_ledger.json", "file-ledger.schema.json"),
+            "revision_ledger": ("plan/revision_ledger.json", "revision-ledger.schema.json"),
+            "run": ("run.json", "run.schema.json"),
+            "manifest": ("plan/artifact_manifest.json", "artifact-manifest.schema.json"),
+            "contract_map": ("plan/contract_map.json", "contract-map.schema.json"),
+        }
+        if wal["phase"] == "reconciled":
+            return {
+                "status": "already-reconciled", "revision_seq": wal["revision_seq"],
+            }
+        current_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
+        if current_pointer == old["pointer"]:
+            for name, (relative, schema) in names.items():
+                current = self._read_json_artifact(relative, schema_name=schema)
+                if current not in (old[name], new[name]):
+                    raise ArtifactConflict(f"pre-commit recovery found conflicting mutable artifact bytes for {name}")
+            for name, (relative, schema) in names.items():
+                if name == "pointer":
+                    continue
+                self.replace_json(relative, old[name], schema_name=schema)
+            candidate_path = self._confined(wal["candidate_plan_ref"]["path"])
+            isolation = self._confined(f"plan/_s4r/candidate_{wal['selected_event_seq']}/isolated")
+            isolation.mkdir(parents=True, exist_ok=True)
+            if candidate_path.is_file():
+                if sha256_bytes(candidate_path.read_bytes()) != wal["candidate_plan_ref"]["sha256"]:
+                    raise ArtifactConflict("unactivated successor Plan bytes conflict with WAL")
+                target = isolation / candidate_path.name
+                if target.exists() and target.read_bytes() != candidate_path.read_bytes():
+                    raise ArtifactConflict("isolated successor Plan conflicts with replay")
+                if not target.exists():
+                    os.replace(candidate_path, target)
+            if wal["binding"] is not None:
+                binding_dir = self._confined(wal["binding"]["receipt_ref"]["path"]).parent
+                if binding_dir.is_dir():
+                    for ref_name, schema in (("manifest_ref", "artifact-manifest.schema.json"), ("contract_map_ref", "contract-map.schema.json"), ("receipt_ref", "binding-receipt.schema.json")):
+                        self.verify_ref(wal["binding"][ref_name], schema_name=schema)
+                    target = isolation / "binding"
+                    if target.exists():
+                        raise ArtifactConflict("isolated F2 binding already conflicts with recovery")
+                    os.replace(binding_dir, target)
+            wal["phase"] = "reconciled"
+            self.replace_json(wal_path, wal, schema_name="plan-activation.schema.json")
+            return {"status": "precommit-restored", "revision_seq": wal["revision_seq"], "active_pointer": old["pointer"]}
+        if current_pointer == new["pointer"]:
+            plan = self._read_json_artifact(wal["candidate_plan_ref"]["path"], schema_name="plan.schema.json")
+            if plan != wal["candidate_plan"]:
+                raise ArtifactConflict("committed successor Plan conflicts with WAL")
+            for name in ("state", "file_ledger", "revision_ledger"):
+                relative, schema = names[name]
+                if self._read_json_artifact(relative, schema_name=schema) != new[name]:
+                    raise ArtifactConflict(f"committed activation {name} conflicts with WAL")
+            if wal["binding"] is not None:
+                for ref_name, schema in (("manifest_ref", "artifact-manifest.schema.json"), ("contract_map_ref", "contract-map.schema.json"), ("receipt_ref", "binding-receipt.schema.json")):
+                    self.verify_ref(wal["binding"][ref_name], schema_name=schema)
+            for name in ("run", "manifest", "contract_map"):
+                relative, schema = names[name]
+                current = self._read_json_artifact(relative, schema_name=schema)
+                if current not in (old[name], new[name]):
+                    raise ArtifactConflict(f"post-commit projection {name} conflicts with WAL")
+                if current != new[name]:
+                    self.replace_json(relative, new[name], schema_name=schema)
+            self._verify_activation_new_view(wal)
+            wal["phase"] = "reconciled"
+            self.replace_json(wal_path, wal, schema_name="plan-activation.schema.json")
+            return {"status": "postcommit-verified", "revision_seq": wal["revision_seq"], "active_pointer": new["pointer"]}
+        raise ArtifactConflict("active pointer is neither activation WAL value")
+
+    def reconcile_revision_activations(self) -> list[dict[str, Any]]:
+        """Reconcile the unique unfinished activation before other transactions."""
+
+        root = self._confined("plan/_s4r")
+        if not root.is_dir():
+            return []
+        unfinished: list[Path] = []
+        for path in sorted(root.glob("candidate_*/activation.json"), key=lambda item: item.as_posix().encode("utf-8")):
+            relative = path.relative_to(self.root).as_posix()
+            wal = self._read_json_artifact(relative, schema_name="plan-activation.schema.json")
+            try:
+                self._validate_activation_wal_bindings(wal)
+            except RunValidationError as exc:
+                raise ArtifactConflict(str(exc)) from exc
+            if wal["phase"] != "reconciled":
+                unfinished.append(path)
+        if len(unfinished) > 1:
+            raise ArtifactConflict("multiple unfinished revision activations exist")
+        if not unfinished:
+            return []
+        return [self._recover_revision_v2(unfinished[0].relative_to(self.root).as_posix())]
 
     def recover_revision(self, revision_seq: int | None = None) -> dict[str, Any]:
         """Reconcile one interrupted activation using its immutable WAL."""
 
-        from .speclib.plan_revision import PlanRevisionError, latest_activation, validate_plan_successor, validate_revision_ledger
-
         with self.controller_lock():
+            v2_paths = sorted(self._confined("plan/_s4r").glob("candidate_*/activation.json")) if self._confined("plan/_s4r").is_dir() else []
             if revision_seq is None:
-                candidates = sorted(self._confined("_s4r").glob("rev_*/activation.json")) if self._confined("_s4r").is_dir() else []
-                if len(candidates) != 1:
-                    raise RunValidationError("recovery requires exactly one identifiable activation WAL")
-                match = re.fullmatch(r"rev_(\d{3})", candidates[0].parent.name)
-                if match is None:
-                    raise RunValidationError("activation WAL directory is not a revision directory")
-                revision_seq = int(match.group(1))
-            wal_path = self._revision_wal_path(revision_seq)
-            wal = self._read_json_artifact(wal_path, schema_name="plan-activation.schema.json")
-            if wal["revision_seq"] != revision_seq:
-                raise RunValidationError("activation WAL revision sequence drift")
-            old_pointer, new_pointer = wal["old_pointer"], wal["new_pointer"]
-            old_state, new_state = wal["old_state"], wal["new_state"]
-            old_file, new_file = wal["old_file_ledger"], wal["new_file_ledger"]
-            old_revision, new_revision = wal["old_revision_ledger"], wal["new_revision_ledger"]
-            for label, value in (("old_pointer", old_pointer), ("new_pointer", new_pointer), ("old_state", old_state), ("new_state", new_state), ("old_file_ledger", old_file), ("new_file_ledger", new_file), ("old_revision_ledger", old_revision), ("new_revision_ledger", new_revision), ("candidate_plan", wal["candidate_plan"])):
-                if not isinstance(value, Mapping):
-                    raise RunValidationError(f"activation WAL {label} is not an object")
-            for side, values in (("old", {"pointer": old_pointer, "state": old_state, "file_ledger": old_file, "revision_ledger": old_revision}), ("new", {"pointer": new_pointer, "state": new_state, "file_ledger": new_file, "revision_ledger": new_revision})):
-                for name, value in values.items():
-                    if wal[f"{side}_hashes"][name] != self._canonical_value_hash(value):
-                        raise RunValidationError(f"activation WAL {side} {name} hash binding is invalid")
-            if wal["old_hashes"]["plan"] != self._canonical_value_hash(self._read_json_artifact(old_pointer["path"], schema_name="plan.schema.json")):
-                raise RunValidationError("activation WAL old Plan hash binding is invalid")
-            if wal["new_hashes"]["plan"] != self._canonical_value_hash(wal["candidate_plan"]):
-                raise RunValidationError("activation WAL candidate Plan hash binding is invalid")
-            try:
-                validate_revision_ledger(old_revision)
-                validate_revision_ledger(new_revision)
-                activation = latest_activation(new_revision)
-                level = activation.get("level") if isinstance(activation, Mapping) else new_revision["entries"][-1]["level"]
-                validate_plan_successor(old_pointer, new_pointer, level)
-            except (PlanRevisionError, IndexError, KeyError) as exc:
-                raise RunValidationError(str(exc)) from exc
-            current_pointer = self._read_json_artifact("plan/active_plan.json", schema_name="active-plan.schema.json")
-            current_revision = self._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
-            if current_pointer == old_pointer and current_revision == old_revision:
-                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
-                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
-                if current_state not in (old_state, new_state) or current_file not in (old_file, new_file):
-                    raise RunValidationError("pre-commit recovery found conflicting mutable artifact bytes")
-                if current_state != old_state:
-                    self.replace_plan_state(old_state, event_type="revision_rollback", event={"revision_seq": revision_seq})
-                if current_file != old_file:
-                    self.replace_json("plan/file_ledger.json", old_file, schema_name="file-ledger.schema.json")
-                candidate_path = f"_s4r/rev_{revision_seq:03d}/candidate_plan.json"
-                self.publish_immutable_json(candidate_path, wal["candidate_plan"], schema_name="plan.schema.json")
-                return {"status": "precommit-restored", "revision_seq": revision_seq, "active_pointer": old_pointer}
-            if current_pointer == old_pointer and current_revision == new_revision:
-                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
-                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
-                if current_state not in (old_state, new_state) or current_file not in (old_file, new_file):
-                    raise RunValidationError("ledger-new recovery found conflicting mutable artifact bytes")
-                self.publish_immutable_json(new_pointer["path"], wal["candidate_plan"], schema_name="plan.schema.json")
-                if current_state != new_state:
-                    self.replace_plan_state(new_state, event_type="revision_projected", event={"revision_seq": revision_seq})
-                if current_file != new_file:
-                    self.replace_json("plan/file_ledger.json", new_file, schema_name="file-ledger.schema.json")
-                self.replace_json("plan/active_plan.json", new_pointer, schema_name="active-plan.schema.json")
-                _run_before, run_after = self._run_with_active_pointer(new_pointer)
-                self.replace_run(run_after)
-                return {"status": "commit-completed", "revision_seq": revision_seq, "active_pointer": new_pointer}
-            if current_pointer == new_pointer:
-                if current_revision != new_revision:
-                    raise RunValidationError("active pointer advanced while revision ledger disagrees with WAL")
-                current_state = self._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
-                current_file = self._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
-                if current_state != new_state or current_file != new_file:
-                    raise RunValidationError("committed pointer has incomplete or conflicting new artifacts")
-                self._read_json_artifact(new_pointer["path"], schema_name="plan.schema.json")
-                _run_before, run_after = self._run_with_active_pointer(new_pointer)
-                if _run_before != run_after:
-                    self.replace_run(run_after)
-                return {"status": "postcommit-verified", "revision_seq": revision_seq, "active_pointer": new_pointer}
-            raise RunValidationError("active pointer and revision ledger do not match any WAL recovery branch")
-
-    # Descriptive aliases keep the public controller vocabulary explicit.
-    activate_plan_revision = activate_revision
-    recover_plan_revision = recover_revision
+                matches = [
+                    path for path in v2_paths
+                    if self._read_json_artifact(path.relative_to(self.root).as_posix(), schema_name="plan-activation.schema.json")["phase"] != "reconciled"
+                ]
+            else:
+                matches = [
+                    path for path in v2_paths
+                    if self._read_json_artifact(path.relative_to(self.root).as_posix(), schema_name="plan-activation.schema.json")["revision_seq"] == revision_seq
+                ]
+            if len(matches) != 1:
+                raise RunValidationError("recovery requires exactly one identifiable unfinished v2 activation WAL")
+            return self._recover_revision_v2(matches[0].relative_to(self.root).as_posix())
 
     def read_verified_bytes(self, relative_path: str, expected_sha256: str | None = None) -> bytes:
         """Read a confined immutable artifact and optionally verify its raw-byte hash."""
@@ -1762,13 +1832,18 @@ class RunStore:
         self.root.mkdir(parents=True, exist_ok=True)
         lock_path = self._confined(".controller.lock")
         handle = lock_path.open("a+")
+        acquired = False
         try:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise ControllerLockError(f"controller lock is already held for {self.run_id}") from exc
+            acquired = True
+            self._controller_lock_depth += 1
             yield
         finally:
+            if acquired:
+                self._controller_lock_depth -= 1
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             finally:

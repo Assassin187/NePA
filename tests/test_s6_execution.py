@@ -826,7 +826,7 @@ def _completed_e0_then_f2_store(tmp_path, *, migration_mode="revalidate", case_i
     from nepa.speclib.lint import canonical_json_bytes
     from nepa.speclib.materialization import derive_rendering_view
     from nepa.speclib.plan import blueprint_task_semantic_projection
-    from nepa.speclib.plan_revision import build_revision_entry, classify_migration, project_file_ledger, project_plan_state
+    from test_s5_multi_epoch import _activate_candidate
     from nepa.stages.s6_execution import S6ExecutionController
 
     store, config = _ready_store(tmp_path, case_id)
@@ -875,20 +875,7 @@ def _completed_e0_then_f2_store(tmp_path, *, migration_mode="revalidate", case_i
             blueprint_task_semantic_projection(candidate["tasks"]),
         )
         candidate["delivery_blueprint_sha256"] = hashlib.sha256(canonical_json_bytes(rebound_blueprint)).hexdigest()
-    old_state = store._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
-    old_ledger = store._read_json_artifact("plan/file_ledger.json", schema_name="file-ledger.schema.json")
-    pointer = {
-        "version": "1.0.1",
-        "path": "plan/versions/plan-1.0.1.json",
-        "sha256": hashlib.sha256(canonical_json_bytes(candidate)).hexdigest(),
-        "revision_seq": 1,
-        "epoch": "E0",
-    }
-    report = classify_migration(old_plan, candidate, old_state, old_ledger, lineage=lineage, from_version="1.0.0", to_version="1.0.1")
-    projected_state = project_plan_state(old_state, candidate, report, pointer, activation_event_seq=len(store._read_json_artifact("plan/revision_ledger.json")["entries"]) + 2, config_snapshot=store.load_run()["config_snapshot"])
-    projected_ledger = project_file_ledger(old_ledger, candidate, report, epoch="E0", new_paths={row["path"] for row in old_ledger["files"]})
-    entry = build_revision_entry(old_pointer, pointer, "F2", {"code": "synthetic", "evidence_refs": []}, [], report, gates={f"RG-{index}": "pass" for index in range(1, 6)}, activated_at_commit="0" * 40)
-    store.activate_revision(candidate, report, projected_state, projected_ledger, entry, old_pointer, new_pointer=pointer, lineage=lineage)
+    pointer, report = _activate_candidate(store, candidate, "F2", lineage=lineage)
     spec = store._read_json_artifact("spec/spec.json")
     target = store._read_json_artifact("inputs/target.json")
     constraints = compile_delivery_constraints(spec, target)
@@ -899,17 +886,6 @@ def _completed_e0_then_f2_store(tmp_path, *, migration_mode="revalidate", case_i
         blueprint_task_semantic_projection(candidate["tasks"]),
     )
     view = derive_rendering_view(candidate, spec, target, blueprint, constraints)
-    epoch = store._read_json_artifact("plan/epochs/E0/receipt.json", schema_name="epoch-receipt.schema.json")
-    binding_ref = store.publish_version_binding({
-        "plan_ref": {"path": pointer["path"], "sha256": pointer["sha256"]},
-        "blueprint": blueprint,
-        "rendering_view": view,
-        "epoch_receipt": epoch,
-        "constraints": constraints,
-    })
-    run = store.load_run()
-    run["stages"]["s5"]["output_refs"]["binding_receipt"] = binding_ref.as_dict()
-    store.replace_run(run)
     return store, config, candidate, pointer, report, blueprint, constraints
 
 

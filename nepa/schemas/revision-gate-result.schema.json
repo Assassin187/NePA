@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schemas/revision-gate-result.schema.json",
+  "title": "NePA ordered revision gate result",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "candidate_id", "selected_event_seq", "level", "candidate_ref", "source_plan_ref", "boundary_hashes", "gates", "first_failed_gate", "critic_response_ref", "critic_call_refs", "rehearsal_ref", "disposition"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "candidate_id": {"type": "string", "pattern": "^candidate-[1-9][0-9]*$"},
+    "selected_event_seq": {"type": "integer", "minimum": 1},
+    "level": {"enum": ["F2", "F3"]},
+    "candidate_ref": {"$ref": "#/$defs/ref"},
+    "source_plan_ref": {"$ref": "#/$defs/ref"},
+    "boundary_hashes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["active_pointer", "plan_state", "file_ledger", "revision_ledger", "workspace_commit", "workspace_tree", "blueprint", "contract_map"],
+      "properties": {
+        "active_pointer": {"$ref": "#/$defs/sha256"}, "plan_state": {"$ref": "#/$defs/sha256"},
+        "file_ledger": {"$ref": "#/$defs/sha256"}, "revision_ledger": {"$ref": "#/$defs/sha256"},
+        "workspace_commit": {"$ref": "#/$defs/commit"}, "workspace_tree": {"$ref": "#/$defs/commit"},
+        "blueprint": {"$ref": "#/$defs/sha256"}, "contract_map": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "gates": {
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "prefixItems": [
+        {"$ref": "#/$defs/rg1"}, {"$ref": "#/$defs/rg2"}, {"$ref": "#/$defs/rg3"},
+        {"$ref": "#/$defs/rg4"}, {"$ref": "#/$defs/rg5"}
+      ], "items": false
+    },
+    "first_failed_gate": {"type": ["string", "null"], "enum": [null, "RG-1", "RG-2", "RG-3", "RG-4", "RG-5"]},
+    "critic_response_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "critic_call_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "rehearsal_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "disposition": {"enum": ["evaluating", "rejected", "activate"]}
+  },
+  "oneOf": [
+    {"properties": {"level": {"const": "F2"}, "first_failed_gate": {"type": "null"}, "disposition": {"const": "activate"}, "rehearsal_ref": {"type": "null"}, "gates": {"$ref": "#/$defs/f2Pass"}}},
+    {"properties": {"level": {"const": "F3"}, "first_failed_gate": {"type": "null"}, "disposition": {"const": "activate"}, "rehearsal_ref": {"$ref": "#/$defs/ref"}, "gates": {"$ref": "#/$defs/allPass"}}},
+    {"$ref": "#/$defs/fail1"}, {"$ref": "#/$defs/fail2"}, {"$ref": "#/$defs/fail3"},
+    {"$ref": "#/$defs/fail4"}, {"$ref": "#/$defs/fail5"},
+    {"$ref": "#/$defs/evaluating1"}, {"$ref": "#/$defs/evaluating2"},
+    {"$ref": "#/$defs/evaluating3"}, {"$ref": "#/$defs/evaluating4"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "row": {"type": "object", "additionalProperties": false, "required": ["gate", "status", "reason", "evidence_refs"], "properties": {"gate": {"type": "string"}, "status": {"enum": ["pass", "fail", "not_applicable", "not_evaluated"]}, "reason": {"type": ["string", "null"]}, "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}}},
+    "rg1": {"allOf": [{"$ref": "#/$defs/row"}, {"properties": {"gate": {"const": "RG-1"}}}]},
+    "rg2": {"allOf": [{"$ref": "#/$defs/row"}, {"properties": {"gate": {"const": "RG-2"}}}]},
+    "rg3": {"allOf": [{"$ref": "#/$defs/row"}, {"properties": {"gate": {"const": "RG-3"}}}]},
+    "rg4": {"allOf": [{"$ref": "#/$defs/row"}, {"properties": {"gate": {"const": "RG-4"}}}]},
+    "rg5": {"allOf": [{"$ref": "#/$defs/row"}, {"properties": {"gate": {"const": "RG-5"}}}]},
+    "allPass": {"properties": {"0": {}}, "contains": {"properties": {"status": {"const": "pass"}}}, "minContains": 5, "maxContains": 5},
+    "f2Pass": {"allOf": [{"contains": {"properties": {"status": {"const": "pass"}}}, "minContains": 4, "maxContains": 4}, {"prefixItems": [{}, {}, {}, {}, {"properties": {"status": {"const": "not_applicable"}}}]}]},
+    "fail1": {"properties": {"first_failed_gate": {"const": "RG-1"}, "disposition": {"const": "rejected"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "fail"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "fail2": {"properties": {"first_failed_gate": {"const": "RG-2"}, "disposition": {"const": "rejected"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "fail"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "fail3": {"properties": {"first_failed_gate": {"const": "RG-3"}, "disposition": {"const": "rejected"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "fail"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "fail4": {"properties": {"first_failed_gate": {"const": "RG-4"}, "disposition": {"const": "rejected"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "fail"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "fail5": {"properties": {"level": {"const": "F3"}, "first_failed_gate": {"const": "RG-5"}, "disposition": {"const": "rejected"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "fail"}}}]}}},
+    "evaluating1": {"properties": {"first_failed_gate": {"type": "null"}, "disposition": {"const": "evaluating"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "evaluating2": {"properties": {"first_failed_gate": {"type": "null"}, "disposition": {"const": "evaluating"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "evaluating3": {"properties": {"first_failed_gate": {"type": "null"}, "disposition": {"const": "evaluating"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "not_evaluated"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}},
+    "evaluating4": {"properties": {"first_failed_gate": {"type": "null"}, "disposition": {"const": "evaluating"}, "gates": {"prefixItems": [{"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "not_evaluated"}}}]}}}
+  }
+}

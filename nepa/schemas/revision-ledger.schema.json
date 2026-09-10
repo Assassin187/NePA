@@ -61,8 +61,8 @@
       "properties": {
         "candidate_id": {"type": "string", "minLength": 1},
         "trigger_event_seq": {"type": "integer", "minimum": 1},
-        "level": {"enum": ["F1", "F2", "F3"]},
-        "failed_gate": {"type": "string", "minLength": 1},
+        "level": {"enum": ["F2", "F3"]},
+        "failed_gate": {"enum": ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"]},
         "reason": {"type": "string", "minLength": 1},
         "evidence_refs": {"$ref": "#/$defs/refs"}
       }
@@ -124,10 +124,14 @@
         "level": {"enum": ["F2", "F3"]}, "trigger_event_seq": {"type": "integer", "minimum": 1}, "trigger_signature": {"$ref": "#/$defs/sha256"},
         "patch_ops": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "migration": {"$ref": "#/$defs/migration"},
         "preservation_rate": {"type": "number", "minimum": 0, "maximum": 1}, "rework_cost_estimate_usd": {"type": "number", "minimum": 0},
-        "gates": {"type": "object", "additionalProperties": false, "required": ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"], "properties": {"RG-1": {"enum": ["pass", "fail"]}, "RG-2": {"enum": ["pass", "fail"]}, "RG-3": {"enum": ["pass", "fail"]}, "RG-4": {"enum": ["pass", "fail"]}, "RG-5": {"enum": ["pass", "fail"]}}},
+        "gates": {"type": "object", "additionalProperties": false, "required": ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"], "properties": {"RG-1": {"const": "pass"}, "RG-2": {"const": "pass"}, "RG-3": {"const": "pass"}, "RG-4": {"const": "pass"}, "RG-5": {"enum": ["pass", "not_applicable"]}}},
         "epoch_after": {"type": "string", "pattern": "^E[0-9]+$"}, "activated_at_commit": {"$ref": "#/$defs/commit"},
-        "binding_ref": {"type": ["object", "null"]}, "pending_materialization": {"type": "boolean"}
-      }
+        "binding_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "pending_materialization": {"type": "boolean"}
+      },
+      "allOf": [
+        {"if": {"properties": {"level": {"const": "F2"}}, "required": ["level"]}, "then": {"properties": {"binding_ref": {"$ref": "#/$defs/ref"}, "pending_materialization": {"const": false}, "gates": {"properties": {"RG-5": {"const": "not_applicable"}}}}}},
+        {"if": {"properties": {"level": {"const": "F3"}}, "required": ["level"]}, "then": {"properties": {"binding_ref": {"type": "null"}, "pending_materialization": {"const": true}, "gates": {"properties": {"RG-5": {"const": "pass"}}}}}}
+      ]
     },
     "epoch": {
       "type": "object", "additionalProperties": false,

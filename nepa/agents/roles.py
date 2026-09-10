@@ -22,7 +22,7 @@ ROLE_REGISTRY: dict[str, RoleDefinition] = {
     ),
     "plan_critic": RoleDefinition(
         role="plan_critic",
-        stages=("S4",),
+        stages=("S4", "S6"),
         template_path="plan_critic.md",
         required_inputs=("candidate_plan_graph", "coverage_matrix", "lint_report"),
     ),

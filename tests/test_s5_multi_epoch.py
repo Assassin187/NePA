@@ -20,8 +20,14 @@ from nepa.speclib.materialization import (
     render_e0_files,
 )
 from nepa.speclib.plan import blueprint_task_semantic_projection, derive_task_metadata
-from nepa.speclib.plan_revision import build_revision_entry, classify_migration, project_plan_state
+from nepa.speclib.plan_revision import (
+    build_event_entry,
+    classify_migration,
+    project_file_ledger as project_revision_file_ledger,
+    project_plan_state,
+)
 from nepa.speclib.plan_state import initialize_plan_state
+from nepa.speclib.revision_mechanism import build_gate_result, prepare_activation_wal
 
 pytestmark = pytest.mark.s5_epoch
 
@@ -198,7 +204,9 @@ def _accepted_e0_store(tmp_path, case_id=None):
     return store, completion, s5
 
 
-def _activate_candidate(store, candidate, level, *, migration_extensions=None):
+def _activate_candidate(
+    store, candidate, level, *, migration_extensions=None, lineage=None, fault_hook=None,
+):
     old_pointer = store._read_json_artifact("plan/active_plan.json")
     old_plan = store._read_json_artifact(old_pointer["path"])
     old_state = store._read_json_artifact("plan/plan_state.json")
@@ -209,14 +217,134 @@ def _activate_candidate(store, candidate, level, *, migration_extensions=None):
     version = f"1.{major}.{patch}"
     epoch = f"E{int(old_pointer['epoch'][1:]) + (1 if level == 'F3' else 0)}"
     new_pointer = {"version": version, "path": f"plan/versions/plan-{version}.json", "sha256": _hash(canonical_json_bytes(candidate)), "revision_seq": old_pointer["revision_seq"] + 1, "epoch": epoch}
-    report = classify_migration(old_plan, candidate, old_state, old_ledger, from_version=old_version, to_version=version)
+    report = classify_migration(
+        old_plan, candidate, old_state, old_ledger, lineage=lineage,
+        from_version=old_version, to_version=version,
+    )
     report.update(copy.deepcopy(migration_extensions or {}))
     revision_ledger = store._read_json_artifact("plan/revision_ledger.json")
-    trigger_exists = any(entry.get("event_type") == "trigger_evaluated" for entry in revision_ledger["entries"])
-    activation_event_seq = len(revision_ledger["entries"]) + (1 if trigger_exists else 2)
-    new_state = project_plan_state(old_state, candidate, report, new_pointer, activation_event_seq=activation_event_seq)
-    entry = build_revision_entry(old_pointer, new_pointer, level, {"code": "synthetic", "evidence_refs": []}, [], report, gates={f"RG-{index}": "pass" for index in range(1, 6)}, activated_at_commit="0" * 40)
-    store.activate_revision(candidate, report, new_state, old_ledger, entry, old_pointer, new_pointer=new_pointer)
+    trigger_seq = len(revision_ledger["entries"]) + 1
+    signature = f"{trigger_seq:064x}"
+    trigger = {
+        "boundary_key": {"phase": "task_boundary", "revision_seq": old_pointer["revision_seq"], "tasks": []},
+        "plan_ref": {"path": old_pointer["path"], "sha256": old_pointer["sha256"]},
+        "hit_code": "TR-7", "route": level, "hit_signature": signature,
+        "evidence_refs": [], "selected": True, "reason": "v2 predecessor fixture",
+    }
+    revision_ledger["entries"].append(build_event_entry(revision_ledger, "trigger_evaluated", trigger))
+    store.replace_json("plan/revision_ledger.json", revision_ledger, schema_name="revision-ledger.schema.json")
+    activation_event_seq = len(revision_ledger["entries"]) + 1
+    new_state = project_plan_state(
+        old_state, candidate, report, new_pointer, activation_event_seq=activation_event_seq,
+        config_snapshot=store.load_run()["config_snapshot"],
+    )
+    spec = store._read_json_artifact("spec/spec.json")
+    target = store._read_json_artifact("inputs/target.json")
+    constraints = compile_delivery_constraints(spec, target)
+    blueprint = compile_delivery_blueprint(
+        constraints, candidate["architecture"], candidate["work_packages"],
+        blueprint_task_semantic_projection(candidate["tasks"]),
+    )
+    view = derive_rendering_view(candidate, spec, target, blueprint, constraints)
+    new_ledger = project_revision_file_ledger(
+        old_ledger, candidate, report, epoch=epoch,
+        new_paths={row["path"] for row in view["concrete_rules"]},
+    )
+    old_run, new_run = store._run_with_active_pointer(new_pointer)
+    old_manifest = store._read_json_artifact("plan/artifact_manifest.json")
+    old_map = store._read_json_artifact("plan/contract_map.json")
+    plan_ref = {"path": new_pointer["path"], "sha256": new_pointer["sha256"]}
+    binding = None
+    rehearsal_ref = None
+    if level == "F2":
+        receipt = store._read_json_artifact(f"plan/epochs/{epoch}/receipt.json")
+        workspace = store._confined("workspace")
+        file_hashes = {
+            item.relative_to(workspace).as_posix(): _hash(item.read_bytes())
+            for item in workspace.rglob("*") if item.is_file() and ".git" not in item.parts
+        }
+        projected = project_version_binding(
+            plan_ref, blueprint, view, receipt,
+            {"file_hashes": file_hashes, "ignored_paths": sorted(path for path in file_hashes if path.startswith("_orphan/")), "constraints": constraints},
+            existing_manifest=old_manifest, existing_contract_map=old_map,
+        )
+        manifest, contract_map = projected["manifest"], projected["contract_map"]
+        base = f"plan/bindings/{version}"
+        manifest_ref = {"path": f"{base}/artifact_manifest.json", "sha256": _hash(canonical_json_bytes(manifest))}
+        map_ref = {"path": f"{base}/contract_map.json", "sha256": _hash(canonical_json_bytes(contract_map))}
+        binding_receipt = projected["binding_receipt"]
+        binding_receipt.update({"manifest_ref": manifest_ref, "contract_map_ref": map_ref})
+        receipt_ref = {"path": f"{base}/receipt.json", "sha256": _hash(canonical_json_bytes(binding_receipt))}
+        binding = {
+            "manifest": manifest, "contract_map": contract_map, "receipt": binding_receipt,
+            "manifest_ref": manifest_ref, "contract_map_ref": map_ref, "receipt_ref": receipt_ref,
+        }
+        new_run["stages"]["s5"]["output_refs"]["binding_receipt"] = receipt_ref
+        binding_ref = receipt_ref
+    else:
+        rendered = render_e0_files(view, spec, target, blueprint, constraints)
+        rendered_view = {**view, "rendered_files": rendered}
+        manifest = build_artifact_manifest(plan_ref, blueprint, rendered_view, epoch)
+        contract_map = build_contract_map(plan_ref, blueprint, rendered_view, epoch)
+        binding_ref = None
+        rehearsal = {
+            "schema_version": "1.0", "candidate_id": f"candidate-{trigger_seq}", "level": "F3",
+            "baseline_commit": "2" * 40, "baseline_tree": "3" * 40,
+            "candidate_plan_ref": plan_ref,
+            "blueprint_ref": {"path": "plan/_s4/delivery_blueprint.json", "sha256": _hash(canonical_json_bytes(blueprint))},
+            "migration_ref": {"path": f"plan/_s4r/candidate_{trigger_seq}/migration.json", "sha256": "6" * 64},
+            "runs": [{"tree": "7" * 40, "result_sha256": "8" * 64, "build_result_refs": [], "smoke_result_refs": []}] * 2,
+            "file_differences": [], "group_attribution": [], "verdict": "ready",
+        }
+        rehearsal_ref = store.publish_immutable_json(
+            f"plan/_s4r/candidate_{trigger_seq}/rehearsal.json", rehearsal,
+            schema_name="revision-rehearsal.schema.json",
+        ).as_dict()
+    candidate_record = {
+        "candidate_id": f"candidate-{trigger_seq}", "selected_event_seq": trigger_seq,
+        "level": level, "source": {"plan_ref": trigger["plan_ref"]},
+        "selected_trigger": {"code": "TR-7", "signature": signature},
+    }
+    boundary = {
+        "active_pointer": store._json_artifact_hash("plan/active_plan.json"),
+        "plan_state": store._json_artifact_hash("plan/plan_state.json"),
+        "file_ledger": store._json_artifact_hash("plan/file_ledger.json"),
+        "revision_ledger": store._json_artifact_hash("plan/revision_ledger.json"),
+        "workspace_commit": "2" * 40, "workspace_tree": "3" * 40,
+        "blueprint": _hash(canonical_json_bytes(blueprint)),
+        "contract_map": store._json_artifact_hash("plan/contract_map.json"),
+    }
+    candidate_ref = {"path": f"plan/_s4r/candidate_{trigger_seq}/candidate.json", "sha256": "5" * 64}
+    statuses = {f"RG-{index}": "pass" for index in range(1, 6)}
+    if level == "F2":
+        statuses["RG-5"] = "not_applicable"
+    gates = build_gate_result(
+        candidate=candidate_record, candidate_ref=candidate_ref, boundary_hashes=boundary,
+        statuses=statuses, rehearsal_ref=rehearsal_ref,
+    )
+    gates_ref = store.publish_immutable_json(
+        f"plan/_s4r/candidate_{trigger_seq}/gates.json", gates,
+        schema_name="revision-gate-result.schema.json",
+    ).as_dict()
+    payload = {
+        "revision_seq": new_pointer["revision_seq"], "from_version": old_version, "to_version": version,
+        "from_plan_ref": trigger["plan_ref"], "to_plan_ref": plan_ref, "level": level,
+        "trigger_event_seq": trigger_seq, "trigger_signature": signature, "patch_ops": [],
+        "migration": {key: copy.deepcopy(report[key]) for key in ("counts", "tasks", "files", "pending_groups", "re_adopt") if key in report},
+        "preservation_rate": report["preservation_rate"], "rework_cost_estimate_usd": 0,
+        "gates": statuses, "epoch_after": epoch, "activated_at_commit": "9" * 40,
+        "binding_ref": binding_ref, "pending_materialization": level == "F3",
+    }
+    activated_ledger = copy.deepcopy(revision_ledger)
+    activated_ledger["entries"].append(build_event_entry(activated_ledger, "revision_activated", payload))
+    wal = prepare_activation_wal(
+        candidate=candidate_record, candidate_plan=candidate, candidate_plan_ref=plan_ref,
+        old={"pointer": old_pointer, "state": old_state, "file_ledger": old_ledger, "revision_ledger": revision_ledger, "run": old_run, "manifest": old_manifest, "contract_map": old_map},
+        new={"pointer": new_pointer, "state": new_state, "file_ledger": new_ledger, "revision_ledger": activated_ledger, "run": new_run, "manifest": manifest, "contract_map": contract_map},
+        gates_ref=gates_ref, binding=binding, rehearsal_ref=rehearsal_ref,
+    )
+    with store.controller_lock():
+        store.activate_revision_v2(wal, fault_hook=fault_hook)
     return new_pointer, report
 
 
@@ -231,7 +359,43 @@ def _accept_e0_and_activate(tmp_path, level, case_id=None):
     return store, completion, new_plan, new_pointer, s5
 
 
-def _structural_e1_store(tmp_path, *, pending_group=False, case_id=None):
+@pytest.mark.revision_mechanism
+def test_consecutive_f2_activations_ignore_reconciled_history(tmp_path):
+    store, _completion, _controller = _accepted_e0_store(tmp_path)
+    pointer = store._read_json_artifact("plan/active_plan.json")
+    plan = store._read_json_artifact(pointer["path"])
+    store.replace_json(
+        "plan/plan_state.json", initialize_plan_state(plan, plan_ref=pointer),
+        schema_name="plan-state.schema.json",
+    )
+
+    first, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
+    second, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
+
+    assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.0.1", 1, "E0")
+    assert (second["version"], second["revision_seq"], second["epoch"]) == ("1.0.2", 2, "E0")
+    assert store.reconcile_revision_activations() == []
+
+
+@pytest.mark.revision_mechanism
+def test_f2_then_f3_activation_keeps_version_revision_and_epoch_monotonic(tmp_path):
+    store, _completion, _controller = _accepted_e0_store(tmp_path)
+    pointer = store._read_json_artifact("plan/active_plan.json")
+    plan = store._read_json_artifact(pointer["path"])
+    store.replace_json(
+        "plan/plan_state.json", initialize_plan_state(plan, plan_ref=pointer),
+        schema_name="plan-state.schema.json",
+    )
+
+    first, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
+    second, _ = _activate_candidate(store, copy.deepcopy(plan), "F3")
+
+    assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.0.1", 1, "E0")
+    assert (second["version"], second["revision_seq"], second["epoch"]) == ("1.1.0", 2, "E1")
+    assert store.reconcile_revision_activations() == []
+
+
+def _structural_e1_store(tmp_path, *, pending_group=False, case_id=None, change_frozen=True):
     store, completion, _controller = _accepted_e0_store(tmp_path, case_id)
     pointer = store._read_json_artifact("plan/active_plan.json")
     plan = store._read_json_artifact(pointer["path"])
@@ -254,7 +418,7 @@ def _structural_e1_store(tmp_path, *, pending_group=False, case_id=None):
     target = store._read_json_artifact("inputs/target.json")
     constraints = compile_delivery_constraints(spec, target)
     new_path = "src/codec/codec_v2.c"
-    candidate, blueprint = _changed_owned_path_plan(plan, constraints, old_path, new_path, change_frozen=True)
+    candidate, blueprint = _changed_owned_path_plan(plan, constraints, old_path, new_path, change_frozen=change_frozen)
     extensions = {}
     if pending_group:
         changed_owner = next(task for task in candidate["tasks"] if new_path in task["deliverable_files"])
@@ -283,6 +447,48 @@ def test_structural_e1_activation_retires_realized_content_and_changes_declared_
     assert retired["state"] == "quarantined"
     assert next(row for row in ledger["files"] if row["path"] == new_path)["state"] == "slot_only"
     assert store._read_json_artifact("plan/epochs/E1/receipt.json")["materialization_status"] == "ready"
+
+
+@pytest.mark.revision_mechanism
+def test_f3_materialization_then_f2_ignores_historical_activation_wal(tmp_path):
+    from test_s5_materialization import FakeExecutor
+    from nepa.stages.s5_materialization import S5MaterializationController
+
+    store, candidate, _blueprint, first, _report, *_paths = _structural_e1_store(tmp_path)
+    controller = S5MaterializationController(FakeExecutor())
+    result = controller.run(StageContext(store, "s5", store.load_run(), None))
+    _finish_s5(store, controller, result, started="2026-01-01T00:00:04Z", ended="2026-01-01T00:00:05Z")
+
+    second, _ = _activate_candidate(store, copy.deepcopy(candidate), "F2")
+
+    assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.1.0", 1, "E1")
+    assert (second["version"], second["revision_seq"], second["epoch"]) == ("1.1.1", 2, "E1")
+    assert store.reconcile_revision_activations() == []
+
+
+@pytest.mark.revision_mechanism
+def test_structural_e1_rehearsal_is_repeatable_and_leaves_live_workspace_unchanged(tmp_path):
+    from test_s5_materialization import FakeExecutor
+    from nepa.stages.s5_materialization import S5MaterializationController
+
+    store, *_rest = _structural_e1_store(tmp_path, change_frozen=False)
+    controller = S5MaterializationController(FakeExecutor())
+    context = controller._admit_epoch(store, "E1")
+    context = copy.deepcopy(context)
+    for row in context["file_ledger"]["files"]:
+        if row.get("class") == "s5_frozen" and row.get("state") == "realized":
+            path = row["path"]
+            row.clear()
+            row.update({"path": path, "class": "s5_frozen", "state": "slot_only"})
+    workspace = store._confined("workspace")
+    head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    status = subprocess.run(["git", "-C", str(workspace), "status", "--porcelain"], capture_output=True, text=True, check=True).stdout
+    first = controller.rehearse_epoch(context, workspace)
+    second = controller.rehearse_epoch(context, workspace)
+    assert first["tree"] == second["tree"]
+    assert first["result_sha256"] == second["result_sha256"]
+    assert subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip() == head
+    assert subprocess.run(["git", "-C", str(workspace), "status", "--porcelain"], capture_output=True, text=True, check=True).stdout == status
 
 
 class _CompilerFailureExecutor:

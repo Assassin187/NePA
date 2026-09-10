@@ -1,5 +1,9 @@
 import copy
 import hashlib
+import json
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -13,13 +17,18 @@ from nepa.speclib.revision_mechanism import (
     _validate_obligation_preservation,
     append_trigger_batch,
     apply_revision_patch,
+    build_gate_result,
+    build_revision_rehearsal,
     complete_revision_candidate,
+    estimate_revision_rework,
     evaluate_revision_triggers,
+    prepare_activation_wal,
+    project_plan_critic_delta,
     project_revision_boundary,
     validate_revision_candidate,
 )
 from nepa.speclib.plan_state import initialize_plan_state
-from nepa.speclib.plan_revision import build_event_entry
+from nepa.speclib.plan_revision import PlanRevisionError, append_candidate_rejected, build_event_entry
 from nepa.run_store import ArtifactConflict, RunStore
 from test_plan_lint import _linked
 
@@ -27,8 +36,50 @@ from test_plan_lint import _linked
 pytestmark = pytest.mark.revision_mechanism
 
 
+def test_revision_mechanism_fixture_generator_is_byte_stable_and_source_bound(tmp_path):
+    output = tmp_path / "generated"
+    subprocess.run(
+        ["uv", "run", "python", "tests/tools/generate_revision_mechanism_fixtures.py", "--output", str(output)],
+        cwd=Path(__file__).parents[1], check=True,
+    )
+    for case_id in ("mqtt", "non_mqtt"):
+        generated = output / case_id / "revision-mechanism-fixtures.json"
+        committed = Path(__file__).parent / "fixtures" / "revision" / case_id / "revision-mechanism-fixtures.json"
+        assert generated.read_bytes() == committed.read_bytes()
+        value = json.loads(committed.read_text(encoding="utf-8"))
+        source = Path(__file__).parents[1] / value["source_plan"]["path"]
+        assert hashlib.sha256(source.read_bytes()).hexdigest() == value["source_plan"]["sha256"]
+        assert {row["level"] for row in value["activation_cases"]} == {"F2", "F3"}
+
+
 def _enable_revision(store):
     config = load_config(overrides={"run": {"until": "s6"}, "revision": {"theta2": 0.5, "theta6": 0.5}})
+    run = store.load_run()
+    run["config_snapshot"] = config.snapshot
+    run["config_snapshot_sha256"] = config.snapshot_sha256
+    run["stages"]["s4"]["output_refs"]["config_snapshot_sha256"] = config.snapshot_sha256
+    store.replace_run(run)
+    return config
+
+
+def _enable_revision_activation(
+    store, *, f2_limit=0, f3_limit=1, build_usd=0, max_cost_usd=None,
+):
+    budgets = {"revision_f2_limit": f2_limit, "revision_f3_limit": f3_limit}
+    if max_cost_usd is not None:
+        budgets["max_cost_usd"] = max_cost_usd
+    config = load_config(overrides={
+        "run": {"until": "s6"},
+        "budgets": budgets,
+        "revision": {
+            "theta2": 0.5, "theta6": 0.5, "rho_min_f2": 0, "rho_min_f3": 0,
+            "cost_rates": {"build_usd": build_usd},
+        },
+        "pricing": {"models": {
+            "deepseek/deepseek-v4-flash": {"input_usd_per_million_tokens": 0, "output_usd_per_million_tokens": 0},
+            "anthropic/claude-opus-5": {"input_usd_per_million_tokens": 0, "output_usd_per_million_tokens": 0},
+        }},
+    })
     run = store.load_run()
     run["config_snapshot"] = config.snapshot
     run["config_snapshot_sha256"] = config.snapshot_sha256
@@ -169,6 +220,152 @@ def test_revision_config_is_explicit_closed_and_absent_by_default():
         load_config(overrides={"revision": {"theta2": 0.3}})
     with pytest.raises(ConfigError, match="greater than 0"):
         load_config(overrides={"revision": {"theta2": 0, "theta6": 0.25}})
+
+
+def test_gate_state_machine_and_f2_activation_wal_are_closed():
+    from nepa.schemas import load_example
+
+    candidate = load_example("revision-candidate.example.json")
+    candidate.update({"candidate_id": "candidate-1", "selected_event_seq": 1, "level": "F2"})
+    hashes = {
+        "active_pointer": "1" * 64, "plan_state": "2" * 64, "file_ledger": "3" * 64,
+        "revision_ledger": "4" * 64, "workspace_commit": "5" * 40, "workspace_tree": "6" * 40,
+        "blueprint": "7" * 64, "contract_map": "8" * 64,
+    }
+    gates = build_gate_result(
+        candidate=candidate, candidate_ref=_ref("plan/_s4r/candidate_1/candidate.json", "9"),
+        boundary_hashes=hashes,
+        statuses={"RG-1": "pass", "RG-2": "pass", "RG-3": "pass", "RG-4": "pass", "RG-5": "not_applicable"},
+    )
+    assert gates["disposition"] == "activate"
+    with pytest.raises(RevisionMechanismError, match="after the first failure"):
+        build_gate_result(
+            candidate=candidate, candidate_ref=_ref("candidate.json", "9"), boundary_hashes=hashes,
+            statuses={"RG-1": "fail", "RG-2": "pass"},
+        )
+
+    plan = {"candidate": True}
+    digest = hashlib.sha256(canonical_json_bytes(plan)).hexdigest()
+    old_pointer = {"version": "1.0.0", "path": "plan/versions/plan-1.0.0.json", "sha256": "a" * 64, "revision_seq": 0, "epoch": "E0"}
+    new_pointer = {"version": "1.0.1", "path": "plan/versions/plan-1.0.1.json", "sha256": digest, "revision_seq": 1, "epoch": "E0"}
+    old = {name: {} for name in ("state", "file_ledger", "revision_ledger", "run", "manifest", "contract_map")}; old["pointer"] = old_pointer
+    new = copy.deepcopy(old); new["pointer"] = new_pointer
+    binding = {
+        "manifest": {}, "contract_map": {}, "receipt": {},
+        "manifest_ref": _ref("plan/bindings/1.0.1/artifact_manifest.json", "b"),
+        "contract_map_ref": _ref("plan/bindings/1.0.1/contract_map.json", "c"),
+        "receipt_ref": _ref("plan/bindings/1.0.1/receipt.json", "d"),
+    }
+    with pytest.raises(RevisionMechanismError, match="manifest reference is invalid"):
+        prepare_activation_wal(
+            candidate=candidate, candidate_plan=plan,
+            candidate_plan_ref={"path": new_pointer["path"], "sha256": digest}, old=old, new=new,
+            gates_ref=_ref("plan/_s4r/candidate_1/gates.json", "e"), binding=binding, rehearsal_ref=None,
+        )
+
+
+@pytest.mark.revision_mechanism
+@pytest.mark.parametrize("failed_gate", ["RG-1", "RG-2", "RG-3", "RG-4", "RG-5"])
+def test_gate_matrix_stops_after_each_isolated_first_failure(failed_gate):
+    from nepa.schemas import load_example
+
+    candidate = load_example("revision-candidate.example.json")
+    candidate.update({"candidate_id": "candidate-1", "selected_event_seq": 1, "level": "F3"})
+    hashes = {
+        "active_pointer": "1" * 64, "plan_state": "2" * 64, "file_ledger": "3" * 64,
+        "revision_ledger": "4" * 64, "workspace_commit": "5" * 40, "workspace_tree": "6" * 40,
+        "blueprint": "7" * 64, "contract_map": "8" * 64,
+    }
+    index = int(failed_gate[-1])
+    statuses = {f"RG-{gate}": "pass" for gate in range(1, index)}
+    statuses[failed_gate] = "fail"
+    result = build_gate_result(
+        candidate=candidate, candidate_ref=_ref("plan/_s4r/candidate_1/candidate.json", "9"),
+        boundary_hashes=hashes, statuses=statuses, reasons={failed_gate: "isolated failure"},
+    )
+    assert result["first_failed_gate"] == failed_gate
+    assert [row["status"] for row in result["gates"]] == [
+        *("pass" for _ in range(index - 1)), "fail", *("not_evaluated" for _ in range(5 - index)),
+    ]
+
+
+def test_rework_estimator_counts_execution_and_build_units_once():
+    config = load_config(overrides={
+        "budgets": {"revision_f2_limit": 1},
+        "revision": {"theta2": 0.5, "theta6": 0.5, "rho_min_f2": 0, "rho_min_f3": 0, "cost_rates": {"build_usd": 2}},
+        "pricing": {"models": {"anthropic/claude-opus-5": {"input_usd_per_million_tokens": 1, "output_usd_per_million_tokens": 1}}},
+    }).snapshot
+    plan = {"tasks": [
+        {"task_uid": "a" * 16, "acceptance": {"build_variant_ids": ["release", "san"]}},
+        {"task_uid": "b" * 16, "acceptance": {"build_variant_ids": ["release"]}},
+    ]}
+    migration = {"tasks": [
+        {"new_task_uid": "a" * 16, "classification": "REVALIDATE"},
+        {"new_task_uid": "b" * 16, "classification": "AMEND"},
+    ], "pending_groups": []}
+    estimate = estimate_revision_rework(migration, plan, config)
+    assert estimate["coder_calls"] == 0
+    assert estimate["fixer_calls"] == 1
+    assert estimate["build_units"] == 3
+    assert estimate["cost_usd"] >= 6
+
+
+def test_rehearsal_requires_two_byte_equivalent_f3_results():
+    from nepa.schemas import load_example
+
+    candidate = load_example("revision-candidate.example.json")
+    candidate.update({"candidate_id": "candidate-1", "selected_event_seq": 1, "level": "F3"})
+    run = {
+        "tree": "1" * 40, "result_sha256": "2" * 64, "actions": [], "file_differences": [],
+        "build_results": [], "smoke_results": [], "canonical_build_results": [],
+        "canonical_smoke_results": [], "group_attribution": {"publishable": False, "group_ids": [], "reason": None},
+    }
+    result = build_revision_rehearsal(
+        candidate=candidate, baseline_commit="3" * 40, baseline_tree="4" * 40,
+        runs=[run, copy.deepcopy(run)], build_result_refs=[[], []], smoke_result_refs=[[], []],
+    )
+    assert result["verdict"] == "ready"
+    divergent = copy.deepcopy(run); divergent["tree"] = "5" * 40
+    with pytest.raises(RevisionMechanismError, match="diverged"):
+        build_revision_rehearsal(
+            candidate=candidate, baseline_commit="3" * 40, baseline_tree="4" * 40,
+            runs=[run, divergent], build_result_refs=[[], []], smoke_result_refs=[[], []],
+        )
+
+
+def test_plan_critic_delta_includes_changed_dependency_and_contract_closure_only():
+    source = {"tasks": [
+        {"id": "T-001", "task_uid": "1" * 16, "depends_on": [], "provides_contracts": ["api"], "consumes_contracts": []},
+        {"id": "T-002", "task_uid": "2" * 16, "depends_on": ["T-001"], "provides_contracts": [], "consumes_contracts": ["api"]},
+        {"id": "T-003", "task_uid": "3" * 16, "depends_on": [], "provides_contracts": [], "consumes_contracts": []},
+    ], "architecture": {"contracts": [{"id": "api"}]}, "coverage": {"requirements": [], "tests": []}}
+    candidate = copy.deepcopy(source)
+    candidate["tasks"][0]["goal"] = "changed"
+    candidate["coverage"]["requirements"] = [
+        {"req_id": "REQ-1", "primary_task_id": "T-001", "supporting_task_ids": ["T-002"]},
+        {"req_id": "REQ-2", "primary_task_id": "T-003", "supporting_task_ids": []},
+    ]
+    projected = project_plan_critic_delta(source, candidate, {"level": "F2", "lineage": [], "patch_ops": []})
+    assert {task["id"] for task in projected["tasks"]} == {"T-001", "T-002"}
+    assert [row["req_id"] for row in projected["coverage"]] == ["REQ-1"]
+
+
+def test_candidate_rejected_append_is_idempotent_and_conflict_closed():
+    ledger = {"schema_version": "2.0", "entries": []}
+    trigger = {
+        "boundary_key": {"phase": "task_boundary", "revision_seq": 0, "tasks": []},
+        "plan_ref": _ref("plan/versions/plan-1.0.0.json", "1"), "hit_code": "TR-6", "route": "F2",
+        "hit_signature": "2" * 64, "evidence_refs": [], "selected": True, "reason": "fixture",
+    }
+    ledger["entries"].append(build_event_entry(ledger, "trigger_evaluated", trigger))
+    kwargs = {
+        "candidate_id": "candidate-1", "trigger_event_seq": 1, "level": "F2",
+        "failed_gate": "RG-3", "reason": "budget", "evidence_refs": [_ref("gates.json", "3")],
+    }
+    rejected = append_candidate_rejected(ledger, **kwargs)
+    assert append_candidate_rejected(rejected, **kwargs) == rejected
+    with pytest.raises(PlanRevisionError, match="conflicting"):
+        append_candidate_rejected(rejected, **{**kwargs, "reason": "different"})
 
 
 def test_failed_attempt_boundary_records_hits_without_selecting_structural_revision():
@@ -988,6 +1185,232 @@ def test_s6_frozen_patch_provider_stages_candidate_and_returns_idempotent_handof
     ledger_before = store._read_json_artifact("plan/revision_ledger.json")
     assert orchestrator.resume(store) == 0
     assert store._read_json_artifact("plan/revision_ledger.json") == ledger_before
+
+
+def test_enabled_handoff_rejects_f2_at_rg3_without_critic_or_live_mutation(tmp_path):
+    from nepa.application import build_orchestrator
+    from test_s5_materialization import FakeExecutor
+    from test_s6_execution import _CurrentFilesAgent, _ready_store
+
+    store, _config = _ready_store(tmp_path)
+    config = _enable_revision_activation(store, f2_limit=0, f3_limit=1)
+
+    def provider(value):
+        source = value["source_plan_draft_ir"]
+        task = value["source_plan"]["tasks"][0]
+        patch = _patch(source, task["task_uid"])
+        active = value["source_plan_ref"]
+        patch["source"] = {
+            "plan_ref": {"path": active["path"], "sha256": active["sha256"]},
+            "revision_seq": active["revision_seq"],
+            "plan_draft_ir_sha256": hashlib.sha256(canonical_json_bytes(source)).hexdigest(),
+        }
+        patch["selected_trigger"] = {
+            "event_seq": value["selected_event_seq"], "code": value["selection"]["code"],
+            "signature": value["selection"]["signature"],
+        }
+        return patch
+
+    agent = _CurrentFilesAgent(failures=4)
+    orchestrator = build_orchestrator(
+        config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
+    )
+    assert orchestrator.run_spec(store) == 0
+    pointer = store._read_json_artifact("plan/active_plan.json")
+    workspace = store._confined("workspace")
+    head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    assert orchestrator.resume(store) == 0
+    ledger = store._read_json_artifact("plan/revision_ledger.json")
+    rejected = [entry for entry in ledger["entries"] if entry["event_type"] == "candidate_rejected"]
+    assert len(rejected) == 1 and rejected[0]["payload"]["failed_gate"] == "RG-3"
+    assert "plan_critic" not in agent.roles
+    assert store._read_json_artifact("plan/active_plan.json") == pointer
+    assert subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip() == head
+
+
+def test_enabled_f2_activation_handoff_uses_same_epoch_binding(tmp_path):
+    from nepa.application import build_orchestrator
+    from test_s5_materialization import FakeExecutor
+    from test_s6_execution import _CurrentFilesAgent, _ready_store
+
+    store, _config = _ready_store(tmp_path)
+    config = _enable_revision_activation(store, f2_limit=1, f3_limit=0)
+
+    def provider(value):
+        source = value["source_plan_draft_ir"]
+        task = value["source_plan"]["tasks"][0]
+        patch = _patch(source, task["task_uid"])
+        active = value["source_plan_ref"]
+        patch["source"] = {
+            "plan_ref": {"path": active["path"], "sha256": active["sha256"]},
+            "revision_seq": active["revision_seq"],
+            "plan_draft_ir_sha256": hashlib.sha256(canonical_json_bytes(source)).hexdigest(),
+        }
+        patch["selected_trigger"] = {
+            "event_seq": value["selected_event_seq"], "code": value["selection"]["code"],
+            "signature": value["selection"]["signature"],
+        }
+        return patch
+
+    class CriticAgent(_CurrentFilesAgent):
+        def invoke(self, **kwargs):
+            if kwargs["role"] == "plan_critic":
+                self.roles.append("plan_critic")
+                output = {"schema_version": "1.0", "verdict": "pass", "issues": []}
+                return SimpleNamespace(
+                    parsed=output,
+                    response=SimpleNamespace(text="{}", tokens_in=2, tokens_out=1, cost_usd=0.0, cached=False),
+                )
+            return super().invoke(**kwargs)
+
+    agent = CriticAgent(failures=4)
+    orchestrator = build_orchestrator(
+        config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
+    )
+    assert orchestrator.run_spec(store) == 0
+    old_pointer = store._read_json_artifact("plan/active_plan.json")
+    old_head = subprocess.run(["git", "-C", str(store._confined("workspace")), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    assert orchestrator.resume(store) == 0
+    pointer = store._read_json_artifact("plan/active_plan.json")
+    assert pointer["version"] == "1.0.1" and pointer["epoch"] == "E0" and pointer["revision_seq"] == 1
+    assert pointer != old_pointer
+    ledger = store._read_json_artifact("plan/revision_ledger.json")
+    activation = [entry["payload"] for entry in ledger["entries"] if entry["event_type"] == "revision_activated"][-1]
+    assert activation["level"] == "F2" and activation["pending_materialization"] is False
+    assert activation["gates"]["RG-5"] == "not_applicable"
+    assert store._confined(activation["binding_ref"]["path"]).is_file()
+    assert "plan_critic" in agent.roles
+    assert subprocess.run(["git", "-C", str(store._confined("workspace")), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip() == old_head
+
+
+def test_final_rg3_rejects_after_critic_cost_reduces_half_remaining_budget(tmp_path):
+    from nepa.application import build_orchestrator
+    from test_s5_materialization import FakeExecutor
+    from test_s6_execution import _CurrentFilesAgent, _ready_store
+
+    store, _config = _ready_store(tmp_path)
+    config = _enable_revision_activation(
+        store, f2_limit=1, f3_limit=0, build_usd=1.0, max_cost_usd=10.0,
+    )
+
+    def provider(value):
+        source = value["source_plan_draft_ir"]
+        task = value["source_plan"]["tasks"][0]
+        patch = _patch(source, task["task_uid"])
+        active = value["source_plan_ref"]
+        patch["source"] = {
+            "plan_ref": {"path": active["path"], "sha256": active["sha256"]},
+            "revision_seq": active["revision_seq"],
+            "plan_draft_ir_sha256": hashlib.sha256(canonical_json_bytes(source)).hexdigest(),
+        }
+        patch["selected_trigger"] = {
+            "event_seq": value["selected_event_seq"], "code": value["selection"]["code"],
+            "signature": value["selection"]["signature"],
+        }
+        return patch
+
+    class CostlyCritic(_CurrentFilesAgent):
+        def invoke(self, **kwargs):
+            if kwargs["role"] == "plan_critic":
+                self.roles.append("plan_critic")
+                return SimpleNamespace(
+                    parsed={"schema_version": "1.0", "verdict": "pass", "issues": []},
+                    response=SimpleNamespace(
+                        text="{}", tokens_in=2, tokens_out=1, cost_usd=6.0, cached=False,
+                    ),
+                )
+            return super().invoke(**kwargs)
+
+    agent = CostlyCritic(failures=4)
+    orchestrator = build_orchestrator(
+        config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
+    )
+    assert orchestrator.run_spec(store) == 0
+    old_pointer = store._read_json_artifact("plan/active_plan.json")
+    assert orchestrator.resume(store) == 0
+
+    candidate_dir = next(
+        path for path in store._confined("plan/_s4r").glob("candidate_*")
+        if (path / "gates.json").is_file()
+    )
+    gates = store._read_json_artifact(
+        f"plan/_s4r/{candidate_dir.name}/gates.json", schema_name="revision-gate-result.schema.json",
+    )
+    assert [row["status"] for row in gates["gates"]] == [
+        "pass", "pass", "fail", "not_evaluated", "not_evaluated",
+    ]
+    assert gates["critic_response_ref"] is not None
+    assert gates["rehearsal_ref"] is None
+    assert not (candidate_dir / "activation.json").exists()
+    assert not store._confined("plan/versions/plan-1.0.1.json").exists()
+    assert store._read_json_artifact("plan/active_plan.json") == old_pointer
+    rejected = [
+        row for row in store._read_json_artifact("plan/revision_ledger.json")["entries"]
+        if row["event_type"] == "candidate_rejected"
+    ]
+    assert len(rejected) == 1 and rejected[0]["payload"]["failed_gate"] == "RG-3"
+    assert store.load_run()["budget_used"]["cost_usd"] == 6.0
+    assert agent.roles.count("plan_critic") == 1
+
+
+@pytest.mark.revision_mechanism
+@pytest.mark.parametrize("fault_point", ["before_f2_binding", "after_f2_binding"])
+def test_f2_activation_binding_recovery_fault_window_rolls_back_and_replays(tmp_path, fault_point):
+    from nepa.application import build_orchestrator
+    from nepa.orchestrator import CrashInjected
+    from test_s5_materialization import FakeExecutor
+    from test_s6_execution import _CurrentFilesAgent, _ready_store
+
+    store, _config = _ready_store(tmp_path)
+    config = _enable_revision_activation(store, f2_limit=1, f3_limit=0)
+
+    def provider(value):
+        source = value["source_plan_draft_ir"]
+        task = value["source_plan"]["tasks"][0]
+        patch = _patch(source, task["task_uid"])
+        active = value["source_plan_ref"]
+        patch["source"] = {
+            "plan_ref": {"path": active["path"], "sha256": active["sha256"]},
+            "revision_seq": active["revision_seq"],
+            "plan_draft_ir_sha256": hashlib.sha256(canonical_json_bytes(source)).hexdigest(),
+        }
+        patch["selected_trigger"] = {
+            "event_seq": value["selected_event_seq"], "code": value["selection"]["code"],
+            "signature": value["selection"]["signature"],
+        }
+        return patch
+
+    class CriticAgent(_CurrentFilesAgent):
+        def invoke(self, **kwargs):
+            if kwargs["role"] == "plan_critic":
+                return SimpleNamespace(
+                    parsed={"schema_version": "1.0", "verdict": "pass", "issues": []},
+                    response=SimpleNamespace(text="{}", tokens_in=2, tokens_out=1, cost_usd=0.0, cached=False),
+                )
+            return super().invoke(**kwargs)
+
+    agent = CriticAgent(failures=4)
+    crashing = build_orchestrator(
+        config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
+        fault_hook=lambda point: (_ for _ in ()).throw(CrashInjected()) if point == fault_point else None,
+    )
+    assert crashing.run_spec(store) == 0
+    old_pointer = store._read_json_artifact("plan/active_plan.json")
+    with pytest.raises(CrashInjected):
+        crashing.resume(store)
+    wal = next(store._confined("plan/_s4r").glob("candidate_*/activation.json"))
+    value = json.loads(wal.read_text(encoding="utf-8"))
+    assert store._confined(value["binding"]["receipt_ref"]["path"]).is_file() is (fault_point == "after_f2_binding")
+    assert store._read_json_artifact("plan/active_plan.json") == old_pointer
+    recovered = store.recover_revision(value["revision_seq"])
+    assert recovered["status"] == "precommit-restored"
+    assert store._confined(f"plan/_s4r/candidate_{value['selected_event_seq']}/isolated/binding").is_dir() is (fault_point == "after_f2_binding")
+
+    resumed = build_orchestrator(
+        config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
+    )
+    assert resumed.resume(store) == 0
+    assert store._read_json_artifact("plan/active_plan.json") == value["new"]["pointer"]
 
 
 @pytest.mark.parametrize(

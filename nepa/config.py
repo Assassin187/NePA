@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .speclib.lint import canonical_json_bytes
 
@@ -80,6 +80,8 @@ class BudgetConfig(_Model):
     task_fix_attempts: int = Field(ge=0)
     s6_total_attempts_cap: int = Field(gt=0)
     s6_lease_limit: int = Field(ge=0)
+    revision_f2_limit: int = Field(default=0, ge=0, le=3, strict=True)
+    revision_f3_limit: int = Field(default=0, ge=0, le=1, strict=True)
     repair_rounds: int = Field(ge=0)
 
 
@@ -116,9 +118,16 @@ class SmokeConfig(_Model):
     term_grace_seconds: int = Field(gt=0)
 
 
+class RevisionCostRates(_Model):
+    build_usd: float = Field(ge=0, strict=True)
+
+
 class RevisionConfig(_Model):
     theta2: float = Field(gt=0, le=1)
     theta6: float = Field(gt=0, le=1)
+    rho_min_f2: float | None = Field(default=None, ge=0, le=1, strict=True)
+    rho_min_f3: float | None = Field(default=None, ge=0, le=1, strict=True)
+    cost_rates: RevisionCostRates | None = None
 
 
 class ResolvedConfig(_Model):
@@ -135,6 +144,19 @@ class ResolvedConfig(_Model):
     sandbox: SandboxConfig
     smoke: SmokeConfig
     revision: RevisionConfig | None = None
+
+    @model_validator(mode="after")
+    def revision_configuration_is_complete_when_enabled(self) -> "ResolvedConfig":
+        if self.budgets.revision_f2_limit or self.budgets.revision_f3_limit:
+            if self.revision is None:
+                raise ValueError("enabled revision limits require a complete revision configuration")
+            if (
+                self.revision.rho_min_f2 is None
+                or self.revision.rho_min_f3 is None
+                or self.revision.cost_rates is None
+            ):
+                raise ValueError("enabled revision limits require rho_min_f2, rho_min_f3, and cost_rates")
+        return self
 
     @property
     def snapshot(self) -> dict[str, Any]:
@@ -184,6 +206,8 @@ _DEFAULTS: dict[str, Any] = {
         "task_fix_attempts": 3,
         "s6_total_attempts_cap": 8,
         "s6_lease_limit": 1,
+        "revision_f2_limit": 0,
+        "revision_f3_limit": 0,
         "repair_rounds": 3,
     },
     "planning": {"strategy": "layered", "max_task_files": 4, "context_safety_margin_ratio": 0.15},
@@ -262,11 +286,15 @@ def public_config_snapshot(config: ResolvedConfig | Mapping[str, Any]) -> dict[s
         value = config.model_dump(mode="json")
         if value.get("revision") is None:
             value.pop("revision", None)
+        else:
+            value["revision"] = {key: item for key, item in value["revision"].items() if item is not None}
         return value
     try:
         value = ResolvedConfig.model_validate(config).model_dump(mode="json")
         if value.get("revision") is None:
             value.pop("revision", None)
+        else:
+            value["revision"] = {key: item for key, item in value["revision"].items() if item is not None}
         return value
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc

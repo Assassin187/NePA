@@ -722,7 +722,32 @@ def plan_epoch_materialization(
         for row in old_rows.values()
         if row.get("state") == "quarantined" and isinstance(row.get("quarantine_path"), str)
     }
-    expected_preimage_paths = {path for path, row in old_rows.items() if row.get("state") != "quarantined"} | registered_quarantine_paths
+    pending_quarantines: set[str] = set()
+    expected_quarantine_paths: set[str] = set()
+    for path, row in old_rows.items():
+        if row.get("state") != "quarantined":
+            continue
+        quarantine_path = row.get("quarantine_path")
+        if (
+            row.get("quarantined_in_epoch") == epoch
+            and path in workspace
+            and quarantine_path not in workspace
+        ):
+            pending_quarantines.add(path)
+            expected_quarantine_paths.add(path)
+        elif isinstance(quarantine_path, str):
+            expected_quarantine_paths.add(quarantine_path)
+    pending_slots = {
+        path for path, row in old_rows.items()
+        if row.get("state") == "slot_only"
+        and path not in workspace
+        and path not in old_inventory
+        and path in new_inventory
+    }
+    expected_preimage_paths = {
+        path for path, row in old_rows.items()
+        if row.get("state") != "quarantined" and path not in pending_slots
+    } | expected_quarantine_paths
     if set(workspace) != expected_preimage_paths:
         raise MaterializationError("workspace contains missing or unregistered paths", code="S5_WORKSPACE_DRIFT")
     if number and any(row.get("class") == "s6_owned" and row.get("state") == "realized" and path not in file_migrations for path, row in old_rows.items() if not str(path).startswith("_orphan/")):
@@ -852,6 +877,11 @@ def plan_epoch_materialization(
             # is consumed by the explicitly named move.
             if quarantine not in re_adopt_sources:
                 raise MaterializationError("quarantined row has no registered quarantine path", code="S5_QUARANTINE_INVALID")
+        elif path in pending_quarantines:
+            add({
+                "kind": "quarantine", "path": path, "source_path": path,
+                "target_path": quarantine, "sha256": row.get("content_sha256"),
+            })
         else:
             add({"kind": "preserve", "path": quarantine, "sha256": row.get("content_sha256")})
         consumed_old.add(path)

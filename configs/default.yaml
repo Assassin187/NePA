@@ -49,6 +49,8 @@ budgets:
   task_fix_attempts: 3
   s6_total_attempts_cap: 8
   s6_lease_limit: 1
+  revision_f2_limit: 0
+  revision_f3_limit: 0
   repair_rounds: 3
 
 planning:
