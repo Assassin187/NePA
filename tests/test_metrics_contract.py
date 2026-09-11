@@ -119,8 +119,8 @@ def test_metric_contract_revision_lease_cost_and_receipt_boundaries():
                 "rework_cost_usd": 1.2, "call_refs": [{"call_id": "c1"}]}},
             {"event_type": "candidate_rejected", "payload": {"failed_gate": "RG-2"}},
             {"event_type": "trigger_evaluated", "payload": {"hit_codes": ["TR-5", "TR-5"]}},
-            {"event_type": "revision_evaluated", "payload": {"evaluation_id": "e1", "resolved": True, "cost_usd": 2.0, "call_refs": [{"call_id": "c1"}]}},
-            {"event_type": "revision_evaluated", "payload": {"evaluation_id": "e1", "resolved": True, "cost_usd": 2.0, "call_refs": [{"call_id": "c1"}]}},
+            {"event_type": "revision_evaluated", "payload": {"revision_seq": 1, "resolved": True, "cost_usd": 2.0, "call_refs": [{"call_id": "c1"}]}},
+            {"event_type": "revision_evaluated", "payload": {"revision_seq": 1, "resolved": True, "cost_usd": 2.0, "call_refs": [{"call_id": "c1"}]}},
         ]},
         "calls": [{"call_id": "c1", "cost_usd": 2.0}],
     }
@@ -134,6 +134,49 @@ def test_metric_contract_revision_lease_cost_and_receipt_boundaries():
     assert result["revision"]["rework_cost_usd"] == {"value": 1.2}
     assert result["revision"]["effectiveness"] == {"value": 0.5}
     assert result["smoke"]["s5"]["pass"] == {"value": False}
+
+
+@pytest.mark.metric_contract
+def test_metric_contract_revision_evaluation_identity_outcomes_and_zero_cost():
+    package = {
+        "state": {"tasks": []},
+        "revision_ledger": {"entries": [
+            {"event_type": "revision_evaluated", "payload": {"revision_seq": 1, "resolved": True, "ineffective": False, "cost_usd": 3.0, "call_refs": [{"path": "calls/a.json"}, {"path": "calls/a.json"}]}},
+            {"event_type": "revision_evaluated", "payload": {"revision_seq": 2, "resolved": False, "ineffective": True, "cost_usd": 0.0, "call_refs": []}},
+            {"event_type": "revision_evaluated", "payload": {"revision_seq": 3, "resolved": False, "ineffective": False, "cost_usd": 0.0, "call_refs": []}},
+        ]},
+        "calls": [{"output_path": "calls/a.json", "cost_usd": 3.0}],
+    }
+    result = compute_m1_metrics(package)["revision"]
+    assert result["effectiveness"] == {"value": 1 / 3}
+    assert result["ineffective_count"] == {"value": 1}
+
+    zero = copy.deepcopy(package)
+    zero["revision_ledger"]["entries"] = zero["revision_ledger"]["entries"][1:]
+    assert compute_m1_metrics(zero)["revision"]["effectiveness"]["reason"]["code"] == "ZERO_COST_DENOMINATOR"
+
+    without_telemetry = copy.deepcopy(package)
+    without_telemetry.pop("calls")
+    assert compute_m1_metrics(without_telemetry)["revision"]["effectiveness"] == {"value": 1 / 3}
+
+    conflicting = copy.deepcopy(package)
+    conflicting["calls"][0]["cost_usd"] = 4.0
+    with pytest.raises(ValueError, match="conflicts with associated call telemetry"):
+        compute_m1_metrics(conflicting)
+
+    zero_conflict = copy.deepcopy(package)
+    zero_conflict["revision_ledger"]["entries"] = [{
+        "event_type": "revision_evaluated",
+        "payload": {
+            "revision_seq": 1,
+            "resolved": True,
+            "ineffective": False,
+            "cost_usd": 0.0,
+            "call_refs": [{"path": "calls/a.json"}],
+        },
+    }]
+    with pytest.raises(ValueError, match="conflicts with associated call telemetry"):
+        compute_m1_metrics(zero_conflict)
 
 
 @pytest.mark.metric_contract

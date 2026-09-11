@@ -22,7 +22,6 @@ jobs:
       - run: uv run mypy nepa
       - run: uv run pytest -q
       - run: uv run python -m nepa lint spec gold_file/specIR.json
-      - run: openspec validate m1-6-s6-f0-execution --strict
       - run: openspec validate --all --strict
       - run: docker build -t nepa-sandbox:latest -f docker/sandbox.Dockerfile .
       - run: uv run pytest -q -m s5_epoch

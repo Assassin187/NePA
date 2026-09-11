@@ -20,15 +20,25 @@ from nepa.speclib.revision_mechanism import (
     build_gate_result,
     build_revision_rehearsal,
     complete_revision_candidate,
+    derive_revision_obligation_scope,
     estimate_revision_rework,
+    evaluate_revision_budget,
     evaluate_revision_triggers,
     prepare_activation_wal,
     project_plan_critic_delta,
+    project_revision_availability,
     project_revision_boundary,
+    project_revision_evaluation,
     validate_revision_candidate,
 )
 from nepa.speclib.plan_state import initialize_plan_state
-from nepa.speclib.plan_revision import PlanRevisionError, append_candidate_rejected, build_event_entry
+from nepa.speclib.plan_revision import (
+    PlanRevisionError,
+    append_candidate_rejected,
+    append_revision_evaluated,
+    build_event_entry,
+    validate_revision_ledger,
+)
 from nepa.run_store import ArtifactConflict, RunStore
 from test_plan_lint import _linked
 
@@ -53,13 +63,7 @@ def test_revision_mechanism_fixture_generator_is_byte_stable_and_source_bound(tm
 
 
 def _enable_revision(store):
-    config = load_config(overrides={"run": {"until": "s6"}, "revision": {"theta2": 0.5, "theta6": 0.5}})
-    run = store.load_run()
-    run["config_snapshot"] = config.snapshot
-    run["config_snapshot_sha256"] = config.snapshot_sha256
-    run["stages"]["s4"]["output_refs"]["config_snapshot_sha256"] = config.snapshot_sha256
-    store.replace_run(run)
-    return config
+    return _enable_revision_activation(store, f2_limit=1, f3_limit=0)
 
 
 def _enable_revision_activation(
@@ -116,6 +120,268 @@ def _fact(**updates):
     value = {"task_uids": ["0" * 16], "obligation_uids": ["REQ-1"], "evidence_refs": [_ref("evidence/fact.json", "7")]}
     value.update(updates)
     return value
+
+
+def _append_selected(ledger, *, level, signature, activate=False, reject=False):
+    trigger_seq = len(ledger["entries"]) + 1
+    trigger = {
+        "boundary_key": {"phase": "task_boundary", "revision_seq": sum(entry["event_type"] == "revision_activated" for entry in ledger["entries"]), "tasks": []},
+        "plan_ref": _ref("plan/versions/plan-1.0.0.json", "1"), "hit_code": "TR-6", "route": level,
+        "hit_signature": signature, "evidence_refs": [], "selected": True, "reason": "fixture",
+    }
+    ledger["entries"].append(build_event_entry(ledger, "trigger_evaluated", trigger))
+    if reject:
+        return append_candidate_rejected(
+            ledger, candidate_id=f"candidate-{trigger_seq}", trigger_event_seq=trigger_seq,
+            level=level, failed_gate="RG-3", reason="fixture rejection", evidence_refs=[_ref(f"gates/{trigger_seq}.json", "2")],
+        )
+    if activate:
+        revision_seq = 1 + sum(entry["event_type"] == "revision_activated" for entry in ledger["entries"])
+        version = f"1.0.{revision_seq}"
+        payload = {
+            "revision_seq": revision_seq, "from_version": f"1.0.{revision_seq - 1}", "to_version": version,
+            "from_plan_ref": _ref(f"plan/versions/plan-1.0.{revision_seq - 1}.json", "1"),
+            "to_plan_ref": _ref(f"plan/versions/plan-{version}.json", "3"), "level": level,
+            "trigger_event_seq": trigger_seq, "trigger_signature": signature, "patch_ops": [],
+            "migration": {"counts": {"inherit": 0, "revalidate": 0, "amend": 0, "regenerate": 0}, "tasks": [], "files": []},
+            "preservation_rate": 1.0, "rework_cost_estimate_usd": 0,
+            "gates": {"RG-1": "pass", "RG-2": "pass", "RG-3": "pass", "RG-4": "pass", "RG-5": "not_applicable" if level == "F2" else "pass"},
+            "epoch_after": "E0" if level == "F2" else f"E{revision_seq}", "activated_at_commit": "4" * 40,
+            "binding_ref": _ref(f"plan/bindings/{version}/receipt.json", "5") if level == "F2" else None,
+            "pending_materialization": level == "F3",
+        }
+        ledger["entries"].append(build_event_entry(ledger, "revision_activated", payload))
+    return ledger
+
+
+def test_revision_availability_projects_independent_limits_streaks_and_lock():
+    limits = {"revision_f2_limit": 3, "revision_f3_limit": 2}
+    ledger = _append_selected({"schema_version": "2.0", "entries": []}, level="F2", signature="a" * 64, reject=True)
+    ledger = _append_selected(ledger, level="F3", signature="b" * 64, reject=True)
+    ledger = _append_selected(ledger, level="F2", signature="c" * 64, reject=True)
+    projected = project_revision_availability(ledger, limits)
+    assert projected["rejection_streaks"] == {"F2": ["a" * 64, "c" * 64], "F3": ["b" * 64]}
+    assert projected["level_closed"] == {"F2": True, "F3": False}
+    assert projected["revision_locked"] is False
+
+    ledger = _append_selected(ledger, level="F3", signature="d" * 64, activate=True)
+    projected = project_revision_availability(ledger, limits)
+    assert projected["rejection_streaks"]["F2"] == ["a" * 64, "c" * 64]
+    assert projected["rejection_streaks"]["F3"] == []
+    assert projected["pending_evaluation"] == 1
+    zero = project_revision_availability({"schema_version": "2.0", "entries": []}, {"revision_f2_limit": 0, "revision_f3_limit": 0})
+    assert zero["level_closed"] == {"F2": True, "F3": True} and zero["revision_locked"] is True
+
+    unsupported = {"schema_version": "2.0", "entries": []}
+    unsupported["entries"].append(build_event_entry(unsupported, "trigger_evaluated", {
+        "boundary_key": {"phase": "task_boundary", "revision_seq": 0, "tasks": []},
+        "plan_ref": _ref("plan/versions/plan-1.0.0.json", "1"), "hit_code": "TR-7", "route": "F5",
+        "hit_signature": "e" * 64, "evidence_refs": [], "selected": False, "reason": "unsupported diagnosis",
+    }))
+    assert project_revision_availability(unsupported, limits)["revision_locked"] is True
+
+    activated = _append_selected({"schema_version": "2.0", "entries": []}, level="F2", signature="f" * 64, activate=True)
+    ineffective = append_revision_evaluated(
+        activated, revision_seq=1, evaluated_at="1" * 64, obligation_anchors=["2" * 64],
+        resolved=False, ineffective=True, evidence_refs=[_ref("evidence/ineffective.json", "3")],
+        call_refs=[], cost_usd=0,
+    )
+    assert project_revision_availability(ineffective, limits)["revision_locked"] is True
+
+
+@pytest.mark.parametrize(("full_level", "candidate_level"), [("F2", "F3"), ("F3", "F2")])
+def test_rg3_cross_level_allowance_is_independent(full_level, candidate_level):
+    ledger = _append_selected(
+        {"schema_version": "2.0", "entries": []},
+        level=full_level,
+        signature="a" * 64,
+        activate=True,
+    )
+    ledger = append_revision_evaluated(
+        ledger, revision_seq=1, evaluated_at="b" * 64,
+        obligation_anchors=["c" * 64], resolved=True, ineffective=False,
+        evidence_refs=[_ref("evidence/eval.json", "d")], call_refs=[], cost_usd=0,
+    )
+    config = {
+        "budgets": {
+            "revision_f2_limit": 1, "revision_f3_limit": 1,
+            "max_cost_usd": 10, "s6_total_attempts_cap": 8,
+            "task_fix_attempts": 3,
+        },
+        "revision": {
+            "rho_min_f2": 0, "rho_min_f3": 0,
+            "cost_rates": {"build_usd": 0},
+        },
+    }
+    result = evaluate_revision_budget(
+        level=candidate_level,
+        migration={"tasks": [], "pending_groups": [], "preservation_rate": 1.0},
+        candidate_plan={"tasks": []}, config=config,
+        run={"budget_used": {"cost_usd": 0}}, revision_ledger=ledger,
+        state={"s6_attempts_used": 0},
+    )
+    assert result["pass"] is True
+    availability = project_revision_availability(ledger, config)
+    assert availability["level_closed"][full_level] is True
+    assert availability["level_closed"][candidate_level] is False
+
+
+@pytest.mark.parametrize(
+    ("status", "signatures", "hard_budget", "outcome"),
+    [
+        ("done", [], False, (True, False)),
+        ("blocked", ["9" * 64], False, (False, True)),
+        ("pending", [], True, (False, False)),
+    ],
+)
+def test_terminal_revision_evaluation_projects_three_outcomes(status, signatures, hard_budget, outcome):
+    plan, *_ = _linked()
+    task = plan["tasks"][0]
+    migration = {
+        "tasks": [{"old_task_uid": task["task_uid"], "new_task_uid": task["task_uid"], "classification": "REVALIDATE"}],
+        "pending_groups": [],
+    }
+    activation = {"revision_seq": 1, "trigger_event_seq": 1, "trigger_signature": "9" * 64, "migration": migration, "patch_ops": []}
+    scope = derive_revision_obligation_scope(plan, plan, activation)
+    rows = [{
+        "id": next(item["id"] for item in plan["tasks"] if item["task_uid"] == uid),
+        "task_uid": uid,
+        "status": status,
+        "acceptance_evidence": {
+            "task_evidence_ref": _ref(f"evidence/{uid}.json", "7") if status == "done" else None,
+        },
+    } for uid in scope["affected_task_uids"]]
+    evaluation = project_revision_evaluation(
+        activation=activation, trigger={"hit_signature": "9" * 64},
+        obligation_anchors=scope["obligation_anchors"], affected_task_uids=scope["affected_task_uids"],
+        state={"tasks": rows}, state_history=[{"event_seq": 1}], current_signatures=signatures,
+        hard_budget_exhausted=hard_budget, evidence_refs=[_ref("plan/state_history.json", "8")],
+        call_rows=[{"output_path": "calls/a.json", "cost_usd": 0}, {"output_path": "calls/a.json", "cost_usd": 0}],
+        ledger_prefix_sha256="a" * 64,
+    )
+    assert evaluation is not None
+    assert (evaluation["resolved"], evaluation["ineffective"]) == outcome
+    assert evaluation["cost_usd"] == 0 and evaluation["call_refs"] == [{"path": "calls/a.json"}]
+    reason = "terminal" if status in {"done", "blocked"} else "hard_budget_exhausted"
+    assert evaluation["evaluated_at"] == hashlib.sha256(canonical_json_bytes({
+        "revision_seq": 1,
+        "trigger_event_seq": 1,
+        "state_history_sha256": hashlib.sha256(canonical_json_bytes([{"event_seq": 1}])).hexdigest(),
+        "ledger_prefix_sha256": "a" * 64,
+        "reason": reason,
+    })).hexdigest()
+
+
+def test_revision_evaluation_waits_for_dependency_and_contract_closure():
+    plan, *_ = _linked()
+    task = plan["tasks"][0]
+    activation = {
+        "revision_seq": 1,
+        "trigger_event_seq": 1,
+        "trigger_signature": "9" * 64,
+        "migration": {
+            "tasks": [{
+                "old_task_uid": task["task_uid"],
+                "new_task_uid": task["task_uid"],
+                "classification": "REVALIDATE",
+            }],
+            "pending_groups": [],
+        },
+        "patch_ops": [],
+    }
+    scope = derive_revision_obligation_scope(plan, plan, activation)
+    assert len(scope["affected_task_uids"]) > 1
+    rows = [{
+        "id": item["id"],
+        "task_uid": item["task_uid"],
+        "status": "done" if item["task_uid"] == task["task_uid"] else "pending",
+        "acceptance_evidence": {
+            "task_evidence_ref": _ref(f"evidence/{item['task_uid']}.json", "7")
+            if item["task_uid"] == task["task_uid"] else None,
+        },
+    } for item in plan["tasks"] if item["task_uid"] in scope["affected_task_uids"]]
+    assert project_revision_evaluation(
+        activation=activation,
+        trigger={"hit_signature": "9" * 64},
+        obligation_anchors=scope["obligation_anchors"],
+        affected_task_uids=scope["affected_task_uids"],
+        state={"tasks": rows},
+        state_history=[{"event_seq": 1}],
+        current_signatures=[],
+        hard_budget_exhausted=False,
+        evidence_refs=[_ref("plan/state_history.json", "8")],
+        call_rows=[],
+        ledger_prefix_sha256="a" * 64,
+    ) is None
+
+
+def test_revision_evaluation_append_is_idempotent_and_conflict_closed():
+    ledger = _append_selected({"schema_version": "2.0", "entries": []}, level="F2", signature="a" * 64, activate=True)
+    kwargs = {
+        "revision_seq": 1, "evaluated_at": "b" * 64, "obligation_anchors": ["c" * 64],
+        "resolved": True, "ineffective": False, "evidence_refs": [_ref("evidence/eval.json", "d")],
+        "call_refs": [], "cost_usd": 0,
+    }
+    evaluated = append_revision_evaluated(ledger, **kwargs)
+    assert append_revision_evaluated(evaluated, **kwargs) == evaluated
+    with pytest.raises(PlanRevisionError, match="conflicting"):
+        append_revision_evaluated(evaluated, **{**kwargs, "resolved": False})
+
+
+def test_revision_ledger_rejects_a_second_activation_before_evaluation():
+    ledger = _append_selected(
+        {"schema_version": "2.0", "entries": []},
+        level="F2",
+        signature="a" * 64,
+        activate=True,
+    )
+    malformed = _append_selected(
+        copy.deepcopy(ledger),
+        level="F3",
+        signature="b" * 64,
+        activate=True,
+    )
+    with pytest.raises(PlanRevisionError, match="prior activation evaluation"):
+        validate_revision_ledger(malformed)
+    with pytest.raises(PlanRevisionError, match="prior activation evaluation"):
+        project_revision_availability(
+            malformed,
+            {"revision_f2_limit": 2, "revision_f3_limit": 2},
+        )
+
+
+def test_revision_evaluation_ledger_rejects_missing_activation_noncanonical_and_duplicate_facts():
+    payload = {
+        "revision_seq": 1, "evaluated_at": "b" * 64, "obligation_anchors": ["c" * 64],
+        "resolved": False, "ineffective": False, "evidence_refs": [_ref("evidence/eval.json", "d")],
+        "call_refs": [], "cost_usd": 0,
+    }
+    orphan = {"schema_version": "2.0", "entries": []}
+    orphan["entries"].append(build_event_entry(orphan, "revision_evaluated", payload))
+    with pytest.raises(PlanRevisionError, match="activation"):
+        validate_revision_ledger(orphan)
+
+    activated = _append_selected({"schema_version": "2.0", "entries": []}, level="F2", signature="a" * 64, activate=True)
+    valid = append_revision_evaluated(activated, **payload)
+    for replacement in (
+        {"obligation_anchors": []},
+        {"obligation_anchors": ["e" * 64, "c" * 64]},
+        {"obligation_anchors": ["c" * 64, "c" * 64]},
+        {"resolved": True, "ineffective": True},
+        {"evidence_refs": [_ref("z.json", "f"), _ref("a.json", "e")]},
+    ):
+        broken = copy.deepcopy(valid)
+        broken["entries"][-1]["payload"].update(replacement)
+        with pytest.raises(PlanRevisionError):
+            validate_revision_ledger(broken)
+    duplicate = copy.deepcopy(valid)
+    duplicate["entries"].append(build_event_entry(duplicate, "revision_evaluated", payload))
+    with pytest.raises(PlanRevisionError, match="unique activation"):
+        validate_revision_ledger(duplicate)
+    broken_chain = copy.deepcopy(valid)
+    broken_chain["entries"][-1]["prev_entry_sha256"] = "f" * 64
+    with pytest.raises(PlanRevisionError, match="predecessor hash"):
+        validate_revision_ledger(broken_chain)
 
 
 @pytest.mark.parametrize(
@@ -1149,7 +1415,7 @@ def test_revision_candidate_recovery_converges_and_detects_corruption(tmp_path):
         store.reconcile_revision_candidate(1)
 
 
-def test_s6_frozen_patch_provider_stages_candidate_and_returns_idempotent_handoff(tmp_path):
+def test_s6_frozen_patch_provider_stages_then_consumes_candidate_handoff(tmp_path):
     from nepa.application import build_orchestrator
     from test_s5_materialization import FakeExecutor
     from test_s6_execution import _CurrentFilesAgent, _ready_store
@@ -1184,10 +1450,12 @@ def test_s6_frozen_patch_provider_stages_candidate_and_returns_idempotent_handof
     assert marker.is_file()
     ledger_before = store._read_json_artifact("plan/revision_ledger.json")
     assert orchestrator.resume(store) == 0
-    assert store._read_json_artifact("plan/revision_ledger.json") == ledger_before
+    ledger_after = store._read_json_artifact("plan/revision_ledger.json")
+    assert ledger_after != ledger_before
+    assert any(entry["event_type"] in {"revision_activated", "candidate_rejected"} for entry in ledger_after["entries"])
 
 
-def test_enabled_handoff_rejects_f2_at_rg3_without_critic_or_live_mutation(tmp_path):
+def test_zero_f2_limit_closes_route_before_candidate_or_live_mutation(tmp_path):
     from nepa.application import build_orchestrator
     from test_s5_materialization import FakeExecutor
     from test_s6_execution import _CurrentFilesAgent, _ready_store
@@ -1215,14 +1483,15 @@ def test_enabled_handoff_rejects_f2_at_rg3_without_critic_or_live_mutation(tmp_p
     orchestrator = build_orchestrator(
         config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
     )
-    assert orchestrator.run_spec(store) == 0
+    assert orchestrator.run_spec(store) == 10
     pointer = store._read_json_artifact("plan/active_plan.json")
     workspace = store._confined("workspace")
     head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-    assert orchestrator.resume(store) == 0
+    assert orchestrator.resume(store) == 10
     ledger = store._read_json_artifact("plan/revision_ledger.json")
     rejected = [entry for entry in ledger["entries"] if entry["event_type"] == "candidate_rejected"]
-    assert len(rejected) == 1 and rejected[0]["payload"]["failed_gate"] == "RG-3"
+    assert rejected == []
+    assert not list(store._confined("plan/_s4r").glob("candidate_*"))
     assert "plan_critic" not in agent.roles
     assert store._read_json_artifact("plan/active_plan.json") == pointer
     assert subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip() == head
@@ -1230,6 +1499,8 @@ def test_enabled_handoff_rejects_f2_at_rg3_without_critic_or_live_mutation(tmp_p
 
 def test_enabled_f2_activation_handoff_uses_same_epoch_binding(tmp_path):
     from nepa.application import build_orchestrator
+    from nepa.orchestrator import ControlledStageFailure, StageContext
+    from nepa.stages.s6_execution import S6ExecutionController
     from test_s5_materialization import FakeExecutor
     from test_s6_execution import _CurrentFilesAgent, _ready_store
 
@@ -1281,6 +1552,29 @@ def test_enabled_f2_activation_handoff_uses_same_epoch_binding(tmp_path):
     assert store._confined(activation["binding_ref"]["path"]).is_file()
     assert "plan_critic" in agent.roles
     assert subprocess.run(["git", "-C", str(store._confined("workspace")), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip() == old_head
+    assert not store._confined("plan/revision_evaluations/revision_1/state_history.json").exists()
+
+    controller = S6ExecutionController(agent, FakeExecutor())
+    with pytest.raises(ControlledStageFailure) as exc_info:
+        controller.run(StageContext(store, "s6", store.load_run(), orchestrator))
+    assert exc_info.value.reason["code"] == "EXECUTION_UNRESOLVED"
+    final_ledger = store._read_json_artifact("plan/revision_ledger.json")
+    evaluations = [entry for entry in final_ledger["entries"] if entry["event_type"] == "revision_evaluated"]
+    assert len(evaluations) == 1
+    history_ref = next(
+        ref for ref in evaluations[0]["payload"]["evidence_refs"]
+        if ref["path"] == "plan/revision_evaluations/revision_1/state_history.json"
+    )
+    store.verify_ref(history_ref, schema_name="state-history.schema.json")
+    later_state = copy.deepcopy(store._read_json_artifact("plan/plan_state.json"))
+    later_state["tasks"][0]["notes"] = "independent post-evaluation observation"
+    store.append_state_history(later_state, event_type="review_probe")
+    store.verify_ref(history_ref, schema_name="state-history.schema.json")
+    later_triggers = [
+        entry for entry in final_ledger["entries"]
+        if entry["event_type"] == "trigger_evaluated" and entry["event_seq"] > activation["trigger_event_seq"]
+    ]
+    assert later_triggers and evaluations[0]["event_seq"] < later_triggers[0]["event_seq"]
 
 
 def test_final_rg3_rejects_after_critic_cost_reduces_half_remaining_budget(tmp_path):
@@ -1310,9 +1604,14 @@ def test_final_rg3_rejects_after_critic_cost_reduces_half_remaining_budget(tmp_p
         return patch
 
     class CostlyCritic(_CurrentFilesAgent):
+        usage_owner = None
+
         def invoke(self, **kwargs):
             if kwargs["role"] == "plan_critic":
+                from nepa.orchestrator import UsageDelta
+
                 self.roles.append("plan_critic")
+                self.usage_owner.record_external_usage(store, UsageDelta(cost_usd=6.0))
                 return SimpleNamespace(
                     parsed={"schema_version": "1.0", "verdict": "pass", "issues": []},
                     response=SimpleNamespace(
@@ -1325,6 +1624,7 @@ def test_final_rg3_rejects_after_critic_cost_reduces_half_remaining_budget(tmp_p
     orchestrator = build_orchestrator(
         config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
     )
+    agent.usage_owner = orchestrator
     assert orchestrator.run_spec(store) == 0
     old_pointer = store._read_json_artifact("plan/active_plan.json")
     assert orchestrator.resume(store) == 0
@@ -1417,8 +1717,8 @@ def test_f2_activation_binding_recovery_fault_window_rolls_back_and_replays(tmp_
     ("fault_point", "pending_before", "final_before", "expected_provider_calls"),
     [
         ("revision_candidate_staged", True, False, 2),
-        ("revision_trigger_ledger_replaced", True, False, 1),
-        ("revision_candidate_committed", False, True, 1),
+        ("revision_trigger_ledger_replaced", True, False, 2),
+        ("revision_candidate_committed", False, True, 2),
     ],
 )
 def test_s6_candidate_recovers_across_each_publication_boundary(
@@ -1475,12 +1775,12 @@ def test_s6_candidate_recovers_across_each_publication_boundary(
         config, store, agent=agent, executor=FakeExecutor(), revision_patch_provider=provider,
     ).resume(store) == 0
     assert provider_calls == expected_provider_calls
-    assert agent.calls == calls_before
+    assert agent.calls[:len(calls_before)] == calls_before
     assert store._confined(f"plan/_s4r/candidate_{event_seq}/candidate.json").is_file()
     assert not store._confined(f"plan/_s4r/.candidate_{event_seq}.pending").exists()
     final_ledger = store._read_json_artifact("plan/revision_ledger.json")
     if selected is not None:
-        assert final_ledger == ledger
+        assert final_ledger["entries"][:len(ledger["entries"])] == ledger["entries"]
     else:
         assert len([entry for entry in final_ledger["entries"] if entry["event_type"] == "trigger_evaluated" and entry["payload"]["selected"]]) == 1
 

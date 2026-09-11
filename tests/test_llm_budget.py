@@ -3,6 +3,7 @@ import json
 from nepa.config import load_config
 import pytest
 
+from nepa.agents.base import AgentInvoker
 from nepa.llm.client import BudgetExhausted, LLMClient, LLMRequest, LLMResponse
 from nepa.llm.telemetry import LLMTelemetry
 from nepa.run_store import RunStore
@@ -60,6 +61,46 @@ def test_no_double_charge_stage_result_usage_path_exists():
     )
 
     assert not hasattr(response, "usage")
+
+
+def test_agent_invoker_to_llm_client_records_usage_exactly_once():
+    events = []
+
+    class Provider(_Provider):
+        def complete(self, request, *, model, native_schema):
+            response = super().complete(request, model=model, native_schema=native_schema)
+            return response.model_copy(update={"text": '{"answer":"ok"}'})
+
+    class Orchestrator:
+        def admit_external_call(self, store):
+            events.append("admit")
+
+        def record_external_usage(self, store, usage):
+            events.append(("record", usage.tokens_in, usage.tokens_out, usage.cost_usd))
+
+    config = load_config(overrides={
+        "providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}},
+        "tiers": {"T2": {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 20}},
+        "roles": {"architecture_planner": {"tier": "T2"}},
+        "pricing": {"models": {"fixture/model": {
+            "input_usd_per_million_tokens": 1,
+            "output_usd_per_million_tokens": 2,
+        }}},
+    })
+    invoker = AgentInvoker(
+        config,
+        LLMClient(config, {"fixture": Provider()}, orchestrator=Orchestrator(), store=object()),
+    )
+    result = invoker.invoke(
+        role="architecture_planner",
+        inputs={"planning_index": {}, "delivery_constraints": {}, "repair_context": None},
+        output_schema={"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}}},
+        output_example={"answer": "ok"},
+        run_id="run", stage="S4", task_id="task", attempt=1, use_cache=False,
+    )
+
+    assert result.parsed == {"answer": "ok"}
+    assert events == ["admit", ("record", 10, 5, 20 / 1_000_000)]
 
 
 def test_budget_exhausted_after_response_retains_evidence_and_suppresses_repair():

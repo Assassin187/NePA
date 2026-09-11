@@ -19,8 +19,8 @@ from jsonschema import Draft202012Validator
 from ..agents.s6 import CODER_INPUTS, FIXER_INPUTS, LEASE_FIXER_INPUTS, S6AgentError, candidate_tree_hash, coding_contract, normalize_candidate, project_s6_context
 from ..agents.base import AgentInvoker
 from ..llm.client import StructuredOutputError
-from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StagePause, StageResult, UsageDelta
-from ..run_store import ArtifactConflict, ArtifactRef, RunStore, RunStoreError, sha256_bytes
+from ..orchestrator import BudgetExhausted, ControlledStageFailure, StageContext, StagePause, StageResult
+from ..run_store import ArtifactConflict, ArtifactRef, RunStore, RunStoreError, RunValidationError, sha256_bytes
 from ..schemas import load_schema
 from ..speclib.lint import canonical_json_bytes
 from ..speclib.delivery import compile_delivery_blueprint, compile_delivery_constraints, expand_file_rules
@@ -29,14 +29,16 @@ from ..speclib.plan import blueprint_task_semantic_projection, plan_to_draft_ir
 from ..speclib.planning import build_test_manifest_metadata
 from ..speclib.revision_mechanism import (
     RevisionMechanismError, append_trigger_batch, build_gate_result, build_revision_rehearsal,
-    complete_revision_candidate, estimate_revision_rework, evaluate_revision_budget, evaluate_revision_triggers,
-    prepare_activation_wal, project_plan_critic_delta, project_revision_boundary,
+    complete_revision_candidate, derive_revision_obligation_scope, estimate_revision_rework,
+    evaluate_revision_budget, evaluate_revision_triggers, prepare_activation_wal,
+    project_plan_critic_delta, project_revision_availability, project_revision_boundary,
+    project_revision_evaluation,
 )
 from ..speclib.plan_state import PlanStateError, execution_state_lint, initialize_plan_state, lease_lender_directly_related, plan_state_snapshot_lint, project_state_transition, validate_lease_authorization
 from ..speclib.plan_revision import (
-    PlanRevisionError, append_candidate_rejected, append_lease_finished, append_verification_committed,
-    build_event_entry, latest_activation, project_file_ledger, project_plan_state, successor_pointer,
-    validate_file_ledger, validate_revision_ledger,
+    PlanRevisionError, append_candidate_rejected, append_lease_finished, append_revision_evaluated,
+    append_verification_committed, build_event_entry, latest_activation, project_file_ledger,
+    project_plan_state, successor_pointer, validate_file_ledger, validate_revision_ledger,
 )
 from .s4_planning import bind_plan_critic_contract, validate_plan_critic_result
 from .s5_materialization import S5MaterializationController
@@ -648,6 +650,22 @@ class S6ExecutionController:
     def _fault(self, point: str) -> None:
         if self.fault_hook is not None:
             self.fault_hook(point)
+
+    @staticmethod
+    def _require_s6_call_capacity(store: RunStore, task_id: str) -> None:
+        """Fail controllably before allocating any new Agent call."""
+
+        state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        row = next((item for item in state["tasks"] if item.get("id") == task_id), None)
+        if isinstance(row, Mapping) and row.get("status") == "in_progress":
+            return
+        run = store.load_run()
+        cap = run.get("config_snapshot", {}).get("budgets", {}).get("s6_total_attempts_cap")
+        if not isinstance(cap, int) or isinstance(cap, bool) or int(state.get("s6_attempts_used", 0)) >= cap:
+            raise ControlledStageFailure({
+                "code": "EXECUTION_UNRESOLVED",
+                "detail": "S6 total attempt cap is exhausted before task allocation",
+            })
 
     @staticmethod
     def _finish_attempt(
@@ -1476,7 +1494,14 @@ class S6ExecutionController:
         result.update({"commit_sha": commit_sha, "phase": "committed"})
         return result
 
-    def _choose(self, plan: Mapping[str, Any], state: Mapping[str, Any], *, pending_group_ids: list[str] | None = None) -> Mapping[str, Any] | None:
+    def _choose(
+        self,
+        plan: Mapping[str, Any],
+        state: Mapping[str, Any],
+        *,
+        pending_group_ids: list[str] | None = None,
+        allowed_task_ids: set[str] | None = None,
+    ) -> Mapping[str, Any] | None:
         rows = {row["id"]: row for row in state["tasks"]}
         tasks = sorted(
             plan.get("tasks", []),
@@ -1489,6 +1514,8 @@ class S6ExecutionController:
         required_groups = set(pending_group_ids or [])
         for task in tasks:
             row = rows[task["id"]]
+            if allowed_task_ids is not None and task["id"] not in allowed_task_ids:
+                continue
             if row["status"] not in {"pending", "in_progress"}:
                 continue
             if required_groups and row.get("group_id") not in required_groups:
@@ -1497,6 +1524,59 @@ class S6ExecutionController:
             if all(rows.get(dependency, {}).get("status") == "done" for dependency in dependencies):
                 return task
         return None
+
+    @staticmethod
+    def _independent_after_group_failure(
+        task: Mapping[str, Any],
+        plan: Mapping[str, Any],
+        state: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        activation: Mapping[str, Any] | None,
+    ) -> bool:
+        """Conservatively prove DAG, contract, build, and smoke independence."""
+
+        failed_rows = [
+            row for row in state.get("tasks", [])
+            if row.get("group_id") is not None and row.get("status") in {"blocked", "blocked_by_dependency"}
+        ]
+        if not failed_rows:
+            return True
+        failed_ids = {str(row["id"]) for row in failed_rows}
+        tasks = {str(row["id"]): row for row in plan.get("tasks", [])}
+        dependencies = list(task.get("depends_on", []))
+        seen: set[str] = set()
+        while dependencies:
+            dependency = str(dependencies.pop())
+            if dependency in seen:
+                continue
+            seen.add(dependency)
+            if dependency in failed_ids:
+                return False
+            dependencies.extend(tasks.get(dependency, {}).get("depends_on", []))
+        failed_contracts = {
+            str(value)
+            for task_id in failed_ids for value in [
+                *tasks.get(task_id, {}).get("provides_contracts", []),
+                *tasks.get(task_id, {}).get("consumes_contracts", []),
+            ]
+        }
+        task_contracts = {str(value) for value in [*task.get("provides_contracts", []), *task.get("consumes_contracts", [])]}
+        if failed_contracts & task_contracts:
+            return False
+        failed_groups = {str(row["group_id"]) for row in failed_rows}
+        groups = activation.get("migration", {}).get("pending_groups", []) if isinstance(activation, Mapping) else []
+        failed_artifacts = {
+            str(artifact_id)
+            for group in groups if isinstance(group, Mapping) and group.get("group_id") in failed_groups
+            for artifact_id in group.get("build_artifact_ids", [])
+        }
+        variants = set(task.get("acceptance", {}).get("build_variant_ids", []))
+        task_artifacts = {
+            str(artifact.get("id"))
+            for artifact in blueprint.get("build_artifacts", []) if isinstance(artifact, Mapping)
+            and variants & set(artifact.get("build_variant_ids", []))
+        }
+        return bool(task_artifacts) and not bool(task_artifacts & failed_artifacts)
 
     def _group_descriptor(
         self,
@@ -1587,6 +1667,16 @@ class S6ExecutionController:
         workspace = store._confined("workspace")
         old_state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
         descriptor = self._group_descriptor(store, plan, blueprint, old_state, epoch, group_id)
+        call_members = [task for task in descriptor["members"] if next(row for row in old_state["tasks"] if row["id"] == task["id"])["execution_mode"] != "revalidate"]
+        run = store.load_run()
+        cap = run["config_snapshot"]["budgets"]["s6_total_attempts_cap"]
+        remaining = int(cap) - int(old_state.get("s6_attempts_used", 0))
+        required = sum(next(row for row in old_state["tasks"] if row["id"] == task["id"])["status"] != "in_progress" for task in call_members)
+        if remaining < required:
+            raise ControlledStageFailure({
+                "code": "EXECUTION_UNRESOLVED",
+                "detail": "S6 total attempt cap cannot allocate the pending repair group",
+            })
         if _git(workspace, "rev-parse", "HEAD") != descriptor["baseline_commit"]:
             raise S6ExecutionError("repair group must start from its accepted epoch checkpoint")
         cumulative: dict[str, bytes] = {}
@@ -1613,6 +1703,7 @@ class S6ExecutionController:
             if not writable_paths:
                 raise S6AdmissionError("non-revalidation group member has no frozen writable path")
             if mode == "amend":
+                self._require_s6_call_capacity(store, str(task["id"]))
                 allocation = store.allocate_s6_migration(
                     task_id=task["id"], task_uid=task["task_uid"], mode="amend",
                     baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
@@ -1628,6 +1719,7 @@ class S6ExecutionController:
                 call_attempt = int(row["attempts"]) if replaying else int(row["attempts"]) + 1
                 role = "coder" if call_attempt == 1 else "fixer"
                 tier = "T2" if call_attempt <= 3 else "T1"
+                self._require_s6_call_capacity(store, str(task["id"]))
                 allocation = store.allocate_s6_attempt(
                     task_id=task["id"], task_uid=task["task_uid"], role=role, tier=tier,
                     baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
@@ -1749,7 +1841,10 @@ class S6ExecutionController:
                 and next(row["attempts"] for row in state["tasks"] if row["id"] == task["id"]) < limit
             ]
             if not retry_tasks:
-                self._exhaust_group(store, plan, descriptor, allocations, build_refs, smoke_refs)
+                self._exhaust_group(
+                    store, plan, descriptor, allocations, build_refs, smoke_refs,
+                    candidate_refs=candidate_refs, failure_refs=failure_refs,
+                )
                 return
             for task in retry_tasks:
                 uid = str(task["task_uid"])
@@ -1809,6 +1904,7 @@ class S6ExecutionController:
             raise S6AdmissionError("group retry has no frozen writable path")
         attempt = int(row["attempts"]) + 1
         tier = "T2" if attempt <= 3 else "T1"
+        self._require_s6_call_capacity(store, str(task["id"]))
         allocation = store.allocate_s6_attempt(
             task_id=task["id"], task_uid=task["task_uid"], role="fixer", tier=tier,
             baseline_commit=descriptor["baseline_commit"], baseline_tree=descriptor["baseline_tree"],
@@ -1863,11 +1959,25 @@ class S6ExecutionController:
         allocations: Mapping[str, Mapping[str, Any]],
         build_refs: list[dict[str, str]],
         smoke_refs: list[dict[str, str]],
+        *,
+        candidate_refs: Sequence[Mapping[str, Any]],
+        failure_refs: Sequence[Mapping[str, Any]],
     ) -> None:
         state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
+        attempts = {
+            str(task["task_uid"]): int(next(row for row in state["tasks"] if row["id"] == task["id"])["attempts"])
+            for task in descriptor["members"]
+        }
         failure_ref = store.publish_immutable_json(
             f"groups/{descriptor['group_id']}/failure.json",
-            {"code": "GROUP_VALIDATION_EXHAUSTED", "build_result_refs": build_refs, "smoke_result_refs": smoke_refs},
+            {
+                "code": "GROUP_VALIDATION_EXHAUSTED",
+                "baseline_commit": descriptor["baseline_commit"], "baseline_tree": descriptor["baseline_tree"],
+                "member_attempts": attempts,
+                "candidate_refs": [dict(ref) for ref in candidate_refs],
+                "member_failure_refs": [dict(ref) for ref in failure_refs],
+                "build_result_refs": build_refs, "smoke_result_refs": smoke_refs,
+            },
         )
         members = sorted(descriptor["members"], key=lambda item: str(item["task_uid"]).encode("utf-8"))
         event = {
@@ -2164,6 +2274,7 @@ class S6ExecutionController:
         workspace = store._confined("workspace")
         baseline_commit = _git(workspace, "rev-parse", "HEAD")
         baseline_tree = _tree_sha256(workspace)
+        self._require_s6_call_capacity(store, str(task["id"]))
         allocation = store.allocate_s6_migration(
             task_id=str(task["id"]), task_uid=str(task["task_uid"]), mode="amend",
             baseline_commit=baseline_commit, baseline_tree=baseline_tree,
@@ -2508,6 +2619,7 @@ class S6ExecutionController:
                 except (PlanStateError, RunStoreError, KeyError, TypeError):
                     lease_authorization = None
                     lease_authorization_ref = None
+        self._require_s6_call_capacity(store, str(task["id"]))
         allocation = store.allocate_s6_attempt(task_id=task["id"], task_uid=task["task_uid"], role=role, tier=tier, baseline_commit=baseline_commit, baseline_tree=baseline_tree, lease_authorization=lease_authorization, lease_authorization_ref=lease_authorization_ref)
         state = allocation["state"]
         lease_id = allocation["attempt"].get("lease", {}).get("lease_id") if isinstance(allocation["attempt"].get("lease"), Mapping) else None
@@ -3262,7 +3374,7 @@ class S6ExecutionController:
                 file_ledger_ref={"path": "plan/file_ledger.json", "sha256": boundary_hashes["file_ledger"]},
                 revision_ledger=ledger, thresholds={"theta_2": revision_config["theta2"], "theta_6": revision_config["theta6"]}, facts=facts,
             )
-            evaluation = evaluate_revision_triggers(boundary, ledger)
+            evaluation = evaluate_revision_triggers(boundary, ledger, context.run["config_snapshot"])
             selection = evaluation.get("selection")
             expected = selected["payload"]
             if not isinstance(selection, Mapping) or selection.get("level") != candidate["level"] or selection.get("code") != expected.get("hit_code") or selection.get("signature") != expected.get("hit_signature"):
@@ -3337,11 +3449,6 @@ class S6ExecutionController:
                         },
                         run_id=context.run["run_id"], task_id=f"revision-critic-{event_seq}", stage="S6",
                     )
-                    response = result.response
-                    context.orchestrator.record_external_usage(store, UsageDelta(
-                        tokens_in=response.tokens_in, tokens_out=response.tokens_out,
-                        cost_usd=response.cost_usd, cached=response.cached,
-                    ))
                     review = result.parsed
                     critic_ref = store.publish_revision_candidate_evidence(
                         event_seq, "critic.json", review, schema_name="plan-critic-result.schema.json"
@@ -3469,6 +3576,133 @@ class S6ExecutionController:
             rehearsal_ref=rehearsal_ref, rework=rework or {}, constraints=constraints,
         )
 
+    @staticmethod
+    def _collect_revision_evidence(
+        store: RunStore,
+        ledger: Mapping[str, Any],
+        activation: Mapping[str, Any],
+        affected_uids: set[str],
+    ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+        """Collect only evidence and calls bound to one accepted activation."""
+
+        revision_seq = int(activation["revision_seq"])
+        trigger_event_seq = int(activation["trigger_event_seq"])
+        evidence: dict[tuple[str, str], dict[str, str]] = {}
+        call_keys: set[tuple[str, int]] = {(f"revision-critic-{trigger_event_seq}", 1)}
+
+        def add_ref(value: Mapping[str, Any] | None) -> None:
+            if not isinstance(value, Mapping):
+                return
+            path, digest = value.get("path"), value.get("sha256")
+            if not isinstance(path, str) or not isinstance(digest, str):
+                raise RevisionMechanismError(
+                    "revision evidence reference is incomplete", code="REVISION_ARTIFACT_DAMAGED"
+                )
+            store.verify_ref({"path": path, "sha256": digest})
+            evidence[(path, digest)] = {"path": path, "sha256": digest}
+
+        candidate_root = f"plan/_s4r/candidate_{trigger_event_seq}"
+        for name in ("candidate.json", "gates.json", "critic.json"):
+            path = f"{candidate_root}/{name}"
+            target = store._confined(path)
+            if target.is_file():
+                add_ref({"path": path, "sha256": sha256_bytes(target.read_bytes())})
+
+        for entry in ledger.get("entries", []):
+            payload = entry.get("payload", {})
+            if (
+                entry.get("event_type") == "verification_committed"
+                and payload.get("revision_seq") == revision_seq
+                and affected_uids.intersection(str(uid) for uid in payload.get("member_uids", []))
+            ):
+                for ref in payload.get("evidence_refs", []):
+                    add_ref(ref)
+                add_ref(payload.get("joint_evidence_ref"))
+
+        attempt_paths = [
+            *store._confined("attempts").glob("*/attempt_*.json"),
+            *store._confined("attempts").glob("*/amendment.json"),
+        ] if store._confined("attempts").is_dir() else []
+        for target in sorted(attempt_paths, key=lambda item: item.as_posix().encode("utf-8")):
+            path = target.relative_to(store.root).as_posix()
+            record = _load(store, path, "s6-attempt.schema.json")
+            migration_ref = record.get("migration_ref")
+            if (
+                record.get("task_uid") not in affected_uids
+                or not isinstance(migration_ref, Mapping)
+                or migration_ref.get("revision_seq") != revision_seq
+            ):
+                continue
+            add_ref(record.get("output_ref"))
+            add_ref(record.get("failure_ref"))
+            attempt = int(record.get("attempt", 0))
+            if record.get("execution_mode") == "amend":
+                attempt = max(1, attempt)
+            if attempt > 0:
+                call_keys.add((str(record["task_id"]), attempt))
+
+        validation_paths = list(store._confined("validations").glob("*/validation_*.json")) \
+            if store._confined("validations").is_dir() else []
+        for target in sorted(validation_paths, key=lambda item: item.as_posix().encode("utf-8")):
+            path = target.relative_to(store.root).as_posix()
+            record = _load(store, path, "s6-validation.schema.json")
+            migration_ref = record.get("migration_ref")
+            if (
+                record.get("task_uid") not in affected_uids
+                or not isinstance(migration_ref, Mapping)
+                or migration_ref.get("revision_seq") != revision_seq
+            ):
+                continue
+            add_ref(record.get("evidence_ref"))
+            add_ref(record.get("failure_ref"))
+            for key in ("build_result_refs", "smoke_result_refs"):
+                for ref in record.get(key, []):
+                    add_ref(ref)
+
+        trace_path = store._confined("trace/llm_calls.ndjson")
+        trace_by_key: dict[tuple[str, int], dict[str, Any]] = {}
+        if trace_path.is_file():
+            for line in trace_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise RevisionMechanismError(
+                        "revision call telemetry is invalid", code="REVISION_ARTIFACT_DAMAGED"
+                    ) from exc
+                if not isinstance(row, Mapping):
+                    raise RevisionMechanismError(
+                        "revision call telemetry row is invalid", code="REVISION_ARTIFACT_DAMAGED"
+                    )
+                task_id, attempt = row.get("task_id"), row.get("attempt")
+                if (
+                    row.get("stage") == "S6"
+                    and isinstance(task_id, str)
+                    and isinstance(attempt, int)
+                ):
+                    trace_by_key[(task_id, attempt)] = dict(row)
+
+        selected: dict[str, dict[str, Any]] = {}
+        for key in sorted(call_keys, key=lambda item: (item[0].encode("utf-8"), item[1])):
+            row = trace_by_key.get(key)
+            if row is None:
+                continue
+            path = row.get("output_path")
+            if not isinstance(path, str) or not store._confined(path).is_file():
+                raise RevisionMechanismError(
+                    "revision call output is unavailable", code="REVISION_ARTIFACT_DAMAGED"
+                )
+            bound = {**row, "sha256": sha256_bytes(store._confined(path).read_bytes())}
+            prior = selected.get(path)
+            if prior is not None and prior != bound:
+                raise RevisionMechanismError(
+                    "revision call output identity conflicts", code="REVISION_ARTIFACT_DAMAGED"
+                )
+            selected[path] = bound
+        return (
+            [evidence[key] for key in sorted(evidence, key=lambda item: (item[0].encode("utf-8"), item[1]))],
+            [selected[path] for path in sorted(selected, key=lambda value: value.encode("utf-8"))],
+        )
+
     def _revision_handoff(
         self,
         context: StageContext,
@@ -3534,6 +3768,94 @@ class S6ExecutionController:
         state_history_path = "plan/state_history.json"
         if not store._confined(state_history_path).is_file():
             return None
+        availability = project_revision_availability(ledger, context.run["config_snapshot"])
+        pending_revision = availability["pending_evaluation"]
+        if pending_revision is not None:
+            activation_entry = next(
+                (
+                    entry for entry in ledger["entries"]
+                    if entry.get("event_type") == "revision_activated"
+                    and entry.get("payload", {}).get("revision_seq") == pending_revision
+                ),
+                None,
+            )
+            if activation_entry is None:
+                raise S6ExecutionError("pending revision evaluation lost its activation")
+            activation = activation_entry["payload"]
+            trigger_entry = next(
+                (
+                    entry for entry in ledger["entries"]
+                    if entry.get("event_seq") == activation.get("trigger_event_seq")
+                    and entry.get("event_type") == "trigger_evaluated"
+                ),
+                None,
+            )
+            if trigger_entry is None:
+                raise S6ExecutionError("pending revision evaluation lost its trigger")
+            from_ref = activation["from_plan_ref"]
+            to_ref = activation["to_plan_ref"]
+            store.verify_ref(from_ref, schema_name="plan.schema.json")
+            store.verify_ref(to_ref, schema_name="plan.schema.json")
+            from_plan = _load(store, from_ref["path"], "plan.schema.json")
+            to_plan = _load(store, to_ref["path"], "plan.schema.json")
+            scope = derive_revision_obligation_scope(from_plan, to_plan, activation)
+
+            history = _load(store, state_history_path, "state-history.schema.json")
+            evaluation_history_path = f"plan/revision_evaluations/revision_{pending_revision}/state_history.json"
+            evaluation_history_ref = {"path": evaluation_history_path, "sha256": _hash(history)}
+            evidence_refs = [evaluation_history_ref]
+            affected_uids = set(scope["affected_task_uids"])
+            for row in state["tasks"]:
+                ref = row.get("acceptance_evidence", {}).get("task_evidence_ref")
+                if row.get("task_uid") in affected_uids and isinstance(ref, Mapping):
+                    store.verify_ref(ref)
+                    evidence_refs.append(dict(ref))
+            related_evidence, trace_rows = self._collect_revision_evidence(
+                store, ledger, activation, affected_uids,
+            )
+            evidence_refs.extend(related_evidence)
+            hard_budget = int(state.get("s6_attempts_used", 0)) >= int(
+                context.run["config_snapshot"]["budgets"]["s6_total_attempts_cap"]
+            )
+            try:
+                context.orchestrator.synchronize_budget(store)
+            except BudgetExhausted:
+                hard_budget = True
+
+            workspace = store._confined("workspace")
+            contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
+            facts = self._revision_facts(store, state, plan, blueprint, contract_map, context.run["config_snapshot"], constraints)
+            boundary = project_revision_boundary(
+                phase=str(facts.get("boundary_phase", "task_boundary")), revision_seq=int(active["revision_seq"]),
+                tasks=state["tasks"], plan_ref={"path": active["path"], "sha256": active["sha256"]}, epoch=str(active["epoch"]),
+                state_history_ref=evidence_refs[0], workspace_commit=_git(workspace, "rev-parse", "HEAD"),
+                workspace_tree=_git(workspace, "rev-parse", "HEAD^{tree}"),
+                blueprint_ref={"path": "plan/_s4/delivery_blueprint.json", "sha256": _hash(blueprint)},
+                contract_map_ref={"path": "plan/contract_map.json", "sha256": store._json_artifact_hash("plan/contract_map.json")},
+                file_ledger_ref={"path": "plan/file_ledger.json", "sha256": store._json_artifact_hash("plan/file_ledger.json")},
+                revision_ledger=ledger, thresholds={"theta_2": revision_config["theta2"], "theta_6": revision_config["theta6"]}, facts=facts,
+            )
+            current = evaluate_revision_triggers(boundary, ledger, context.run["config_snapshot"])
+            projected = project_revision_evaluation(
+                activation=activation, trigger=trigger_entry["payload"],
+                obligation_anchors=scope["obligation_anchors"],
+                affected_task_uids=scope["affected_task_uids"],
+                state=state, state_history=history["entries"],
+                current_signatures=[hit["signature"] for hit in current["hits"]],
+                hard_budget_exhausted=hard_budget, evidence_refs=evidence_refs, call_rows=trace_rows,
+                ledger_prefix_sha256=_hash(ledger),
+            )
+            if projected is None:
+                return None
+            published_history = store.publish_immutable_json(
+                evaluation_history_path,
+                history,
+                schema_name="state-history.schema.json",
+            )
+            if published_history.as_dict() != evaluation_history_ref:
+                raise ArtifactConflict("revision evaluation State-history snapshot changed before append")
+            ledger = append_revision_evaluated(ledger, **projected)
+            store.replace_json("plan/revision_ledger.json", ledger, schema_name="revision-ledger.schema.json")
         workspace = store._confined("workspace")
         contract_map = _load(store, "plan/contract_map.json", "contract-map.schema.json")
         facts = self._revision_facts(store, state, plan, blueprint, contract_map, context.run["config_snapshot"], constraints)
@@ -3556,7 +3878,7 @@ class S6ExecutionController:
             },
             facts=facts,
         )
-        evaluation = evaluate_revision_triggers(boundary, ledger)
+        evaluation = evaluate_revision_triggers(boundary, ledger, context.run["config_snapshot"])
         if not evaluation["hits"]:
             return None
         new_ledger = append_trigger_batch(ledger, evaluation)
@@ -3565,6 +3887,7 @@ class S6ExecutionController:
         if selection is not None:
             selected_index = next(index for index, hit in enumerate(evaluation["hits"]) if hit["selected"])
             event_seq = len(ledger["entries"]) + selected_index + 1
+            context.orchestrator.synchronize_budget(store)
             if self.revision_patch_provider is not None:
                 source_ir = plan_to_draft_ir(plan)
                 provider_input = {
@@ -3594,15 +3917,55 @@ class S6ExecutionController:
                     )
                     store.stage_revision_candidate(event_seq, bundle)
                     self._fault("revision_candidate_staged")
+            current_ledger = _load(store, "plan/revision_ledger.json", "revision-ledger.schema.json")
+            if _hash(current_ledger) != evaluation["ledger_prefix_sha256"]:
+                raise ArtifactConflict("revision availability changed before candidate publication")
+            current_availability = project_revision_availability(current_ledger, context.run["config_snapshot"])
+            if (
+                current_availability["revision_locked"]
+                or current_availability["pending_evaluation"] is not None
+                or current_availability["level_closed"][selection["level"]]
+                or (selection["signature"], selection["level"]) in {
+                    tuple(pair) for pair in current_availability["attempted_pairs"]
+                }
+            ):
+                raise RevisionMechanismError("revision selection closed before candidate publication")
+            context.orchestrator.synchronize_budget(store)
             store.replace_json("plan/revision_ledger.json", new_ledger, schema_name="revision-ledger.schema.json")
             self._fault("revision_trigger_ledger_replaced")
             if self.revision_patch_provider is not None and store._confined(f"plan/_s4r/.candidate_{event_seq}.pending").is_dir():
+                context.orchestrator.synchronize_budget(store)
                 candidate_ref = store.commit_revision_candidate(event_seq).path
                 self._fault("revision_candidate_committed")
             return StageResult(pause=StagePause("revision_handoff", event_seq, candidate_ref))
         store.replace_json("plan/revision_ledger.json", new_ledger, schema_name="revision-ledger.schema.json")
         self._fault("revision_trigger_ledger_replaced")
         return None
+
+    def _checked_revision_handoff(
+        self,
+        context: StageContext,
+        plan: Mapping[str, Any],
+        active: Mapping[str, Any],
+        blueprint: Mapping[str, Any],
+        constraints: Mapping[str, Any],
+    ) -> StageResult | None:
+        """Map deterministic revision-artifact damage to the existing failed route."""
+
+        try:
+            return self._revision_handoff(context, plan, active, blueprint, constraints)
+        except (ArtifactConflict, RunValidationError, PlanRevisionError) as exc:
+            raise ControlledStageFailure({
+                "code": "S6_ADMISSION_INVALID",
+                "detail": f"revision evaluation artifact is invalid: {exc}",
+            }) from exc
+        except RevisionMechanismError as exc:
+            if exc.code not in {"REVISION_ARTIFACT_DAMAGED", "REVISION_LEDGER_CONFLICT"}:
+                raise
+            raise ControlledStageFailure({
+                "code": "S6_ADMISSION_INVALID",
+                "detail": f"revision evaluation artifact is invalid: {exc}",
+            }) from exc
 
     def run(self, context: StageContext) -> StageResult:
         store = context.store
@@ -3631,19 +3994,39 @@ class S6ExecutionController:
             run, plan, active, blueprint, constraints, epoch = self._admit(store)
         except (S6AdmissionError, RunStoreError, S6ExecutionError) as exc:
             raise ControlledStageFailure({"code": "S6_ADMISSION_INVALID", "detail": str(exc)}) from exc
-        handoff = self._revision_handoff(context, plan, active, blueprint, constraints)
+        handoff = self._checked_revision_handoff(context, plan, active, blueprint, constraints)
         if handoff is not None:
             return handoff
         while True:
             self._propagate_dependency_blocks(store, plan)
+            handoff = self._checked_revision_handoff(context, plan, active, blueprint, constraints)
+            if handoff is not None:
+                return handoff
             state = _load(store, "plan/plan_state.json", "plan-state.schema.json")
             unresolved_groups = sorted(
                 {str(row["group_id"]) for row in state["tasks"] if row.get("group_id") is not None and row["status"] in {"pending", "in_progress"}},
                 key=lambda value: value.encode("utf-8"),
             )
             pending_groups = unresolved_groups if unresolved_groups else None
-            task = self._choose(plan, state, pending_group_ids=pending_groups)
+            failed_group = any(
+                row.get("group_id") is not None and row.get("status") in {"blocked", "blocked_by_dependency"}
+                for row in state["tasks"]
+            )
+            allowed_task_ids = None
+            if failed_group and not pending_groups:
+                activation = latest_activation(_load(store, "plan/revision_ledger.json", "revision-ledger.schema.json"))
+                allowed_task_ids = {
+                    str(candidate["id"])
+                    for candidate in plan.get("tasks", [])
+                    if self._independent_after_group_failure(candidate, plan, state, blueprint, activation)
+                }
+            task = self._choose(
+                plan, state, pending_group_ids=pending_groups, allowed_task_ids=allowed_task_ids,
+            )
             if task is None:
+                handoff = self._checked_revision_handoff(context, plan, active, blueprint, constraints)
+                if handoff is not None:
+                    return handoff
                 if any(row["status"] == "pending" for row in state["tasks"]):
                     raise ControlledStageFailure({"code": "EXECUTION_UNRESOLVED", "detail": "no executable task remains in the current dependency graph"})
                 break
@@ -3652,7 +4035,7 @@ class S6ExecutionController:
                 self._run_group(context, plan, blueprint, constraints, epoch, str(row["group_id"]))
             else:
                 self._run_task(context, plan, blueprint, constraints, task)
-            handoff = self._revision_handoff(context, plan, active, blueprint, constraints)
+            handoff = self._checked_revision_handoff(context, plan, active, blueprint, constraints)
             if handoff is not None:
                 return handoff
         final = self._finalize(context, plan, active, blueprint, constraints, epoch)

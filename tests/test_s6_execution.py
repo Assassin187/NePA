@@ -9,8 +9,9 @@ import pytest
 
 from nepa.application import build_orchestrator
 from nepa.config import load_config
+from nepa.llm.client import LLMResponse
 from nepa.orchestrator import CrashInjected, ControlledStageFailure, StageContext
-from nepa.run_store import RunStoreError
+from nepa.run_store import RunStore, RunStoreError
 from nepa.stages.s5_materialization import S5MaterializationController
 
 from test_s5_materialization import FakeExecutor, _frozen_fixture_store, _sealed_store
@@ -156,6 +157,154 @@ def test_s6_exhaustion_uses_four_calls_and_degraded_exit(tmp_path):
     state = store._read_json_artifact("plan/plan_state.json")
     assert all(row["status"] == "blocked" and row["attempts"] == 4 for row in state["tasks"])
     assert not store._confined("plan/s6_receipt.json").exists()
+
+
+@pytest.mark.s6_execution
+def test_s6_call_cap_is_checked_before_allocation_without_state_change(tmp_path):
+    from nepa.stages.s6_execution import S6ExecutionController
+
+    store, _config = _ready_store(tmp_path)
+    S6ExecutionController(_CurrentFilesAgent())._admit(store)
+    state = store._read_json_artifact("plan/plan_state.json", schema_name="plan-state.schema.json")
+    state["s6_attempts_used"] = store.load_run()["config_snapshot"]["budgets"]["s6_total_attempts_cap"]
+    store.replace_json("plan/plan_state.json", state, schema_name="plan-state.schema.json")
+    before = store._confined("plan/plan_state.json").read_bytes()
+    with pytest.raises(ControlledStageFailure) as exc:
+        S6ExecutionController._require_s6_call_capacity(store, state["tasks"][0]["id"])
+    assert exc.value.reason["code"] == "EXECUTION_UNRESOLVED"
+    assert store._confined("plan/plan_state.json").read_bytes() == before
+    assert not store._confined(f"attempts/{state['tasks'][0]['task_uid']}").exists()
+
+
+@pytest.mark.s6_execution
+def test_s6_post_call_budget_exhaustion_retains_usage_and_stops_later_calls(tmp_path):
+    store, _config = _ready_store(tmp_path)
+    plan = store._read_json_artifact("plan/versions/plan-1.0.0.json")
+    task = sorted(plan["tasks"], key=lambda item: item["id"].encode("utf-8"))[0]
+    workspace = store._confined("workspace")
+    output = {
+        "micro_plan": ["implement"],
+        "files": [{
+            "path": path,
+            "content": (workspace / path).read_text(encoding="utf-8") + "\n/* accepted by S6 */\n",
+        } for path in task["deliverable_files"]],
+        "notes": "accepted",
+    }
+
+    class Provider:
+        native_structured_output = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, request, *, model, native_schema):
+            self.calls += 1
+            return LLMResponse(
+                text=json.dumps(output), tokens_in=1, tokens_out=0, cost_usd=0,
+                model=model, parameter_support={"temperature": "unknown"},
+            )
+
+    provider = Provider()
+    config = load_config(overrides={
+        "run": {"until": "s6"},
+        "budgets": {"max_cost_usd": 0.0000005},
+        "providers": {"fixture": {"kind": "openai_compat", "base_url": "https://fixture", "api_key_env": None}},
+        "tiers": {
+            "T1": {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 16000},
+            "T2": {"provider": "fixture", "model": "model", "temperature": 0, "max_tokens": 16000},
+        },
+        "roles": {
+            "coder": {"tier": "T2", "provider": "fixture", "model": "model"},
+            "fixer": {"tier": "T2", "provider": "fixture", "model": "model"},
+        },
+        "pricing": {"models": {"fixture/model": {
+            "input_usd_per_million_tokens": 1,
+            "output_usd_per_million_tokens": 1,
+        }}},
+    })
+    run = store.load_run()
+    run["config_snapshot"] = config.snapshot
+    run["config_snapshot_sha256"] = config.snapshot_sha256
+    run["stages"]["s4"]["output_refs"]["config_snapshot_sha256"] = config.snapshot_sha256
+    store.replace_run(run)
+
+    assert build_orchestrator(config, store, providers={"fixture": provider}, executor=FakeExecutor()).run_spec(store) == 10
+    assert provider.calls == 1
+    assert store.load_run()["budget_used"]["cost_usd"] == pytest.approx(0.000001)
+
+
+@pytest.mark.revision_mechanism
+def test_revision_evidence_collection_uses_activation_bound_attempts(tmp_path):
+    from nepa.schemas import load_example
+    from nepa.stages.s6_execution import S6ExecutionController
+
+    store = RunStore(tmp_path / "run")
+    store.root.mkdir()
+    affected_uid = "a" * 16
+    evidence_ref = store.publish_immutable_json("evidence/task.json", {"accepted": True}).as_dict()
+    call_one = store.publish_immutable_json("calls/revision-task.json", {"answer": 1}).as_dict()
+    call_old = store.publish_immutable_json("calls/pre-activation.json", {"answer": 0}).as_dict()
+    call_critic = store.publish_immutable_json("calls/critic.json", {"answer": 2}).as_dict()
+    store.publish_immutable_json("plan/_s4r/candidate_7/critic.json", {"verdict": "pass"})
+
+    attempt = load_example("s6-attempt.example.json")
+    attempt.update({
+        "task_id": "T-001", "task_uid": affected_uid, "attempt": 1,
+        "plan_ref": {**attempt["plan_ref"], "revision_seq": 1},
+        "migration_ref": {"revision_seq": 1, "event_seq": 8},
+        "status": "succeeded", "output_ref": evidence_ref, "failure_ref": None,
+    })
+    store.replace_json(
+        f"attempts/{affected_uid}/attempt_001.json", attempt,
+        schema_name="s6-attempt.schema.json",
+    )
+    trace_rows = [
+        {"stage": "S6", "task_id": "T-001", "attempt": 1, "output_path": call_old["path"], "cost_usd": 9.0},
+        {"stage": "S6", "task_id": "T-001", "attempt": 1, "output_path": call_one["path"], "cost_usd": 1.25},
+        {"stage": "S6", "task_id": "revision-critic-7", "attempt": 1, "output_path": call_critic["path"], "cost_usd": 2.0},
+        {"stage": "S4", "task_id": "T-001", "attempt": 1, "output_path": call_old["path"], "cost_usd": 9.0},
+    ]
+    trace_path = store._confined("trace/llm_calls.ndjson")
+    trace_path.parent.mkdir(parents=True)
+    trace_path.write_text("".join(json.dumps(row) + "\n" for row in trace_rows), encoding="utf-8")
+    ledger = {"entries": [{
+        "event_type": "verification_committed",
+        "payload": {"revision_seq": 1, "member_uids": [affected_uid], "evidence_refs": [evidence_ref]},
+    }]}
+
+    evidence, calls = S6ExecutionController._collect_revision_evidence(
+        store,
+        ledger,
+        {"revision_seq": 1, "trigger_event_seq": 7},
+        {affected_uid},
+    )
+
+    assert evidence_ref in evidence
+    assert {row["output_path"] for row in calls} == {call_one["path"], call_critic["path"]}
+    assert sum(row["cost_usd"] for row in calls) == 3.25
+
+
+@pytest.mark.revision_mechanism
+def test_revision_handoff_classifies_artifact_damage_but_not_invariant_errors(monkeypatch):
+    from nepa.speclib.revision_mechanism import RevisionMechanismError
+    from nepa.stages.s6_execution import S6ExecutionController
+
+    controller = S6ExecutionController(_CurrentFilesAgent())
+
+    def damaged(*args, **kwargs):
+        raise RevisionMechanismError("damaged", code="REVISION_ARTIFACT_DAMAGED")
+
+    monkeypatch.setattr(controller, "_revision_handoff", damaged)
+    with pytest.raises(ControlledStageFailure) as exc_info:
+        controller._checked_revision_handoff(None, {}, {}, {}, {})
+    assert exc_info.value.reason["code"] == "S6_ADMISSION_INVALID"
+
+    def invariant(*args, **kwargs):
+        raise RevisionMechanismError("bug", code="REVISION_BOUNDARY_INVALID")
+
+    monkeypatch.setattr(controller, "_revision_handoff", invariant)
+    with pytest.raises(RevisionMechanismError, match="bug"):
+        controller._checked_revision_handoff(None, {}, {}, {}, {})
 
 
 def test_s6_normal_noop_never_marks_tasks_done_or_creates_task_commit(tmp_path):
@@ -711,6 +860,32 @@ def test_group_exhaustion_propagates_dependencies_but_leaves_independent_branch_
     assert next(row for row in projected["tasks"] if row["id"] == "T-004")["status"] == "pending"
     selected = controller._choose(plan, projected)
     assert selected is not None and selected["id"] == "T-004"
+
+
+def test_group_failure_continuation_requires_build_and_contract_independence():
+    from nepa.stages.s6_execution import S6ExecutionController
+
+    failed = {"id": "T-001", "task_uid": "1" * 16, "group_id": "g-1-1", "status": "blocked"}
+    pending = {"id": "T-002", "task_uid": "2" * 16, "group_id": None, "status": "pending"}
+    task = {
+        "id": "T-002", "task_uid": "2" * 16, "depends_on": [],
+        "provides_contracts": [], "consumes_contracts": [],
+        "acceptance": {"build_variant_ids": ["independent"]},
+    }
+    plan = {"tasks": [
+        {"id": "T-001", "task_uid": "1" * 16, "depends_on": [], "provides_contracts": ["failed-api"], "consumes_contracts": []},
+        task,
+    ]}
+    state = {"tasks": [failed, pending]}
+    activation = {"migration": {"pending_groups": [{"group_id": "g-1-1", "build_artifact_ids": ["failed-app"]}]}}
+    independent = {"build_artifacts": [{"id": "other-app", "build_variant_ids": ["independent"]}]}
+    assert S6ExecutionController._independent_after_group_failure(task, plan, state, independent, activation) is True
+
+    shared = {"build_artifacts": [{"id": "failed-app", "build_variant_ids": ["independent"]}]}
+    assert S6ExecutionController._independent_after_group_failure(task, plan, state, shared, activation) is False
+    contract_bound = copy.deepcopy(task)
+    contract_bound["consumes_contracts"] = ["failed-api"]
+    assert S6ExecutionController._independent_after_group_failure(contract_bound, plan, state, independent, activation) is False
 
 
 @pytest.mark.s6_execution

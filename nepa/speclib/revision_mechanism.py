@@ -7,6 +7,7 @@ import hashlib
 import posixpath
 import re
 from collections import defaultdict
+from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
@@ -34,7 +35,7 @@ class RevisionMechanismError(ValueError):
 
 
 _REVISION_LEVELS = {"F2", "F3"}
-_ROUTE_LEVEL = {"F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4"}
+_ROUTE_LEVEL = {"F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4", "F5": "F5"}
 
 
 def _canonical(value: Any) -> Any:
@@ -267,22 +268,84 @@ def _trigger_hits(boundary: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(unique.values(), key=lambda item: (int(item["code"].split("-")[1]), item["route"].encode("utf-8"), item["signature"]))
 
 
-def _attempted(ledger: Mapping[str, Any]) -> tuple[set[tuple[str, str]], set[str]]:
-    rejected: set[tuple[str, str]] = set()
-    activated: set[str] = set()
-    trigger_by_seq = {entry["event_seq"]: entry["payload"] for entry in ledger.get("entries", []) if entry.get("event_type") == "trigger_evaluated"}
-    for entry in ledger.get("entries", []):
+def project_revision_availability(
+    revision_ledger: Mapping[str, Any], config_snapshot: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Project all revision availability state from immutable accepted facts."""
+
+    validate_revision_ledger(revision_ledger)
+    budgets = config_snapshot.get("budgets", config_snapshot)
+    if not isinstance(budgets, Mapping):
+        raise RevisionMechanismError("revision budgets are missing", code="REVISION_BUDGET_INVALID")
+    limits: dict[str, int] = {}
+    for level in sorted(_REVISION_LEVELS):
+        value = budgets.get(f"revision_{level.lower()}_limit")
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise RevisionMechanismError("revision level limit is invalid", code="REVISION_BUDGET_INVALID")
+        limits[level] = value
+
+    triggers = {
+        entry["event_seq"]: entry["payload"]
+        for entry in revision_ledger.get("entries", [])
+        if entry.get("event_type") == "trigger_evaluated"
+    }
+    attempted: set[tuple[str, str]] = set()
+    counts = {level: 0 for level in _REVISION_LEVELS}
+    streaks: dict[str, list[str]] = {level: [] for level in _REVISION_LEVELS}
+    activations: dict[int, Mapping[str, Any]] = {}
+    evaluated: set[int] = set()
+    ineffective = False
+    unsupported = False
+    for entry in revision_ledger.get("entries", []):
         payload = entry.get("payload", {})
-        if entry.get("event_type") == "candidate_rejected":
-            trigger = trigger_by_seq.get(payload.get("trigger_event_seq"), {})
-            signature = payload.get("trigger_signature") or trigger.get("hit_signature")
-            if isinstance(signature, str):
-                rejected.add((signature, str(payload.get("level"))))
-        elif entry.get("event_type") == "revision_activated":
-            signature = payload.get("trigger_signature")
-            if isinstance(signature, str):
-                activated.add(signature)
-    return rejected, activated
+        event_type = entry.get("event_type")
+        if event_type == "trigger_evaluated":
+            unsupported = unsupported or payload.get("route") in {"F4", "F5"}
+        elif event_type == "candidate_rejected":
+            trigger = triggers.get(payload.get("trigger_event_seq"))
+            if (
+                not isinstance(trigger, Mapping)
+                or trigger.get("selected") is not True
+                or trigger.get("route") != payload.get("level")
+            ):
+                raise RevisionMechanismError(
+                    "candidate rejection does not resolve to its selected trigger",
+                    code="REVISION_LEDGER_CONFLICT",
+                )
+            level = str(payload["level"])
+            signature = str(trigger["hit_signature"])
+            attempted.add((signature, level))
+            if level in streaks and signature not in streaks[level]:
+                streaks[level].append(signature)
+        elif event_type == "revision_activated":
+            level = str(payload["level"])
+            signature = str(payload["trigger_signature"])
+            attempted.add((signature, level))
+            counts[level] += 1
+            streaks[level] = []
+            activations[int(payload["revision_seq"])] = payload
+        elif event_type == "revision_evaluated":
+            evaluated.add(int(payload["revision_seq"]))
+            ineffective = ineffective or payload.get("ineffective") is True
+    closed = {
+        level: counts[level] >= limits[level] or len(streaks[level]) >= 2
+        for level in sorted(_REVISION_LEVELS)
+    }
+    pending = [seq for seq in sorted(activations) if seq not in evaluated]
+    if len(pending) > 1:
+        raise RevisionMechanismError(
+            "revision ledger contains multiple unevaluated activations",
+            code="REVISION_LEDGER_CONFLICT",
+        )
+    return {
+        "attempted_pairs": [list(pair) for pair in sorted(attempted, key=lambda pair: (pair[0].encode("utf-8"), pair[1]))],
+        "activation_counts": {level: counts[level] for level in sorted(counts)},
+        "level_limits": {level: limits[level] for level in sorted(limits)},
+        "rejection_streaks": {level: list(streaks[level]) for level in sorted(streaks)},
+        "level_closed": closed,
+        "revision_locked": ineffective or unsupported or all(closed.values()),
+        "pending_evaluation": None if not pending else pending[0],
+    }
 
 
 def _validate_evaluation_semantics(evaluation: Mapping[str, Any]) -> None:
@@ -305,18 +368,30 @@ def _validate_evaluation_semantics(evaluation: Mapping[str, Any]) -> None:
         raise RevisionMechanismError("trigger evaluation selection disagrees with its hit", code="REVISION_EVALUATION_INVALID")
 
 
-def evaluate_revision_triggers(boundary: Mapping[str, Any], revision_ledger: Mapping[str, Any]) -> dict[str, Any]:
+def evaluate_revision_triggers(
+    boundary: Mapping[str, Any],
+    revision_ledger: Mapping[str, Any],
+    config_snapshot: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate all M1 trigger hits, then choose one F2/F3 route deterministically."""
 
     validate_revision_ledger(revision_ledger)
     if boundary.get("ledger_prefix_sha256") != _sha(revision_ledger):
         raise RevisionMechanismError("revision-ledger prefix drift", code="REVISION_BOUNDARY_STALE")
     hits = _trigger_hits(boundary)
-    rejected, activated = _attempted(revision_ledger)
+    availability = project_revision_availability(
+        revision_ledger,
+        config_snapshot or {"revision_f2_limit": 2**31 - 1, "revision_f3_limit": 2**31 - 1},
+    )
+    attempted = {tuple(pair) for pair in availability["attempted_pairs"]}
     eligible = [
         hit for hit in hits
         if boundary.get("facts", {}).get("revision_ready", True) is not False
-        and hit["route"] in _REVISION_LEVELS and hit["signature"] not in activated and (hit["signature"], hit["route"]) not in rejected
+        and not availability["revision_locked"]
+        and availability["pending_evaluation"] is None
+        and hit["route"] in _REVISION_LEVELS
+        and not availability["level_closed"][hit["route"]]
+        and (hit["signature"], hit["route"]) not in attempted
     ]
     eligible.sort(key=lambda item: (0 if item["route"] == "F2" else 1, int(item["code"].split("-")[1]), item["signature"]))
     selection = None
@@ -1397,6 +1472,185 @@ def estimate_revision_rework(
     }
 
 
+def derive_revision_obligation_scope(
+    from_plan: Mapping[str, Any],
+    to_plan: Mapping[str, Any],
+    activation: Mapping[str, Any],
+) -> dict[str, list[str]]:
+    """Bind an activation to its complete immutable successor-obligation scope."""
+
+    old_by_uid = {str(task.get("task_uid")): task for task in from_plan.get("tasks", [])}
+    new_by_uid = {str(task.get("task_uid")): task for task in to_plan.get("tasks", [])}
+    if len(old_by_uid) != len(from_plan.get("tasks", [])) or len(new_by_uid) != len(to_plan.get("tasks", [])):
+        raise RevisionMechanismError("Plan task identity is ambiguous", code="REVISION_ARTIFACT_DAMAGED")
+    migration = activation.get("migration")
+    if not isinstance(migration, Mapping):
+        raise RevisionMechanismError("activation migration is missing", code="REVISION_ARTIFACT_DAMAGED")
+
+    affected_new: set[str] = {
+        str(row["new_task_uid"])
+        for row in migration.get("tasks", [])
+        if isinstance(row, Mapping)
+        and row.get("classification") != "INHERIT"
+        and isinstance(row.get("new_task_uid"), str)
+    }
+    for group in migration.get("pending_groups", []):
+        if isinstance(group, Mapping):
+            affected_new.update(str(uid) for uid in group.get("member_task_uids", []))
+    for operation in activation.get("patch_ops", []):
+        if not isinstance(operation, Mapping):
+            continue
+        for key, value in operation.items():
+            if key.endswith("task_uid") and isinstance(value, str) and value in new_by_uid:
+                affected_new.add(value)
+            elif key.endswith("task_uids") and isinstance(value, list):
+                affected_new.update(str(uid) for uid in value if str(uid) in new_by_uid)
+
+    if not affected_new or any(uid not in new_by_uid for uid in affected_new):
+        raise RevisionMechanismError("revision affected task set is empty or damaged", code="REVISION_ARTIFACT_DAMAGED")
+
+    new_id_to_uid = {str(task.get("id")): uid for uid, task in new_by_uid.items()}
+    affected_contracts: set[str] = set()
+    while True:
+        prior = (set(affected_new), set(affected_contracts))
+        affected_ids = {str(new_by_uid[uid].get("id")) for uid in affected_new if uid in new_by_uid}
+        for uid in list(affected_new):
+            task = new_by_uid.get(uid)
+            if task is not None:
+                affected_contracts.update(str(value) for value in [*task.get("provides_contracts", []), *task.get("consumes_contracts", [])])
+        for uid, task in new_by_uid.items():
+            if set(task.get("depends_on", [])) & affected_ids or set(task.get("provides_contracts", [])) & affected_contracts or set(task.get("consumes_contracts", [])) & affected_contracts:
+                affected_new.add(uid)
+            for dependency in task.get("depends_on", []):
+                if uid in affected_new and str(dependency) in new_id_to_uid:
+                    affected_new.add(new_id_to_uid[str(dependency)])
+        if prior == (affected_new, affected_contracts):
+            break
+
+    lineage: dict[str, set[str]] = defaultdict(set)
+    for row in migration.get("tasks", []):
+        if not isinstance(row, Mapping):
+            continue
+        new_uid = row.get("new_task_uid")
+        old_uids = [row.get("old_task_uid"), *list(row.get("merged_from", []))]
+        for old_uid in old_uids:
+            if isinstance(old_uid, str) and isinstance(new_uid, str):
+                lineage[old_uid].add(new_uid)
+    for uid in set(old_by_uid) & set(new_by_uid):
+        lineage[uid].add(uid)
+
+    anchors: set[str] = set()
+    for old_uid, old_task in old_by_uid.items():
+        successors = sorted(lineage.get(old_uid, set()) & affected_new, key=lambda value: value.encode("utf-8"))
+        if not successors:
+            continue
+        digest = old_task.get("obligation_digest")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise RevisionMechanismError("source obligation evidence is missing", code="REVISION_ARTIFACT_DAMAGED")
+        anchors.add(_sha({"obligation_digest": digest, "old_task_uids": [old_uid], "new_task_uids": successors}))
+    for new_uid in affected_new:
+        if new_uid not in new_by_uid:
+            raise RevisionMechanismError("migration references a missing target task", code="REVISION_ARTIFACT_DAMAGED")
+        if not any(new_uid in successors for successors in lineage.values()):
+            digest = new_by_uid[new_uid].get("obligation_digest")
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise RevisionMechanismError("target obligation evidence is missing", code="REVISION_ARTIFACT_DAMAGED")
+            anchors.add(_sha({"obligation_digest": digest, "old_task_uids": [], "new_task_uids": [new_uid]}))
+    if not anchors:
+        raise RevisionMechanismError("revision obligation anchor set is empty", code="REVISION_ARTIFACT_DAMAGED")
+    return {
+        "affected_task_uids": sorted(affected_new, key=lambda value: value.encode("utf-8")),
+        "obligation_anchors": sorted(anchors, key=lambda value: value.encode("utf-8")),
+    }
+
+
+def derive_revision_obligation_anchors(
+    from_plan: Mapping[str, Any],
+    to_plan: Mapping[str, Any],
+    activation: Mapping[str, Any],
+) -> list[str]:
+    """Return the canonical anchors from the single obligation-scope projection."""
+
+    return derive_revision_obligation_scope(from_plan, to_plan, activation)["obligation_anchors"]
+
+
+def project_revision_evaluation(
+    *,
+    activation: Mapping[str, Any],
+    trigger: Mapping[str, Any],
+    obligation_anchors: Sequence[str],
+    affected_task_uids: Sequence[str],
+    state: Mapping[str, Any],
+    state_history: Sequence[Mapping[str, Any]],
+    current_signatures: Sequence[str],
+    hard_budget_exhausted: bool,
+    evidence_refs: Sequence[Mapping[str, Any]],
+    call_rows: Sequence[Mapping[str, Any]],
+    ledger_prefix_sha256: str,
+) -> dict[str, Any] | None:
+    """Return a terminal evaluation, or ``None`` while useful work remains."""
+
+    affected = set(affected_task_uids)
+    states = {str(row.get("task_uid")): row for row in state.get("tasks", []) if isinstance(row, Mapping)}
+    if not affected or any(uid not in states for uid in affected):
+        raise RevisionMechanismError("evaluation task evidence is incomplete", code="REVISION_ARTIFACT_DAMAGED")
+    terminal = all(states[uid].get("status") in {"done", "blocked", "blocked_by_dependency"} for uid in affected)
+    if not terminal and not hard_budget_exhausted:
+        return None
+    successful = all(
+        states[uid].get("status") == "done"
+        and isinstance(states[uid].get("acceptance_evidence"), Mapping)
+        and states[uid]["acceptance_evidence"].get("task_evidence_ref")
+        for uid in affected
+    )
+    signature = trigger.get("hit_signature") or activation.get("trigger_signature")
+    persists = isinstance(signature, str) and signature in set(current_signatures)
+    resolved = successful and not persists
+    ineffective = terminal and persists
+    refs = _refs(evidence_refs)
+    if not refs:
+        raise RevisionMechanismError("evaluation requires accepted evidence", code="REVISION_ARTIFACT_DAMAGED")
+    calls: dict[str, dict[str, Any]] = {}
+    cost = Decimal("0")
+    for row in call_rows:
+        path = row.get("output_path") or row.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        ref = {"path": path}
+        if isinstance(row.get("sha256"), str):
+            ref["sha256"] = row["sha256"]
+        prior = calls.get(path)
+        if prior is None:
+            calls[path] = ref
+            value = row.get("cost_usd", 0)
+            if not isinstance(value, (int, float, str)) or isinstance(value, bool) or Decimal(str(value)) < 0:
+                raise RevisionMechanismError("evaluation call cost is invalid", code="REVISION_ARTIFACT_DAMAGED")
+            cost += Decimal(str(value))
+        elif prior != ref:
+            raise RevisionMechanismError("evaluation call identity conflicts", code="REVISION_ARTIFACT_DAMAGED")
+    call_refs = [calls[path] for path in sorted(calls, key=lambda value: value.encode("utf-8"))]
+    reason = "terminal" if terminal else "hard_budget_exhausted"
+    if not re.fullmatch(r"[0-9a-f]{64}", ledger_prefix_sha256):
+        raise RevisionMechanismError("evaluation ledger prefix is invalid", code="REVISION_ARTIFACT_DAMAGED")
+    evaluated_at = _sha({
+        "revision_seq": activation.get("revision_seq"),
+        "trigger_event_seq": activation.get("trigger_event_seq"),
+        "state_history_sha256": _sha(list(state_history)),
+        "ledger_prefix_sha256": ledger_prefix_sha256,
+        "reason": reason,
+    })
+    return {
+        "revision_seq": activation["revision_seq"],
+        "evaluated_at": evaluated_at,
+        "obligation_anchors": sorted(set(obligation_anchors), key=lambda value: value.encode("utf-8")),
+        "resolved": resolved,
+        "ineffective": ineffective,
+        "evidence_refs": refs,
+        "call_refs": call_refs,
+        "cost_usd": float(cost),
+    }
+
+
 def evaluate_revision_budget(
     *,
     level: str,
@@ -1415,16 +1669,14 @@ def evaluate_revision_budget(
     preservation = float(migration.get("preservation_rate", -1))
     minimum = float(revision[f"rho_min_{level.lower()}"])
     remaining_cost = float(budgets["max_cost_usd"]) - float(run.get("budget_used", {}).get("cost_usd", 0))
-    activations = sum(
-        entry.get("event_type") == "revision_activated" and entry.get("payload", {}).get("level") == level
-        for entry in revision_ledger.get("entries", [])
-    )
-    level_limit = int(budgets[f"revision_{level.lower()}_limit"])
+    availability = project_revision_availability(revision_ledger, config)
+    activations = availability["activation_counts"][level]
+    level_limit = availability["level_limits"][level]
     remaining_calls = int(budgets["s6_total_attempts_cap"]) - int(state.get("s6_attempts_used", 0))
     checks = {
         "preservation": preservation >= minimum,
         "cost": estimate["cost_usd"] <= max(0.0, remaining_cost) * 0.5,
-        "level_limit": activations < level_limit,
+        "level_limit": not availability["level_closed"][level] and not availability["revision_locked"],
         "execution_calls": estimate["execution_calls"] <= remaining_calls,
     }
     return {"pass": all(checks.values()), "checks": checks, "estimate": estimate, "preservation_rate": preservation, "rho_min": minimum, "remaining_cost_usd": remaining_cost, "activations": activations, "level_limit": level_limit, "remaining_execution_calls": remaining_calls}
@@ -1611,6 +1863,10 @@ __all__ = [
     "estimate_revision_rework",
     "evaluate_revision_budget",
     "evaluate_revision_triggers",
+    "derive_revision_obligation_scope",
+    "derive_revision_obligation_anchors",
+    "project_revision_availability",
+    "project_revision_evaluation",
     "project_plan_critic_delta",
     "prepare_activation_wal",
     "project_revision_boundary",

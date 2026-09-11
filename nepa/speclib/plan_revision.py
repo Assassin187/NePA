@@ -801,6 +801,8 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
     lease_starts: dict[str, Mapping[str, Any]] = {}
     lease_finishes: set[str] = set()
     rejected_candidates: set[str] = set()
+    accepted_entries: dict[int, Mapping[str, Any]] = {}
+    evaluated_revisions: set[int] = set()
     for entry in ledger.get("entries", []):
         if entry["event_seq"] != expected_seq or entry["prev_entry_sha256"] != previous:
             raise PlanRevisionError("revision ledger event sequence or predecessor hash is invalid")
@@ -812,6 +814,14 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
             if candidate_id != f"candidate-{payload['trigger_event_seq']}" or candidate_id in rejected_candidates:
                 raise PlanRevisionError("rejected candidate identity is invalid or duplicated")
             rejected_candidates.add(candidate_id)
+            trigger = accepted_entries.get(payload["trigger_event_seq"])
+            if (
+                trigger is None
+                or trigger.get("event_type") != "trigger_evaluated"
+                or trigger.get("payload", {}).get("selected") is not True
+                or trigger.get("payload", {}).get("route") != payload.get("level")
+            ):
+                raise PlanRevisionError("candidate rejection has no matching selected trigger")
         if entry["event_type"] == "lease_started":
             payload = entry["payload"]
             lease_id = payload["lease_id"]
@@ -903,6 +913,8 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
             if any(not isinstance(value, int) or value >= entry["event_seq"] or value not in accepted_events for value in ref_events):
                 raise PlanRevisionError("revision ledger event references a future or unaccepted event")
         if entry["event_type"] == "revision_activated":
+            if latest_revision > 0 and latest_revision not in evaluated_revisions:
+                raise PlanRevisionError("a new revision activation requires the prior activation evaluation")
             if payload["revision_seq"] != latest_revision + 1:
                 raise PlanRevisionError("revision activation sequence is not consecutive")
             if payload["pending_materialization"] is False and payload.get("binding_ref") is None:
@@ -919,13 +931,41 @@ def _validate_revision_ledger_v2(ledger: Mapping[str, Any]) -> None:
                 raise PlanRevisionError("revision activation does not bind all applicable passed gates")
             if f"candidate-{payload['trigger_event_seq']}" in rejected_candidates:
                 raise PlanRevisionError("a rejected candidate cannot be activated")
+            trigger = accepted_entries.get(payload["trigger_event_seq"])
+            if (
+                trigger is None
+                or trigger.get("event_type") != "trigger_evaluated"
+                or trigger.get("payload", {}).get("selected") is not True
+                or trigger.get("payload", {}).get("route") != payload.get("level")
+                or trigger.get("payload", {}).get("hit_signature") != payload.get("trigger_signature")
+            ):
+                raise PlanRevisionError("revision activation disagrees with its selected trigger")
             validate_migration_extensions(payload["migration"], level=payload["level"], revision_seq=payload["revision_seq"])
             latest_revision = payload["revision_seq"]
             activation_by_seq[latest_revision] = payload
+        if entry["event_type"] == "revision_evaluated":
+            revision_seq = payload["revision_seq"]
+            if revision_seq not in activation_by_seq or revision_seq in evaluated_revisions:
+                raise PlanRevisionError("revision evaluation does not bind one prior unique activation")
+            anchors = payload["obligation_anchors"]
+            if anchors != sorted(set(anchors), key=_utf8):
+                raise PlanRevisionError("revision evaluation anchors are not canonical and unique")
+            evidence_refs = payload["evidence_refs"]
+            if evidence_refs != sorted(evidence_refs, key=lambda ref: (_utf8(ref["path"]), _utf8(ref["sha256"]))):
+                raise PlanRevisionError("revision evaluation evidence refs are not canonical")
+            call_refs = payload["call_refs"]
+            if call_refs != sorted(call_refs, key=lambda ref: (_utf8(ref["path"]), _utf8(ref.get("sha256", "")))):
+                raise PlanRevisionError("revision evaluation call refs are not canonical")
+            if len({ref["path"] for ref in call_refs}) != len(call_refs):
+                raise PlanRevisionError("revision evaluation call output paths are duplicated")
+            if payload["resolved"] and payload["ineffective"]:
+                raise PlanRevisionError("revision evaluation outcomes are mutually exclusive")
+            evaluated_revisions.add(revision_seq)
         if entry["event_type"] == "epoch_materialized":
             if payload["revision_seq"] == 0 and latest_revision != 0:
                 raise PlanRevisionError("E0 materialization cannot follow a revision activation")
         accepted_events.add(entry["event_seq"])
+        accepted_entries[entry["event_seq"]] = entry
         previous = _sha(entry)
         expected_seq += 1
 
@@ -1063,6 +1103,46 @@ def append_candidate_rejected(
     if len(trigger) != 1 or trigger[0].get("payload", {}).get("route") != level:
         raise PlanRevisionError("candidate rejection has no matching selected trigger")
     current["entries"].append(build_event_entry(current, "candidate_rejected", payload))
+    validate_revision_ledger(current)
+    return current
+
+
+def append_revision_evaluated(
+    ledger: Mapping[str, Any],
+    *,
+    revision_seq: int,
+    evaluated_at: str,
+    obligation_anchors: Sequence[str],
+    resolved: bool,
+    ineffective: bool,
+    evidence_refs: Sequence[Mapping[str, Any]],
+    call_refs: Sequence[Mapping[str, Any]],
+    cost_usd: float,
+) -> dict[str, Any]:
+    """Append one terminal activation evaluation, or reuse its exact replay."""
+
+    current = copy.deepcopy(dict(ledger))
+    validate_revision_ledger(current)
+    payload = {
+        "revision_seq": revision_seq,
+        "evaluated_at": evaluated_at,
+        "obligation_anchors": list(obligation_anchors),
+        "resolved": resolved,
+        "ineffective": ineffective,
+        "evidence_refs": [copy.deepcopy(dict(ref)) for ref in evidence_refs],
+        "call_refs": [copy.deepcopy(dict(ref)) for ref in call_refs],
+        "cost_usd": cost_usd,
+    }
+    matches = [
+        entry for entry in current.get("entries", [])
+        if entry.get("event_type") == "revision_evaluated"
+        and entry.get("payload", {}).get("revision_seq") == revision_seq
+    ]
+    if matches:
+        if len(matches) != 1 or matches[0].get("payload") != payload:
+            raise PlanRevisionError("conflicting revision evaluation fact")
+        return current
+    current["entries"].append(build_event_entry(current, "revision_evaluated", payload))
     validate_revision_ledger(current)
     return current
 
@@ -1214,5 +1294,5 @@ def build_revision_entry(
 
 
 __all__ = [
-    "PlanRevisionError", "append_candidate_rejected", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_activation_binding", "validate_file_ledger", "validate_migration_extensions", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
+    "PlanRevisionError", "append_candidate_rejected", "append_lease_finished", "append_lease_started", "append_revision_entry", "append_revision_evaluated", "append_verification_committed", "build_revision_entry", "classify_migration", "project_file_ledger", "project_plan_state", "successor_pointer", "validate_activation_binding", "validate_file_ledger", "validate_migration_extensions", "validate_migration_report", "validate_plan_successor", "validate_revision_ledger",
 ]

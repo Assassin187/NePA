@@ -1,4 +1,4 @@
-"""Generate byte-stable MQTT/non-MQTT M1-10/M1-11 mechanism fixtures."""
+"""Generate byte-stable MQTT/non-MQTT M1-10/M1-11/M1-12 mechanism fixtures."""
 
 from __future__ import annotations
 
@@ -92,6 +92,22 @@ def _case(case_id: str) -> dict[str, Any]:
             {"pointer": "old", "ledger": "new", "result": "rollback"},
             {"pointer": "new", "projections": "old", "result": "forward_complete"},
             {"pointer": "third", "result": "artifact_damage"},
+        ],
+        "evaluation_cases": [
+            {"terminal": "accepted", "signature_present": False, "result": "resolved"},
+            {"terminal": "bounded", "signature_present": True, "result": "ineffective"},
+            {"terminal": "budget_exhausted", "signature_present": False, "result": "unresolved"},
+        ],
+        "availability_cases": [
+            {"scenario": "two_distinct_same_level_rejections", "result": "level_closed"},
+            {"scenario": "cross_level_activation", "result": "independent_counters"},
+            {"scenario": "f4_or_f5_diagnostic", "result": "revision_locked"},
+        ],
+        "controlled_degradation_cases": [
+            {"scenario": "group_exhausted", "preserve": ["baseline", "failed_members", "attempts", "build_smoke_refs", "accepted_code"]},
+            {"scenario": "call_cap_exhausted", "result": "degraded_10"},
+            {"scenario": "independent_branch", "result": "continue_full_acceptance_gate"},
+            {"scenario": "shared_default_build_broken", "result": "no_agent_call"},
         ],
     }
 

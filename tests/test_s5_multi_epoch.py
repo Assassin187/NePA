@@ -21,6 +21,7 @@ from nepa.speclib.materialization import (
 )
 from nepa.speclib.plan import blueprint_task_semantic_projection, derive_task_metadata
 from nepa.speclib.plan_revision import (
+    append_revision_evaluated,
     build_event_entry,
     classify_migration,
     project_file_ledger as project_revision_file_ledger,
@@ -348,6 +349,25 @@ def _activate_candidate(
     return new_pointer, report
 
 
+def _evaluate_activation(store, revision_seq):
+    ledger = store._read_json_artifact("plan/revision_ledger.json", schema_name="revision-ledger.schema.json")
+    ledger = append_revision_evaluated(
+        ledger,
+        revision_seq=revision_seq,
+        evaluated_at=f"{revision_seq:064x}",
+        obligation_anchors=[f"{revision_seq + 1:064x}"],
+        resolved=True,
+        ineffective=False,
+        evidence_refs=[{
+            "path": f"evidence/revision-{revision_seq}.json",
+            "sha256": f"{revision_seq + 2:064x}",
+        }],
+        call_refs=[],
+        cost_usd=0,
+    )
+    store.replace_json("plan/revision_ledger.json", ledger, schema_name="revision-ledger.schema.json")
+
+
 def _accept_e0_and_activate(tmp_path, level, case_id=None):
     store, completion, s5 = _accepted_e0_store(tmp_path, case_id)
     old_pointer = store._read_json_artifact("plan/active_plan.json")
@@ -370,6 +390,7 @@ def test_consecutive_f2_activations_ignore_reconciled_history(tmp_path):
     )
 
     first, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
+    _evaluate_activation(store, first["revision_seq"])
     second, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
 
     assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.0.1", 1, "E0")
@@ -388,6 +409,7 @@ def test_f2_then_f3_activation_keeps_version_revision_and_epoch_monotonic(tmp_pa
     )
 
     first, _ = _activate_candidate(store, copy.deepcopy(plan), "F2")
+    _evaluate_activation(store, first["revision_seq"])
     second, _ = _activate_candidate(store, copy.deepcopy(plan), "F3")
 
     assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.0.1", 1, "E0")
@@ -459,6 +481,7 @@ def test_f3_materialization_then_f2_ignores_historical_activation_wal(tmp_path):
     result = controller.run(StageContext(store, "s5", store.load_run(), None))
     _finish_s5(store, controller, result, started="2026-01-01T00:00:04Z", ended="2026-01-01T00:00:05Z")
 
+    _evaluate_activation(store, first["revision_seq"])
     second, _ = _activate_candidate(store, copy.deepcopy(candidate), "F2")
 
     assert (first["version"], first["revision_seq"], first["epoch"]) == ("1.1.0", 1, "E1")
@@ -553,6 +576,7 @@ def test_re_adopt_e2_is_driven_by_activation_and_retains_historical_evidence(tmp
     controller = S5MaterializationController(FakeExecutor())
     e1 = controller.run(StageContext(store, "s5", store.load_run(), None))
     _finish_s5(store, controller, e1, started="2026-01-01T00:00:04Z", ended="2026-01-01T00:00:05Z")
+    _evaluate_activation(store, 1)
     before = next(row for row in store._read_json_artifact("plan/file_ledger.json")["files"] if row["path"] == old_path)
     pointer = store._read_json_artifact("plan/active_plan.json")
     plan = store._read_json_artifact(pointer["path"])
@@ -617,6 +641,7 @@ def test_e2_re_adopt_and_retire_recovery_restore_quarantine_baseline(tmp_path, f
     controller = S5MaterializationController(FakeExecutor())
     e1 = controller.run(StageContext(store, "s5", store.load_run(), None))
     _finish_s5(store, controller, e1, started="2026-01-01T00:00:04Z", ended="2026-01-01T00:00:05Z")
+    _evaluate_activation(store, 1)
     pointer = store._read_json_artifact("plan/active_plan.json")
     plan = store._read_json_artifact(pointer["path"])
     constraints = compile_delivery_constraints(store._read_json_artifact("spec/spec.json"), store._read_json_artifact("inputs/target.json"))

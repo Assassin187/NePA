@@ -289,19 +289,25 @@ def _revision_metrics(inputs: Mapping[str, Any]) -> dict[str, Any]:
     }
     consumed_refs: set[str] = set()
 
-    def referenced_cost(payload: Mapping[str, Any], fallback: float = 0.0, seen: set[str] | None = None) -> float:
+    def referenced_cost(payload: Mapping[str, Any], fallback: float | None = None, seen: set[str] | None = None) -> float:
         refs = payload.get("call_refs") or payload.get("rework_call_refs")
-        if not isinstance(refs, list):
-            return fallback
-        total = 0.0
+        if not isinstance(refs, list) or not refs:
+            return 0.0 if fallback is None else fallback
+        target_seen = consumed_refs if seen is None else seen
+        keys: list[str] = []
         for ref in refs:
             key = str(ref.get("call_id") or ref.get("id") or ref.get("path") or ref) if isinstance(ref, Mapping) else str(ref)
-            target_seen = consumed_refs if seen is None else seen
             if key in target_seen:
                 continue
             target_seen.add(key)
-            call = call_by_ref.get(key)
-            total += float((call or ref).get("cost_usd", 0.0) or 0.0) if isinstance((call or ref), Mapping) else 0.0
+            keys.append(key)
+        if not keys:
+            return 0.0
+        if any(key not in call_by_ref for key in keys):
+            return 0.0 if fallback is None else fallback
+        total = sum(float(call_by_ref[key].get("cost_usd", 0.0) or 0.0) for key in keys)
+        if fallback is not None and abs(total - fallback) > 1e-12:
+            raise ValueError("revision evaluation cost conflicts with associated call telemetry")
         return total
     for entry in entries:
         payload = entry.get("payload", {}) if isinstance(entry.get("payload"), Mapping) else {}
@@ -333,14 +339,21 @@ def _revision_metrics(inputs: Mapping[str, Any]) -> dict[str, Any]:
         if entry.get("event_type") != "revision_evaluated":
             continue
         payload = entry.get("payload", {}) if isinstance(entry.get("payload"), Mapping) else {}
-        identity = payload.get("evaluation_id") or payload.get("terminal_evaluation_id") or entry.get("event_seq")
+        identity = payload.get("revision_seq")
         key = str(identity)
         if key in seen_evaluations:
             continue
         seen_evaluations.add(key)
         evaluations.append(payload)
     effect_refs: set[str] = set()
-    related_cost = sum(referenced_cost(item, float(item.get("cost_usd", 0) or 0), effect_refs) for item in evaluations)
+    related_cost = sum(
+        referenced_cost(
+            item,
+            float(item.get("cost_usd", 0) or 0) if "cost_usd" in item else None,
+            effect_refs,
+        )
+        for item in evaluations
+    )
     resolved = sum(bool(item.get("resolved")) for item in evaluations)
     effectiveness = unavailable("ZERO_COST_DENOMINATOR") if related_cost == 0 else available(resolved / related_cost)
     return {"revision": {"count_by_level": available({level: sum(payload.get("level") == level for payload in activations) for level in ("F2", "F3")}), "rejected_by_gate": available(rejected), "trigger_histogram": available(triggers), "migration_mix": available(migration_mix), "preservation_rate": {"sequence": available(preservation), "mean": available(sum(preservation) / len(preservation)) if preservation else unavailable("NO_REVISIONS"), "min": available(min(preservation)) if preservation else unavailable("NO_REVISIONS")}, "rework_cost_estimate_usd": available(estimate), "rework_cost_usd": available(actual), "effectiveness": effectiveness, "ineffective_count": available(sum(bool(item.get("ineffective")) for item in evaluations))}}
