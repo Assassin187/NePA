@@ -63,7 +63,7 @@ def verify_row(row, config, frozen, batch):
     assert state["sandbox_image"] == frozen["image"]
     for source, snapshot in (("specIR.json", "spec.json"), ("target.json", "target.json"),
                              ("acceptance.json", "acceptance.json"),
-                             ("acceptance/mqtt_smoke.py", "checks/mqtt_smoke.py")):
+                             ("acceptance/mqtt_smoke.py", "checks/acceptance/mqtt_smoke.py")):
         assert hashlib.sha256((run_dir / "inputs" / snapshot).read_bytes()).hexdigest() == frozen["inputs"][source]
     assert len(state["tasks"]) >= 23 and all(t["status"] == "passed" for t in state["tasks"].values())
     assert len(report["requirements"]) == 110
