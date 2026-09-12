@@ -1,5 +1,8 @@
 # NePA 设计文档一致性校对会话记录
 
+> 历史记录：对应 9.0 之前的设计，不约束本次已批准的端到端重构。
+> 当前架构与实施状态见 system_design.md 和 refactor_plan.md。
+
 ## 记录信息
 
 - 来源会话：`codex://threads/01a06fa3-045a-7d81-a9d2-1b31470a68f5`
