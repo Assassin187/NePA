@@ -1,65 +1,54 @@
-# NePA System Design 10.0
+# NePA System Design 11.0
 
 Status: approved architecture. Actual implementation/acceptance progress is in
-`protocol_expansion.md` (this iteration) and `refactor_plan.md` (historical evidence). Replaces 8.0.3 and the separate S4–S9 pipeline design.
+`research/nepa-p0-p2-plan.md` and `research/p0-p2-progress.md` (current P0–P2),
+`protocol_expansion.md` and `refactor_plan.md` (historical evidence). Design changes
+are authorized by the user’s autonomous P0–P2 goal on 2026-09-13; no OpenSpec.
 
 ## 1. Success contract
 
 Inputs are manually curated Spec 3.0 (including all original requirements), Target
-1.0 and independent Acceptance 1.0 assets. Initial implementation scope: Linux
+1.0 and independent private Acceptance 1.0 assets. Initial implementation scope: Linux
 x86_64, C99, server. MQTT is an acceptance input, never a production special case.
 
 Success requires all tasks completed, clean release and ASan/UBSan builds, mandatory
 protocol interactions passed, and independently buildable sources, binaries and
-Report 4.0 published. JSON validity, stub compilation, process survival or an agent's
+Report 5.0 published. JSON validity, stub compilation, process survival or an agent's
 finish declaration are not success. Optional observations remain non-gating and
 never establish full protocol conformance.
 
-Formal acceptance: three consecutive independent empty-project runs with identical
-NePA commit, prompts, input/configuration and image, real API calls, no response
-cache, imported solution or manual generated-code edits. Changing these inputs
-restarts the batch. Retain debug/failed runs. Approved campaign budget: USD300
-including debug and failures; each run USD100 and four hours from creation, never
-reset on resume. Unknown usage keeps its pre-call reservation.
-The user raised the per-run ceiling from USD20 to USD100 on 2026-09-12;
-then raised the cumulative campaign ceiling to USD300. Both include prior costs;
-this is not a reset or an additional USD300 allocation.
-The Linux CLI installs a run deadline alarm, including provider/tool calls; deadline
-interruption retains unknown-call reservations and cleans active tool containers.
-Scheduling (latest user instruction): first complete one real end-to-end run and
-its independent export checks. Only after it passes, launch two additional empty
-projects with that same frozen candidate; these two may execute concurrently.
-A first-run failure does not launch stability repetitions. All three must pass.
-The user subsequently authorized continuing the payment-interrupted first run with
-a changed Flash/Pro model configuration. That development run may have multiple
-recorded code/configuration versions; it is not a fixed-candidate stability sample.
-After that first successful run, the user requested time-cost analysis and optimization
-before another experiment. Preserve its independent baseline evidence; reverify it
-against its own recorded runtime/configuration, then run two fresh projects with the
-same optimized candidate. Reports distinguish one earlier development baseline plus
-two optimized-candidate repetitions, never three unchanged-candidate runs.
+P0 preserves the first DeepSeek success and the completed MQTT/HTTP expansion as
+legacy-readable-oracle feasibility evidence. Their original runs, USD/CNY costs,
+reservations and exports are never migrated, overwritten or counted in the new
+campaign. See research/p0-serial-baseline.md for measured time/cost and gaps.
 
-The next iteration explicitly supersedes that scheduling: expand MQTT checks,
-evaluate action interfaces, freeze the candidate, then launch the new MQTT and HTTP
-fixed-length-subset generations concurrently (latest user authorization). Each needs
-one success and independent export rebuild/checks; a failure does not cancel or gate
-the other protocol. Each process uses its own campaign root and run limits.
-This is feasibility evidence, not stability or full conformance. Changes to shared
-generation code/prompts require revalidation of already-passed protocols on the final
-candidate. Preserve all historical deliveries and reports; audit copies only.
-The MQTT campaign retains its USD300 cumulative limit and all historical costs
-(USD88.12981374 at authorization). The action comparison has a USD10 sublimit charged
-to that campaign. HTTP has a separately authorized USD300 campaign, in a separate
-runs root. Both retain USD100/four hours per run, including failures and reservations.
+P1 requires physical private-check separation and useful sanitized feedback before
+new model proof runs. P2 uses only qwen3.7-plus-2026-05-26 and
+qwen3.7-flash-2026-07-15, after official/account capability and price verification.
+New runs/qwen-e2e campaign: CNY300 cumulative, each generation CNY20/four hours from
+creation, including probes, failures, resumes, retries and unknown reservations.
+Capability and public-tool phases initially cap at CNY5 each inside this campaign;
+use phase-tagged RunStore reservations under the existing campaign lock. No response
+cache, imported generated projects, manual generated-code fixes or provider fallback.
 
-The latest user authorization replaces the earlier USD budget policy for this round:
-use two NEW CNY campaigns, runs/mqtt-e2e and runs/http-e2e, each capped at CNY300.
-Old runs, costs and unknown reservations remain intact in their historical root and
-are explicitly excluded from these new limits. Each generation is capped at CNY20
-and four hours. The interface study has a fixed CNY10 total sublimit within the new
-MQTT campaign, including failures/reservations; retries do not replenish it.
-Config2.0 uses CNY prices/limits and Run6.0 records CNY costs; reject attempts to mix
-legacy USD runs into a new CNY campaign or reinterpret old USD amounts as CNY.
+Freeze code, prompts, config/capabilities/prices, inputs, public/private checks,
+harness, dependencies and image IDs before the first countable empty-project MQTT
+run. After it succeeds, two more fresh MQTT runs on that candidate must pass before
+a bounded three-run stability claim. Then one fresh HTTP subset run uses the same
+runtime/model configuration with its separately frozen inputs. Independent empty
+projects may run concurrently after the first success; each project remains serial.
+A shared candidate change restarts the three-run MQTT cohort. Preserve failed runs.
+Unrelated user documentation changes do not invalidate a scoped candidate manifest;
+never remove those changes to satisfy a whole-worktree clean check.
+
+The Linux deadline alarm covers provider/tools; unknown usage retains reservation,
+and owned containers are cleaned on interruption. Record measured model wait, tools,
+builds/checks, tokens, settled CNY, reservations, decisions, retries and route reasons
+per task. Separate later independent export audits from generation wall time.
+Unmeasured historical overhead remains a declared gap, not fabricated timing.
+
+Config3.0 and Run7.0 reject legacy execution/resume; reproduce old runs with their
+old runtime. Different schema/currency campaigns cannot be silently combined.
 Use the official domestic DeepSeek price snapshot (2026-09-13): Flash peak cache-hit /
 cache-miss input / output = CNY0.04/2/8 per million tokens, Pro = CNY0.30/9/27.
 Off-peak is half price. Peak is Asia/Shanghai Monday-Friday [09:00,12:00) and
@@ -130,7 +119,7 @@ diagnostic before another paid call instead of silently entering a reread loop.
 This is disposable model context, not a second authoritative project/run state.
 Retries preserve validated observations and latest diagnostics without breaking
 transaction pairing; resumed processes re-read actual files as necessary.
-Config2.0 replaces coder.json_output with coder.action_format: json_object or
+Config3.0 retains coder.action_format, which replaced coder.json_output with coder.action_format: json_object or
 tool_calls. Native function parameter schemas come from AgentAction1.0. The same
 strict local validation and executor apply to both formats. Native responses preserve
 tool IDs, argument fragments and reasoning_content, including across subsequent calls.
@@ -138,6 +127,14 @@ Use tool_choice=auto without changing thinking mode. Zero/multiple/unknown/incom
 calls execute no action; return matched error receipts where IDs exist. Never extract
 XML, inner JSON, or switch interfaces automatically. Evict complete transactions;
 count reasoning/tool definitions/results in actual-wire capacity and reservations.
+The selected provider prepares the wire payload used by context sizing, reservation
+and sending; no consumer hardcodes the OpenAI/DeepSeek payload. Config profiles
+explicitly describe stream/JSON/tool capabilities, thinking fields, output/context
+limits, temperature/stop restrictions, identity and usage accounting. Reject unsupported
+combinations before I/O. Qwen uses enable_thinking, preserve_thinking when configured,
+max_completion_tokens (including reasoning and body), and parallel_tool_calls=false.
+Reserve the documented extra ten completion tokens. Keep strict local validation.
+See research/qwen-capability-audit.md for dated official/account facts and tier rates.
 Serialize the action schema once,
 budget actual wire requests including corrections, and honor explicit coder config.
 Use configured JSON-object output for providers that support it: the actual request
@@ -166,23 +163,32 @@ the working-set invariants above, not the larger number alone, fix the mechanism
 Optional coder.fast_model uses the same configured provider and requires an explicit
 price. Bootstrap, message and requirement tasks use it for their first session;
 shared-wire, integration, follow-up and repair/retry sessions use coder.model (Pro).
-Selection is based on task kind and observed session exhaustion, not protocol names
+A failed build or private check promotes subsequent repair decisions to the configured
+strong model within the same existing decision/session budget. Record the transition.
+Selection is based on task kind and observed failure/session exhaustion, not protocol names
 or requirement prefixes. The selected model must drive the actual wire request,
 context sizing and usage/reservation pricing; record route reasons in call context.
 Maximum 40 decisions per
 session, three sessions per task; retries carry real prior diagnostics and consume
 the same run budgets. Full evidence is durable; file/log tools paginate outputs.
-Retain task/target/index and recent transcript in context; older evidence remains
+Retain task/target/index and recent transcript in context; only published sanitized evidence remains
 readable by reference. Read current code rather than trust stale summaries.
 
-Only generated project files are writable. Input and oracle are available as
-read-only inputs/checks paths and /inputs and /checks container mounts; runtime state
-and Git metadata are not mounted. File pagination offsets are characters, not array
-indices; use JSON pointers for specific facts. Reject traversal and symbolic-link escapes.
-Commands run in a network-disabled, resource-limited container without host secrets,
-NePA source, old answer fixtures, cached answers or installed protocol servers.
-Host tools never execute generated commands outside that sandbox.
-finish requests host checks; it cannot mark success itself.
+Only generated project files are writable. Run inputs contain spec.json, target.json,
+index.json and explicitly public development assets. Acceptance1.0 is snapshotted to
+private/acceptance.json and private/assets, never an agent-visible root. A logical
+evidence/ path maps only to host-published agent-evidence, not raw evidence/calls,
+actions, checks or run state. File/list/search/hash refresh resolves every descendant
+inside an allowed root; reject absolute paths, traversal and symlink escapes.
+
+Coding/build containers mount only project, public inputs and optional published
+safe evidence, with network disabled. They never mount /checks, the private tree,
+raw evidence, source repository, host Docker socket or credentials. Hide Docker host
+argv/mount paths from model-facing command results. Paths in errors are logical;
+no host tracebacks. Publish one sanitized action/diagnostic view at the host boundary,
+then use only that view for observations, history, resumed last_feedback, follow-ups,
+export repair and evidence pagination. A raw valid evidence hash does not authorize
+agent access. finish requests host validation; it cannot mark success itself.
 
 ## 4. Independent build and interaction checks
 
@@ -194,12 +200,53 @@ The Linux sandbox san target also requires -fno-pie -no-pie. A minimal instrumen
 program failed 5/20 PIE startups versus 0/20 non-PIE startups in this environment.
 This addresses observed toolchain address-layout failures without weakening checks.
 
-Each task passes actual builds and output checks before acceptance. Final checks
-clean-build the exported project. A generic supervisor starts its binary and the
-trusted client in one network-disabled container on loopback with a dynamic port.
-Oracle code is read-only, performs readiness/interaction assertions and returns real
-results. Capture actual server/client exit codes, timeouts and logs; stop the server
-and reject sanitizer failures or unexpected termination. Never normalize failure.
+Each task passes actual builds before acceptance. Final checks clean-build and verify
+the exported copy. Verification uses separate server and checker containers: server
+has network=none and a read-only project mount; checker joins only that server's
+loopback network namespace and read-only private assets/trusted worker mounts.
+No shared filesystem, PID/IPC namespace or private writable volume reaches the
+server. Checker does not import/mount generated code. No host networking, published
+ports or shared-/checks fallback. Drop unneeded capabilities and privilege escalation;
+partition the existing CPU/memory envelope across the pair. Host owns both lifecycles,
+records IDs before running checks, and cleans its recorded containers after
+interruption/recovery. Keep complete per-check timeout/exit/sanitizer/shutdown checks.
+Malformed/incomplete checker results, missing checks, early exit or forced stop fail.
+
+Acceptance1.0 remains unchanged: isolation is a host execution property, recorded in
+Run7/Report5 together with verifier/randomization versions. Categories come from the
+trusted structured oracle result. CLI --acceptance remains host-only private final;
+public development consists of visible project tests/builds and frozen public tool
+fixtures. No new public-check CLI or unused public manifest contract is required.
+Spec3, Target1, Plan6 and AgentAction1 remain unchanged. Preserve all MQTT20/HTTP12
+assertions and mandatory boundary examples with an explicit migration map.
+
+Each verification attempt gets a host-generated seed, recorded before I/O. Derive
+independent port and per-case streams, never a seed from a public port/run ID. Private
+oracles use the recorded seed and stable generator version for legal IDs, payloads,
+fragment cuts, coalescing groups and bounded 2–4 exchanges where applicable. Preserve
+all original cuts, malformed vectors, boundary values and keep-alive windows. Both
+variants use distinct ports/streams; tests demonstrate distinct-seed variation and
+same-seed input replay. Do not add three complete repetitions of each timing-sensitive
+case merely as a planning default: one full suite per variant with the frozen varied
+exchange policy satisfies this iteration. Record actual send/receive bytes, connection
+IDs, chunks, half-close, timeouts and timestamps in host-only evidence. Replay means
+same bytes/schedule, not identical OS/TCP timing. No seed or transcript is exported.
+
+Private scripts emit a bounded structured semantic diagnostic separately from full
+host logs. Host forwards only repair-diagnostic/1 fields: check ID, category, variant,
+status, expected/observed protocol outcome/type/length/order, build/sanitizer/server
+status and safe project-source diagnostics. No private filenames, argv, tracebacks,
+seeds, raw vectors or raw host refs enter model context. Generated server logs can
+echo private vectors; keep raw logs host-only and publish only safe bounded compiler/
+sanitzer source diagnostics and classified observations, with explicit omission of
+unclassifiable server output. Do not use a mere path/string replacement as isolation.
+Useful safe diagnostics must support an actual controlled repair session.
+
+Offline admission requires actual-container access-denial tests for every tool,
+absolute and symlink paths, host history and generated-server filesystem reads;
+correct full-suite exports pass, and wrong responses, sleep-only, single-ID/fixed-port,
+early-exit and actual instrumented sanitizer fixtures fail. Check safe context in JSON
+and native mode, context trimming/resume/export repair and final archive contents.
 
 MQTT-specific checks exist only in sample acceptance assets: valid CONNECT/CONNACK,
 PINGREQ/PINGRESP, unsupported-level CONNACK 0x01 followed by EOF, then a subsequent
@@ -226,13 +273,23 @@ as real generation. Remaining protocol behavior is explicitly unverified.
 
 ## 5. State, repair and recovery
 
-One atomic Run 6.0 run.json is authoritative: input/config refs, immutable active
+One atomic Run 7.0 run.json is authoritative: input/config refs, immutable active
 plan ref, task/session counters, accepted Git checkpoint, budgets, current operation
 and terminal result. Independent immutable traces are evidence, not shadow state.
 Single-controller lock; status is read-only.
 
 Allocate never-reused call ID and worst-case budget reservation before provider I/O.
 Persist response before settling actual usage. Lost/unknown calls retain reservation.
+Record requested and returned model identity separately, never synthesize observation.
+Missing/mismatched identity or invalid/missing usage yields no executable action and
+retains reservation with raw response evidence. Optional missing cache detail is
+explicitly all-miss; optional reasoning detail is unavailable, never invented.
+Qwen prompt_tokens_details.cached_tokens and completion_tokens_details.reasoning_tokens
+are normalized; reasoning is already part of completion_tokens and is not double billed.
+Tier choice uses total input tokens. Qwen has flat-time tiered prices, not DeepSeek
+peak/off-peak discounts. Reserve applicable worst-case tiers/all misses plus output;
+known liability above reservation is recorded and blocks further calls, never clipped.
+Retry only bounded transport/429/5xx classes; no request/identity/usage error fallback.
 Persist task result/check evidence, create checkpoint, then atomically accept task
 and checkpoint. Orphan checkpoints cannot authorize completion. On interruption,
 preserve the incomplete tree and create a fresh working copy from accepted code.
@@ -263,17 +320,23 @@ fail explicitly; reproduce them with the baseline, never implicitly convert.
 Interfaces: compile_plan → ExecutionPlan; CodingSession.run → TaskResult;
 BuildRunner.run → BuildResult; VerificationRunner.run → VerificationResult;
 RunStore.accept → RunState; Orchestrator.run/resume → FinalRunResult.
-Contracts: Spec3.0, Target1.0, Acceptance1.0, AgentAction1.0, Plan6.0, Run6.0,
-Config2.0 and Report4.0. Old configuration/runtime snapshots require their old code.
+Contracts: Spec3.0, Target1.0, Acceptance1.0, AgentAction1.0, Plan6.0, Run7.0,
+Config3.0 and Report5.0. Old configuration/runtime snapshots require their old code.
 
-Report4.0 retains every primary claim and joins Acceptance check IDs/req_ids to the
+Report5.0 retains every primary claim and joins Acceptance check IDs/req_ids to the
 current final-export evidence, variant, outcome and reference. Status is
 scenarios_passed, failed, incomplete or unverified. Optional observations do not
 establish verification; absent checks are explicit gaps. Missing variants/checks,
 supervisor failure and interrupted checks cannot pass. Prior attempts never fill
 gaps in final evidence. Even scenarios_passed is not full semantic proof.
+Report5 separates public development builds/checks from private final checks, labels
+legacy_readable versus private_isolated evidence, and preserves the original claim.
+Host report includes private evidence refs. The distributable projection includes
+aggregate private suite/verifier hashes, check/category/variant/status and safe
+diagnostics, never private filenames, vectors, conversations or readable raw refs.
 
-Export sources, build files, README, both executables and manifest. Clean-rebuild and
+Export sources, build files, README, both executables and a public manifest/report.
+Do not package private inputs/assets, seeds, transcripts, raw calls or the run root. Clean-rebuild and
 verify the exported copy independently of the working directory. Report input/config/
 code hashes, actual models/calls, claims versus verified behavior, all check results,
 costs, artifact hashes, commands and limitations. Initialized failures also report.
