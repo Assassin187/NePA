@@ -91,7 +91,7 @@ class SandboxExecutor:
             try:
                 returncode = process.wait(timeout=timeout_s)
                 timed_out = False
-            except subprocess.TimeoutExpired:
+            except (subprocess.TimeoutExpired, KeyboardInterrupt) as interruption:
                 process.kill()
                 process.wait()
                 timed_out = True
@@ -101,6 +101,10 @@ class SandboxExecutor:
                     cleanup = subprocess.run(["docker", "rm", "-f", cid], capture_output=True, check=False)
                     if cleanup.returncode != 0:
                         raise RuntimeError("timed-out sandbox container could not be removed")
+                if isinstance(interruption, KeyboardInterrupt):
+                    for reader in readers:
+                        reader.join()
+                    raise
             for reader in readers:
                 reader.join()
             observation = "timeout-cleaned" if timed_out else "completed"

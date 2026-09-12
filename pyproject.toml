@@ -24,6 +24,7 @@ package = true
 
 [project.optional-dependencies]
 dev = [
+  "types-PyYAML>=6,<7",
   "mypy>=1.11,<2",
   "ruff>=0.6,<1",
 ]
@@ -36,6 +37,8 @@ nepa = ["templates/*", "agents/prompts/*.md", "schemas/*.json", "schemas/example
 
 [tool.pytest.ini_options]
 markers = [
+  "sandbox_integration: actual network-disabled container checks",
+  "live_e2e: paid real API generation, opt-in only",
   "s5_epoch: end-to-end S5 epoch materialization checks",
   "s6_execution: end-to-end S6 ordinary task execution checks",
   "s6_lease: end-to-end S6 F1 lease execution checks",

@@ -34,9 +34,9 @@ Do not retain CAP/epochs/F1–F3/calibration as production prerequisites.
 
 - [x] R0 isolated branch, original baseline and exact user snapshot.
 - [x] R1 Design9.0, this record and README before runtime changes.
-- [ ] R2 Target/Acceptance contracts and independent verification supervisor.
-- [ ] R3 deterministic 23-task compiler with 110 primary requirement bindings.
-- [ ] R4 API tool loop and actual compiler-diagnostic repair.
+- [x] R2 Target/Acceptance contracts and independent verification supervisor.
+- [x] R3 deterministic 23-task compiler with 110 primary requirement bindings.
+- [x] R4 API tool loop and actual compiler-diagnostic repair.
 - [ ] R5 CLI-to-export pipeline, checkpoint recovery, truthful final reports.
 - [ ] R6 wheel, full mypy, CI and obsolete-path retirement.
 - [ ] R7 three consecutive frozen-version real API successes.
@@ -77,6 +77,18 @@ baseline. Before deletion confirm consumers removed and replacement tests exist.
   retain the existing path. This is a path correction, not an architecture change.
 - R0: original HEAD/status unchanged, research hashes identical.
 - R1: user explicitly authorized replacing old design; historical research retained.
+- R2/R3: 10 input/plan/oracle unit checks passed; 26 original provider/SSE tests
+  passed unchanged. Current gold deterministically yields 23 tasks / 110 bindings.
+- R4/storage: 23 new tests passed, including actual Docker compilation failure,
+  diagnostic-driven API-action repair, budget reservation, snapshot recovery and
+  preservation of unexpected manual edits. Oracle positive/wrong-response/sanitizer/
+  missing-binary/idle cases: 4 tests passed in 7.58s, using test doubles only.
+- Build-only container successfully built without mosquitto or protocol libraries.
+- Storage reservation/checkpoint primitives were implemented alongside R4 because
+  tool sessions require durable evidence and pre-I/O budgets; R5 supplies their
+  production orchestration. This changes implementation grouping, not architecture.
+- A standalone stdlib verification_worker.py is packaged for the container boundary;
+  the host verification module cannot be executed there with package-relative imports.
 
 ## Completion
 
