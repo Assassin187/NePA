@@ -60,6 +60,9 @@ vocabulary or shadow signature JSON. Fix affected callers when changing interfac
 
 Reuse current provider adapters in a JSON action loop:
 list_files/read_file/search/write_file/replace_text/run_command/finish/request_followup.
+Carry executed actions as actual assistant messages and tool results as subsequent
+user messages, not as a history blob inside a single user message. Retain complete
+messages in evidence and trim old action/result pairs only at the context boundary.
 Native provider function calling is not required. Serialize the action schema once,
 budget actual wire requests including corrections, and honor explicit coder config.
 
@@ -83,6 +86,9 @@ Target fixes argv build/run commands and output paths. The initial C99 target us
 make release/make san and separate build/release/protocol-server and
 build/san/protocol-server outputs. Both require -std=c99 -Wall -Wextra -Werror;
 san additionally uses ASan/UBSan. Agent-editable build files must honor this contract.
+The Linux sandbox san target also requires -fno-pie -no-pie. A minimal instrumented
+program failed 5/20 PIE startups versus 0/20 non-PIE startups in this environment.
+This addresses observed toolchain address-layout failures without weakening checks.
 
 Each task passes actual builds and output checks before acceptance. Final checks
 clean-build the exported project. A generic supervisor starts its binary and the

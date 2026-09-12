@@ -38,7 +38,9 @@
         "-Wall",
         "-Wextra",
         "-Werror",
-        "-fsanitize=address,undefined"
+        "-fsanitize=address,undefined",
+        "-fno-pie",
+        "-no-pie"
       ]
     }
   ],

@@ -28,7 +28,7 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path):
     store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
                                 ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
-                "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined main.c -o build/san/protocol-server\n"
+                "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie main.c -o build/san/protocol-server\n"
                 "clean:\n\trm -rf build\n")
     provider = SequenceProvider([
         action("write_file", path="Makefile", content=makefile),
@@ -42,6 +42,7 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path):
     assert session.run(store.plan()["tasks"][0])
     assert store.run["tasks"]["bootstrap"]["status"] == "passed"
     assert store.run["budget"]["calls"] == 6
-    assert any("error:" in request.user for request in provider.requests[3:])
+    assert any("error:" in json.dumps(request.messages) for request in provider.requests[3:])
+    assert any(message["role"] == "assistant" for message in provider.requests[-1].messages)
     assert (store.project / "build/san/protocol-server").is_file()
     assert all(request.system.count("Action schema:") == 1 for request in provider.requests)

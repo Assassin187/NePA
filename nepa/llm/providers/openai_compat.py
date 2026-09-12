@@ -221,7 +221,7 @@ class OpenAICompatibleProvider:
             "model": model,
             "messages": [
                 {"role": "system", "content": request.system},
-                {"role": "user", "content": request.user},
+                *(request.messages if request.messages is not None else [{"role": "user", "content": request.user}]),
             ],
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,

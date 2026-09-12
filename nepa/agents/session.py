@@ -29,11 +29,9 @@ class CodingSession:
         state = store.run["tasks"][task["id"]]
         spec, target, acceptance = store.inputs()
         index = store.read_ref(store.run["inputs"]["index"])
-        histories: list[dict[str, Any]] = []
-        if feedback is not None:
-            histories.append({"feedback": feedback})
-        elif state.get("last_feedback"):
-            histories.append({"feedback": state["last_feedback"]})
+        base = {"task": task, "target": target, "spec_index": index,
+                "initial_feedback": feedback if feedback is not None else state.get("last_feedback")}
+        messages = [{"role": "user", "content": json.dumps(base, ensure_ascii=False)}]
         remaining = 1 if repair else config.budgets.sessions_per_task - state["sessions"]
         for _ in range(remaining):
             state["sessions"] += 1
@@ -45,20 +43,20 @@ class CodingSession:
                 state["decisions"] += 1
                 store.save()
                 def request() -> LLMRequest:
-                    user = json.dumps({"task": task, "target": target, "spec_index": index, "history": histories,
-                                       "session": state["sessions"], "decision": decision + 1}, ensure_ascii=False)
-                    return LLMRequest(role="coder", system=self.system, user=user,
+                    return LLMRequest(role="coder", system=self.system, user=messages[0]["content"],
+                                      messages=[dict(m) for m in messages],
                                       temperature=config.coder.temperature, max_tokens=config.coder.max_tokens)
                 current = request()
-                while len(json.dumps(OpenAICompatibleProvider._payload(current, config.coder.model, False), ensure_ascii=False).encode()) > config.coder.context_max_bytes and histories:
-                    histories.pop(0)
+                while len(json.dumps(OpenAICompatibleProvider._payload(current, config.coder.model, False), ensure_ascii=False).encode()) > config.coder.context_max_bytes and len(messages) > 1:
+                    del messages[1:3]
                     current = request()
                 response = self.client.complete(current, store=store, task_id=task["id"])
+                messages.append({"role": "assistant", "content": response.text})
                 action = response.parsed
                 errors = structured_validation_errors(action, self.schema)
                 if errors:
-                    histories.append({"invalid_response": response.text[:6000],
-                                      "feedback": {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason")}})
+                    messages.append({"role": "user", "content": json.dumps(
+                        {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason")})})
                     continue
                 action = cast(dict[str, Any], action)
                 identifier = store.start_action(task["id"], action)
@@ -90,13 +88,13 @@ class CodingSession:
                     store.accept(task["id"], claims, ref)
                     return True
                 view = json.dumps(result, ensure_ascii=False)
-                histories.append({"action": action if action["tool"] not in {"write_file", "replace_text"} else
-                                  {"tool": action["tool"], "path": action["arguments"]["path"]},
-                                  "result": result if len(view) <= 20000 else {"excerpt": view[:20000], "complete_result_ref": ref},
-                                  "evidence_ref": ref})
-                state["last_feedback"] = histories[-1]
+                feedback_row = {"tool_result": result if len(view) <= 20000 else
+                                {"excerpt": view[:20000], "complete_result_ref": ref}, "evidence_ref": ref,
+                                "instruction": "This action has already executed. Continue with the next necessary action."}
+                messages.append({"role": "user", "content": json.dumps(feedback_row, ensure_ascii=False)})
+                state["last_feedback"] = feedback_row
                 store.save()
-            histories.append({"feedback": "Session decision limit reached. Reinspect the current source and change the failing approach. Prior work is retained."})
+            messages.append({"role": "user", "content": "Session decision limit reached. Reinspect current source and change the failing approach. Prior work is retained."})
         state["status"] = "failed"
         store.save()
         return False

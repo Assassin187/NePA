@@ -89,6 +89,7 @@ class LLMRequest(_LLMModel):
     role: str = Field(min_length=1)
     system: str
     user: str
+    messages: list[dict[str, str]] | None = None
     json_schema: dict[str, Any] | list[Any] | None = None
     temperature: float = Field(ge=0)
     max_tokens: int = Field(gt=0)

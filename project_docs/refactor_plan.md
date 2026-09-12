@@ -92,5 +92,16 @@ baseline. Before deletion confirm consumers removed and replacement tests exist.
 
 ## Completion
 
+Live debug 20260912T053200Z-c7cc1591 was intentionally interrupted after 18 real
+calls and USD0.39849744 accounted cost: the single-user history representation led
+to repeated list_files without implementation progress. Preserve its input, calls,
+Makefile and report; do not reuse its generated code. Fix: actual assistant/action
+and user/tool-result chat messages through the same provider API, no native tools.
+
+Independent sanitizer probe in runs/_refactor/asan-probe: an empty C program had
+5/20 PIE startup failures, 0/20 with -fno-pie -no-pie. Old templates used non-PIE too.
+The san Target now requires these flags; ASan/UBSan and interaction gates remain.
+This also explains the extra repair observed in the test-only CLI wiring run.
+
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.
