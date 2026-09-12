@@ -286,6 +286,35 @@ class RunStore:
         self.run["pending_action"] = None
         self.save()
 
+    def reconfigure(self, config: ResolvedConfig, *, reason: str, allow_runtime_change: bool = False) -> None:
+        """Explicit development continuation; caller holds the run lock."""
+        if not reason.strip():
+            raise RunStoreError("configuration change requires a recorded reason")
+        if self.run["status"] == "success" or self.run.get("delivery"):
+            raise RunStoreError("completed delivery cannot be reconfigured")
+        self.inputs()
+        self.plan()
+        if tree_hashes(self.project) != self.run["working_hashes"] and self.run["pending_action"] is None:
+            raise RunStoreError("unrecorded project changes; refusing configuration migration")
+        runtime = runtime_fingerprint()
+        if runtime != self.run["runtime"] and not allow_runtime_change:
+            raise RunStoreError("runtime changed; explicit --accept-runtime-change is required")
+        identifier = uuid.uuid4().hex
+        previous_state = self.evidence(f"configuration-changes/{identifier}/previous-run.json", self.run)
+        report_path = self.root / "report.json"
+        previous_report = self.evidence(f"configuration-changes/{identifier}/previous-report.json",
+                                        json.loads(report_path.read_bytes())) if report_path.exists() else None
+        snapshot = public_config_snapshot(config)
+        change = self.evidence(f"configuration-changes/{identifier}/change.json",
+                               {"reason": reason, "previous_state": previous_state, "previous_report": previous_report,
+                                "new_config": snapshot, "new_runtime": runtime,
+                                "budget_and_time_reset": False})
+        self.run["config_snapshot"], self.run["config_sha256"] = snapshot, digest(snapshot)
+        self.run["runtime"] = runtime
+        self.run["history"].append({"kind": "configuration_change", "reason": reason, "evidence": change})
+        self.config = config
+        self.save()
+
     def recover(self) -> None:
         if self.run["runtime"]["package_sha256"] != runtime_fingerprint()["package_sha256"]:
             raise RunStoreError("runtime code/prompts changed; preserve this run and start a new one")

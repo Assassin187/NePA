@@ -264,3 +264,36 @@ passed. No production code or prompt changed after candidate ebd3341.
 
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.
+
+### Recharge continuation and V4.1 Flash routing (2026-09-12)
+
+The user confirmed recharge and explicitly requested resuming the interrupted run,
+using V4.1 Flash for faster tasks and V4 Pro for difficult work; first experimental
+continuation may mix configurations. Official pricing was directly checked at
+https://api-docs.deepseek.com/quick_start/pricing/ on 2026-09-12. The API name is
+`deepseek-flash`, serving DeepSeek-V4.1-Flash, not `deepseek-v4.1-flash`.
+USD per million tokens, Flash peak: cache-hit input0.006, cache-miss input0.30,
+output1.20; off-peak0.003/0.15/0.60. Pro peak0.044/1.32/3.96,
+off-peak0.022/0.66/1.98. Peak hours Monday-Friday01:00-04:00 and06:00-10:00 UTC.
+The current official pricing page supersedes the September10 announcement's
+planned Pro retirement: it now explicitly says Pro service and pricing continue.
+
+Accounting retains conservative peak cache-miss rates for reservations and usage
+estimates. Cache-hit and off-peak discounts are documented, not claimed as realized
+savings or a provider invoice. Historical settled costs and unresolved reservations
+remain unchanged. Default YAML selects Flash for initial bootstrap/message/requirement
+sessions, Pro for shared-wire/integration/follow-up and retry/repair sessions.
+Actual request model drives wire payload, pricing and context; tests cover all routes
+and real compiler-repair escalation. No protocol names participate in selection.
+
+The minimal affected path includes config, context/session, client, resume/store,
+report and schema because model selection must propagate to actual billing and
+explicit continuation must preserve evidence end-to-end. Resume configuration
+changes are explicit and reasoned, preserve old state/report in immutable evidence,
+and do not reset task attempts, creation time, call IDs, costs or checkpoints.
+Run20260912T112242Z-56f67d18 remains the continuation target. Its first requirement
+session was interrupted by402; its next session uses Pro as an existing retry,
+then new ordinary task sessions use Flash. No generated source is manually edited.
+Read-only authenticated GET /models returned HTTP200 and exactly deepseek-flash /
+deepseek-v4-pro; no generation charge was initiated by this check. Regression suite:
+130 passed, one paid test deselected,34.45s; Ruff and mypy all30 modules passed.

@@ -50,6 +50,36 @@ def test_pricing_known_and_negative():
     with pytest.raises(ValueError):
         calculate_cost(price, -1, 0)
 
+@pytest.mark.parametrize("kind", ["bootstrap", "message", "requirements", "shared-wire", "final-integration", "followup"])
+def test_fast_initial_coding_and_pro_complexity_escalation(kind):
+    config = load_config(ROOT / "configs/default.yaml")
+    coder = config.coder
+    assert coder.fast_model == "deepseek-flash"
+    expected = coder.fast_model if kind in {"bootstrap", "message", "requirements"} else coder.model
+    assert coder.for_task(kind).model == expected
+    assert coder.for_task(kind, retry=True).model == coder.model
+    assert coder.for_task(kind, repair=True).model == coder.model
+    assert coder.model == "deepseek-v4-pro"
+
+def test_selected_model_controls_wire_and_cost(tmp_path):
+    from nepa.llm.client import LLMResponse
+    class Provider:
+        native_structured_output = False
+        def complete(self, request, *, model, native_schema):
+            assert model == request.model == "deepseek-flash"
+            return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_usd=0,
+                               model=model, parameter_support={})
+    config = load_config(ROOT / "configs/default.yaml")
+    store = make_store(tmp_path, config)
+    response = LLMClient(config, {"deepseek": Provider()}).complete(
+        LLMRequest(role="coder", model="deepseek-flash", system="s", user="u", temperature=0, max_tokens=1000),
+        store=store, task_id="bootstrap")
+    assert response.cost_usd == pytest.approx((100 * .30 + 200 * 1.20) / 1_000_000)
+    evidence = json.loads((store.root / "evidence/calls/000001.request.json").read_text())
+    assert "deepseek-flash" in json.dumps(evidence)
+    with pytest.raises(ConfigError, match="fast coder price"):
+        load_config(overrides={"coder": {"fast_model": "unpriced"}})
+
 def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypatch):
     class FailingProvider:
         native_structured_output = False

@@ -1,6 +1,7 @@
 {
   "type": "object",
   "properties": {
+    "configuration_changes": {"type": "array", "items": {"type": "object"}},
     "schema_version": {
       "const": "3.0"
     },

@@ -144,3 +144,38 @@ def test_wall_deadline_interrupts_an_inflight_operation(store):
         with store.deadline():
             time.sleep(2)
     assert time.monotonic() - started < 1
+
+def test_explicit_reconfiguration_preserves_history_budget_and_checkpoints(store):
+    from copy import deepcopy
+    store.reserve_call("bootstrap", .05, {})
+    store.run["tasks"]["bootstrap"]["sessions"] = 1
+    store.run["tasks"]["bootstrap"]["decisions"] = 34
+    store.run["runtime"]["package_sha256"] = "0" * 64
+    store.save()
+    previous = deepcopy(store.run)
+    (store.root / "report.json").write_text('{"status":"failed"}')
+    config = load_config(ROOT / "configs/default.yaml")
+    with pytest.raises(RunStoreError, match="accept-runtime-change"):
+        store.reconfigure(config, reason="authorized experimental continuation")
+    with store.lock():
+        store.reconfigure(config, reason="authorized experimental continuation", allow_runtime_change=True)
+    reopened = RunStore(store.root)
+    for key in ("created_at", "budget", "pending_calls", "tasks", "accepted_checkpoint", "working_hashes", "inputs", "active_plan"):
+        assert reopened.run[key] == previous[key]
+    change = reopened.read_ref(reopened.run["history"][-1]["evidence"])
+    assert reopened.read_ref(change["previous_state"]) == previous
+    assert reopened.read_ref(change["previous_report"]) == {"status": "failed"}
+    assert not change["budget_and_time_reset"]
+    assert reopened.config.coder.fast_model == "deepseek-flash"
+    reopened.recover()
+    assert reopened.run["budget"] == previous["budget"]
+
+def test_configuration_migration_refuses_manual_drift_or_completed_delivery(store):
+    config = load_config()
+    (store.project / "manual.c").write_text("human work")
+    with pytest.raises(RunStoreError, match="unrecorded"):
+        store.reconfigure(config, reason="test")
+    assert (store.project / "manual.c").read_text() == "human work"
+    store.run["status"] = "success"
+    with pytest.raises(RunStoreError, match="completed"):
+        store.reconfigure(config, reason="test")

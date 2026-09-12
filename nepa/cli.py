@@ -38,8 +38,18 @@ def run_command(
 
 
 @app.command("resume")
-def resume_command(run_id: str, runs_root: str = typer.Option("runs/e2e", "--runs-root")) -> None:
+def resume_command(run_id: str, runs_root: str = typer.Option("runs/e2e", "--runs-root"),
+                   config_path: str | None = typer.Option(None, "--config"),
+                   accept_runtime_change: bool = typer.Option(False, "--accept-runtime-change"),
+                   change_reason: str | None = typer.Option(None, "--change-reason")) -> None:
     store = RunStore.open(runs_root, run_id)
+    if config_path is not None:
+        if not change_reason:
+            raise RunStoreError("--config on resume requires --change-reason")
+        with store.lock():
+            store.reconfigure(load_config(config_path), reason=change_reason, allow_runtime_change=accept_runtime_change)
+    elif accept_runtime_change or change_reason:
+        raise RunStoreError("runtime/configuration migration requires --config")
     code = build_orchestrator(store).resume(store)
     output(status_value(store))
     raise typer.Exit(code)

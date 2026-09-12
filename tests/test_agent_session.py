@@ -28,7 +28,7 @@ def action(tool, **arguments):
                                        '{"tool":"finish","arguments":{"summary":"ready","claims":[]}'])
 def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_history):
     config = load_config(overrides={"budgets": {"sessions_per_task": 3, "decisions_per_session": 5},
-                                    "coder": {"context_max_bytes": 60000}})
+                                    "coder": {"context_max_bytes": 60000, "fast_model": "deepseek-flash"}})
     store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
                                 ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
@@ -51,6 +51,8 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     assert store.run["tasks"]["bootstrap"]["sessions"] == (calls + 4) // 5
     for request in provider.requests:
         assert [m["role"] for m in request.messages] == ["user"] + ["assistant", "user"] * ((len(request.messages) - 1) // 2)
+    assert [request.model for request in provider.requests] == [
+        "deepseek-flash" if i < 5 else "deepseek-v4-pro" for i in range(calls)]
     if malformed:
         assert "No tool executed" in provider.requests[1].messages[-1]["content"]
     assert "decisions_left" in provider.requests[-1].messages[-1]["content"]

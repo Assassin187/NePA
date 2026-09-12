@@ -30,6 +30,9 @@ Scheduling (latest user instruction): first complete one real end-to-end run and
 its independent export checks. Only after it passes, launch two additional empty
 projects with that same frozen candidate; these two may execute concurrently.
 A first-run failure does not launch stability repetitions. All three must pass.
+The user subsequently authorized continuing the payment-interrupted first run with
+a changed Flash/Pro model configuration. That development run may have multiple
+recorded code/configuration versions; it is not a fixed-candidate stability sample.
 
 ## 2. Deterministic planning
 
@@ -100,6 +103,12 @@ Default: configured deepseek/deepseek-v4-pro, temperature 0, max output 16000. T
 a starting configuration, not a proven model ranking. Restore the actual-wire
 window to 180000 bytes after the evidenced 60000-byte source-eviction regression;
 the working-set invariants above, not the larger number alone, fix the mechanism.
+Optional coder.fast_model uses the same configured provider and requires an explicit
+price. Bootstrap, message and requirement tasks use it for their first session;
+shared-wire, integration, follow-up and repair/retry sessions use coder.model (Pro).
+Selection is based on task kind and observed session exhaustion, not protocol names
+or requirement prefixes. The selected model must drive the actual wire request,
+context sizing and usage/reservation pricing; record route reasons in call context.
 Maximum 40 decisions per
 session, three sessions per task; retries carry real prior diagnostics and consume
 the same run budgets. Full evidence is durable; file/log tools paginate outputs.
@@ -150,6 +159,14 @@ Persist task result/check evidence, create checkpoint, then atomically accept ta
 and checkpoint. Orphan checkpoints cannot authorize completion. On interruption,
 preserve the incomplete tree and create a fresh working copy from accepted code.
 Unexpected manual changes must be preserved, not silently overwritten.
+An explicitly requested development resume can change active configuration/runtime
+using resume --config PATH --accept-runtime-change --change-reason TEXT. Before the
+change, validate unchanged input/plan/project evidence and preserve the previous
+state/report/config/runtime in immutable evidence; publish the new active values
+and a history reference atomically. Include these changes in reports. This never
+resets cost, call numbers, task/session counters, original creation time, accepted
+checkpoint or pending-call reservations. Ordinary resume still rejects runtime
+drift; legacy Run4 and completed deliveries cannot be migrated through this path.
 
 Repair in the current task or append a small follow-up with problem, requirement
 and diagnostic refs. Maximum three follow-ups per run, inserted before final

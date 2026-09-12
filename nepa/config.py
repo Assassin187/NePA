@@ -32,9 +32,14 @@ class ModelPrice(_Model):
 class CoderConfig(_Model):
     provider: str = "deepseek"
     model: str = "deepseek-v4-pro"
+    fast_model: str | None = None
     temperature: float = 0
     max_tokens: int = Field(default=16000, gt=0)
     context_max_bytes: int = Field(default=180000, gt=0)
+
+    def for_task(self, kind: str, *, retry: bool = False, repair: bool = False) -> CoderConfig:
+        fast = self.fast_model and kind in {"bootstrap", "message", "requirements"} and not retry and not repair
+        return self.model_copy(update={"model": self.fast_model if fast else self.model})
 
 
 class BudgetConfig(_Model):
@@ -71,6 +76,8 @@ class ResolvedConfig(_Model):
             raise ValueError("coder provider is not configured")
         if f"{self.coder.provider}/{self.coder.model}" not in self.pricing:
             raise ValueError("coder price must be explicitly configured")
+        if self.coder.fast_model and f"{self.coder.provider}/{self.coder.fast_model}" not in self.pricing:
+            raise ValueError("fast coder price must be explicitly configured")
         return self
 
 
@@ -84,6 +91,7 @@ _DEFAULTS: dict[str, Any] = {
     "pricing": {
         "deepseek/deepseek-v4-pro": {"input_usd_per_million_tokens": 1.32, "output_usd_per_million_tokens": 3.96},
         "deepseek/deepseek-v4-flash": {"input_usd_per_million_tokens": 0.30, "output_usd_per_million_tokens": 1.20},
+        "deepseek/deepseek-flash": {"input_usd_per_million_tokens": 0.30, "output_usd_per_million_tokens": 1.20},
     },
 }
 

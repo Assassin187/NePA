@@ -29,9 +29,11 @@ def publish_report(store: RunStore) -> dict[str, Any]:
               "runtime": store.run.get("runtime"), "sandbox_image": store.run.get("sandbox_image"),
               "plan": store.run["active_plan"], "tasks": store.run["tasks"], "requirements": requirements,
               "budget": store.run["budget"], "unknown_calls": store.run["pending_calls"], "cache_hits": 0,
+              "configuration_changes": [entry for entry in store.run["history"] if entry["kind"] == "configuration_change"],
               "final_checks": store.run.get("final_checks"), "delivery": delivery,
               "limitations": ["Only the configured mandatory scenarios were independently checked.",
                               "Agent implementation claims are not proof of every requirement.",
+                              "Costs use configured token rates; cache/off-peak discounts are not deducted and unknown calls retain reservations, not a provider invoice.",
                               "No claim of full protocol conformance or untested language/protocol support."],
               "reproduction": {"build": "make clean && make release san", "inputs": "inputs/",
                                "calls": "evidence/calls/", "tools": "evidence/actions/"}}

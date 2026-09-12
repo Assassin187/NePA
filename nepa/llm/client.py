@@ -64,6 +64,7 @@ class LLMRequest(_LLMModel):
     role: str = Field(min_length=1)
     system: str
     user: str
+    model: str | None = None
     messages: list[dict[str, str]] | None = None
     json_schema: dict[str, Any] | list[Any] | None = None
     temperature: float = Field(ge=0)
@@ -119,23 +120,26 @@ class LLMClient:
         import os
         from .providers.openai_compat import OpenAICompatibleProvider
         coder = self.config.coder
+        model = request.model or coder.model
+        if model not in {coder.model, coder.fast_model}:
+            raise LLMConfigurationError(f"request model is not configured for coding: {model}")
         if coder.provider not in self.providers:
             env_name = self.config.providers[coder.provider].api_key_env
             if not env_name or not os.getenv(env_name):
                 raise LLMConfigurationError(f"missing configured API credential: {env_name}")
         provider = self._provider(coder.provider)
         # Both configured adapters use exactly this chat payload, with no duplicate schema.
-        wire = OpenAICompatibleProvider._payload(request, coder.model, False)
+        wire = OpenAICompatibleProvider._payload(request, model, False)
         wire_bytes = len(json.dumps(wire, ensure_ascii=False).encode())
         if wire_bytes > coder.context_max_bytes:
             raise LLMRequestError(f"actual wire request exceeds {coder.context_max_bytes} bytes: {wire_bytes}")
-        price = configured_model_price(self.config, coder.provider, coder.model)
+        price = configured_model_price(self.config, coder.provider, model)
         reservation = calculate_cost(price, wire_bytes + 64, request.max_tokens)
         for attempt in range(3):
             sequence = store.reserve_call(task_id, reservation, wire)
             started = time.monotonic()
             try:
-                response = provider.complete(request, model=coder.model, native_schema=False)
+                response = provider.complete(request, model=model, native_schema=False)
             except (TransportError, ProviderError) as exc:
                 store.fail_call(sequence, exc, elapsed_s=time.monotonic() - started)
                 if exc.retryable and attempt < 2:

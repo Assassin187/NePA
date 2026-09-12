@@ -39,6 +39,10 @@ class CodingSession:
         context = CodingContext(self.system, base, config.coder, self.tools)
         remaining = 1 if repair else config.budgets.sessions_per_task - state["sessions"]
         for _ in range(remaining):
+            selected = config.coder.for_task(task["kind"], retry=state["sessions"] > 0, repair=repair)
+            context.coder = selected
+            route = {"model": selected.model, "task_kind": task["kind"],
+                     "reason": "fast initial coding" if selected.model != config.coder.model else "complex task or retry/repair or no fast model"}
             state["sessions"] += 1
             state["status"] = "running"
             store.run["current_task"] = task["id"]
@@ -48,6 +52,7 @@ class CodingSession:
                 state["decisions"] += 1
                 store.save()
                 progress = {"session": state["sessions"], "decisions_left": config.budgets.decisions_per_session - decision,
+                            "model_route": route,
                             "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
                 current = context.request(progress)
                 response = self.client.complete(current, store=store, task_id=task["id"])
