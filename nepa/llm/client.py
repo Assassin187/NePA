@@ -8,10 +8,10 @@ import re
 import time
 from typing import Any, Mapping, Protocol
 
-from jsonschema import Draft202012Validator, SchemaError
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..config import ConfigError, ResolvedConfig, configured_model_price
+from ..config import ResolvedConfig, configured_model_price
 from .telemetry import calculate_cost
 
 
@@ -50,35 +50,10 @@ class DecodingError(LLMError):
     """A successful provider response could not be normalized."""
 
 
-class StructuredOutputError(LLMError):
-    """A structured response remained invalid after the bounded repair."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        errors: list[dict[str, Any]] | None = None,
-        responses: list[LLMResponse] | None = None,
-    ) -> None:
-        self.errors = errors or []
-        self.responses = responses or []
-        super().__init__(message)
-
-
-class EvidenceStorageError(LLMError):
-    """Durable cache or trace evidence could not be committed safely."""
-
-
 class ParameterSupportState(str, Enum):
     REPORTED_APPLIED = "reported_applied"
     REPORTED_IGNORED = "reported_ignored"
     UNKNOWN = "unknown"
-
-
-class ValidationState(str, Enum):
-    PASS = "pass"
-    REPAIRED = "repaired"
-    FAIL = "fail"
 
 
 class _LLMModel(BaseModel):
@@ -112,36 +87,6 @@ class LLMResponse(_LLMModel):
     cached: bool = False
     parameter_support: dict[str, ParameterSupportState]
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
-    validation: ValidationState = ValidationState.PASS
-    transport_attempts: int = Field(default=1, ge=1)
-    repair_attempts: int = Field(default=0, ge=0)
-
-
-class LLMCallContext(_LLMModel):
-    run_id: str = Field(min_length=1)
-    stage: str = Field(min_length=1)
-    tier: str = Field(min_length=1)
-    task_id: str | None = None
-    attempt: int = Field(default=1, ge=1)
-    trace_fields: dict[str, Any] = Field(default_factory=dict)
-
-
-class CapabilityProbeResult(_LLMModel):
-    provider: str
-    model: str
-    parameter: str
-    requested_value: Any
-    accepted: bool
-    returned_model: str | None = None
-    tokens_in: int = Field(default=0, ge=0)
-    tokens_out: int = Field(default=0, ge=0)
-    cost_usd: float = Field(default=0, ge=0)
-    latency_ms: int = Field(default=0, ge=0)
-    error: str | None = None
-    state: ParameterSupportState = ParameterSupportState.UNKNOWN
-    evidence_kind: str = "request_accepted_only"
-
-
 class Provider(Protocol):
     """One provider-owned, single-attempt wire operation."""
 

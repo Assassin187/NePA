@@ -1,4 +1,3 @@
-from pathlib import Path
 import pytest
 from nepa.tools.workspace import WorkspaceTools
 from nepa.tools.sandbox import SandboxExecutor
@@ -33,6 +32,19 @@ def test_input_pointer_and_pagination(tools):
     result = tools.execute("read_file", {"path": "inputs/spec.json", "json_pointer": "/values/0/x", "limit": 5})
     assert result["content"] == '"abcd'
     assert result["next_offset"] == 5
+
+@pytest.mark.sandbox_integration
+def test_oracle_is_readable_but_not_writable(tools):
+    checks = tools.inputs / "checks"
+    checks.mkdir()
+    (checks / "check.py").write_text("print('trusted')\n")
+    assert tools.execute("list_files", {"path": "inputs"})["files"][0]["path"] == "inputs/checks/check.py"
+    assert tools.execute("search", {"path": "inputs", "pattern": "trusted"})["matches"]
+    with pytest.raises(ValueError):
+        tools.execute("write_file", {"path": "inputs/checks/check.py", "content": "changed"})
+    result = tools.execute("run_command", {"argv": ["sh", "-c", "python /checks/check.py && ! touch /checks/changed"]})
+    assert result["returncode"] == 0 and "trusted" in result["stdout"]
+    assert not (checks / "changed").exists()
 
 @pytest.mark.sandbox_integration
 def test_real_compile_failure_then_fix(tools):

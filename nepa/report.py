@@ -1,6 +1,5 @@
 """Truthful deterministic delivery reports; no model-judged success."""
 from __future__ import annotations
-from pathlib import Path
 from typing import Any
 from .run_store import RunStore, atomic_json, tree_hashes
 

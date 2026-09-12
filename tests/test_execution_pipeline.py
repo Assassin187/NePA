@@ -99,6 +99,8 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
     run_dir = Path(value["run_dir"])
     report = json.loads((run_dir / "report.json").read_bytes())
     assert report["status"] == "success"
+    from nepa.speclib.lint import _schema_errors
+    assert not _schema_errors(report, "report.schema.json")
     assert value["tasks_passed"] == value["tasks_total"] == 5
     assert provider.calls == 8
     assert (run_dir / "delivery/build/release/protocol-server").is_file()

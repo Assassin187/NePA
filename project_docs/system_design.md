@@ -21,6 +21,8 @@ cache, imported solution or manual generated-code edits. Changing these inputs
 restarts the batch. Retain debug/failed runs. Approved campaign budget: USD100
 including debug and failures; each run USD20 and four hours from creation, never
 reset on resume. Unknown usage keeps its pre-call reservation.
+The Linux CLI installs a run deadline alarm, including provider/tool calls; deadline
+interruption retains unknown-call reservations and cleans active tool containers.
 
 ## 2. Deterministic planning
 
@@ -29,6 +31,8 @@ not natural-language semantics. Requirements have one original source: Spec
 requirements[]. Keep input array order. Generate a serial Plan 6.0:
 
 1. bootstrap: real project, build/start entrypoints, initial interfaces and README.
+   This task establishes a listening process and clean shutdown, not all message
+   or behavior implementation; the complete pipeline overview is supplied up front.
 2. shared-wire: transport and builtin/custom wire types.
 3. One message:<id> task per message. Decode for receiver target roles, encode for
    sender roles, both if applicable. Explicitly review scope for irrelevant messages.
@@ -73,8 +77,10 @@ the same run budgets. Full evidence is durable; file/log tools paginate outputs.
 Retain task/target/index and recent transcript in context; older evidence remains
 readable by reference. Read current code rather than trust stale summaries.
 
-Only generated project files are writable. Input, oracle, runtime state and Git
-metadata are outside that mount. Reject traversal and symbolic-link escapes.
+Only generated project files are writable. Input and oracle are available as
+read-only inputs/checks paths and /inputs and /checks container mounts; runtime state
+and Git metadata are not mounted. File pagination offsets are characters, not array
+indices; use JSON pointers for specific facts. Reject traversal and symbolic-link escapes.
 Commands run in a network-disabled, resource-limited container without host secrets,
 NePA source, old answer fixtures, cached answers or installed protocol servers.
 Host tools never execute generated commands outside that sandbox.

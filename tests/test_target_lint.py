@@ -1,39 +1,28 @@
 import json
 from pathlib import Path
-
+import pytest
 from nepa.speclib.lint import lint_target
 
+ROOT = Path(__file__).parents[1]
 
-def _write(path: Path, value: dict) -> Path:
-    path.write_text(json.dumps(value), encoding="utf-8")
-    return path
+def target():
+    return json.loads((ROOT / "gold_file/target.json").read_bytes())
 
+def test_target_lint_accepts_explicit_profile():
+    assert lint_target(target(), ROOT / "gold_file/specIR.json")["valid"]
 
-def _spec() -> dict:
-    return {"schema_version": "3.0", "protocol": {"name": "MQTT", "version": "3.1.1", "roles": ["client", "server"]}, "types": [], "messages": [], "requirements": []}
-
-
-def test_target_lint_accepts_default_profile_with_spec(tmp_path):
-    target = _write(tmp_path / "target.json", {"roles": ["server"], "language": {"name": "C", "version": "C99"}})
-    spec = _write(tmp_path / "spec.json", _spec())
-    assert lint_target(target, spec)["valid"]
-
-
-def test_target_lint_rejects_historical_dual_role(tmp_path):
-    target = _write(tmp_path / "target.json", {"roles": ["client", "server"], "language": {"name": "C", "version": "C99"}})
-    report = lint_target(target)
-    assert not report["valid"]
-    assert any(error["code"] == "TARGET_ROLE_UNSUPPORTED" for error in report["errors"])
-
-
-def test_target_lint_rejects_unsupported_language(tmp_path):
-    target = _write(tmp_path / "target.json", {"roles": ["server"], "language": {"name": "C", "version": "C11"}})
-    report = lint_target(target)
-    assert not report["valid"]
-    assert any(error["code"] == "TARGET_LANGUAGE_UNSUPPORTED" for error in report["errors"])
-
-
-def test_target_lint_rejects_extra_field(tmp_path):
-    target = _write(tmp_path / "target.json", {"roles": ["server"], "language": {"name": "C", "version": "C99"}, "backend": "c99"})
-    report = lint_target(target)
-    assert not report["valid"]
+@pytest.mark.parametrize("mutation", [
+    lambda t: t.update(roles=["client", "server"]),
+    lambda t: t.update(language={"name": "C", "version": "C11"}),
+    lambda t: t.update(backend="c99"),
+    lambda t: t.pop("schema_version"),
+    lambda t: t["builds"][0].update(artifact="../escape"),
+    lambda t: t["builds"][1].update(artifact=t["builds"][0]["artifact"]),
+    lambda t: t["builds"][0].update(required_flags=[]),
+    lambda t: t["builds"][1].update(required_flags=["-std=c99", "-Wall", "-Wextra", "-Werror"]),
+    lambda t: t.update(run=["sleep", "100"]),
+])
+def test_target_rejects_invalid_contract(mutation):
+    value = target()
+    mutation(value)
+    assert not lint_target(value)["valid"]

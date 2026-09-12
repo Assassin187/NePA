@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 from nepa.config import load_config, ConfigError, public_config_snapshot
-from nepa.llm.client import LLMClient, LLMRequest, LLMResponse, ProviderError, extract_first_json_value
+from nepa.llm.client import LLMClient, LLMRequest, ProviderError, extract_first_json_value
 from nepa.llm.telemetry import calculate_cost
 from nepa.run_store import RunStore
 from nepa.report import publish_report
@@ -69,3 +69,25 @@ def test_time_budget_not_reset_on_resume(tmp_path):
     store.save()
     with pytest.raises(BudgetExhausted):
         RunStore(store.root).check_budget()
+
+def test_failed_final_task_cannot_be_bypassed_by_later_check_success(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from nepa.orchestrator import Orchestrator
+    store = make_store(tmp_path)
+    for task in store.run["tasks"].values():
+        task["status"] = "passed"
+    class Session:
+        def run(self, task, **kwargs):
+            store.run["tasks"][task["id"]]["status"] = "failed"
+            return False
+    orchestrator = Orchestrator(Session())
+    count = 0
+    def delivery(*args):
+        nonlocal count
+        count += 1
+        store.run['final_checks'] = {'result': {'passed': count > 1}}
+        return count > 1
+    monkeypatch.setattr(orchestrator, "_delivery", delivery)
+    monkeypatch.setattr("nepa.orchestrator.subprocess.run", lambda *a, **kw: SimpleNamespace(returncode=0, stdout="image"))
+    assert orchestrator.run(store) != 0
+    assert store.run["status"] != "success"

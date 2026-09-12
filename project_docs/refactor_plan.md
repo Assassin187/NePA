@@ -37,8 +37,8 @@ Do not retain CAP/epochs/F1–F3/calibration as production prerequisites.
 - [x] R2 Target/Acceptance contracts and independent verification supervisor.
 - [x] R3 deterministic 23-task compiler with 110 primary requirement bindings.
 - [x] R4 API tool loop and actual compiler-diagnostic repair.
-- [ ] R5 CLI-to-export pipeline, checkpoint recovery, truthful final reports.
-- [ ] R6 wheel, full mypy, CI and obsolete-path retirement.
+- [x] R5 CLI-to-export pipeline, checkpoint recovery, truthful final reports.
+- [x] R6 wheel, full mypy, CI and obsolete-path retirement.
 - [ ] R7 three consecutive frozen-version real API successes.
 
 R1: git diff --check; inspect active document references.
@@ -70,6 +70,7 @@ baseline. Before deletion confirm consumers removed and replacement tests exist.
 | Item | Reason, recovery, replacement |
 | --- | --- |
 | pipeline_design_s4_s9.md | Superseded by Design9.0; recover at baseline; one active pipeline contract |
+| 365 obsolete source/schema/test/fixture paths | Exact paths and replacement coverage in refactor_deletions.json; no remaining production imports; baseline recovery |
 
 ## Deviations / execution evidence
 
@@ -101,7 +102,39 @@ and user/tool-result chat messages through the same provider API, no native tool
 Independent sanitizer probe in runs/_refactor/asan-probe: an empty C program had
 5/20 PIE startup failures, 0/20 with -fno-pie -no-pie. Old templates used non-PIE too.
 The san Target now requires these flags; ASan/UBSan and interaction gates remain.
-This also explains the extra repair observed in the test-only CLI wiring run.
+This is consistent with the extra repair observed in the test-only CLI wiring run.
+
+Second live debug 20260912T053748Z-a3f90aac was interrupted at 26 calls and
+USD0.98489160 accounted cost. It over-read the full Spec in bootstrap and attempted
+unavailable acceptance paths. Added the complete task overview, explicit bootstrap
+scope, character-pagination guidance, and read-only input/check mounts. The oracle
+remains immutable and host judged. Combined debug accounting: USD1.38338904.
+No generated source was copied into NePA or subsequent runs.
+
+Fault injection proved a final repair could fail but export still return success.
+The terminal loop now requires every task passed before checking export. Its
+regression test failed against the old loop and passed after correction.
+Optional transport was incorrectly indexed as mandatory by the new Spec linter;
+retained original Spec tests caught it, now handled according to Spec3 schema.
+
+R6 initial full non-live suite: 94 passed, one paid test deselected, 23.03 seconds;
+actual Docker tests ran, not skipped. Full mypy: all 29 retained Python modules
+passed, without the previous four-file exclusion or skipped imports. Original
+provider/SSE tests remain; obsolete stage API tests have named replacement coverage.
+Runtime configuration no longer requires Jinja2 or pytest; pytest is a dev extra.
+Wheel 0.1.0 built and installed into an independent virtual environment; CLI help
+and Spec/Target/Acceptance lints passed from a non-source directory. Packaged coder,
+seven schemas/examples and verification worker are included. Historical configs
+m1-* and experiments remain as baseline-only records, not loaded by production.
+CI builds the sandbox before tests and does not install or invoke OpenSpec.
+Additional crash-window tests cover response-before-settlement and Git-checkpoint-
+before-state-publication, preserving unknown costs and incomplete trees. A Linux
+deadline alarm now interrupts in-flight operations at the approved four-hour limit,
+not only at the next model decision; sandbox cleanup also handles that interruption.
+
+Pre-live frozen candidate: full non-live regression 100 passed / one paid test
+deselected in 23.49s; Ruff passed and mypy passed all 29 production modules.
+Wheel resource imports and lints passed outside the source checkout.
 
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.

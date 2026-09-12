@@ -1,1 +1,0 @@
-{"micro_plan":["Implement the declared behavior"],"files":[{"path":"src/module.c","content":"int main(void) { return 0; }\n"}],"notes":"No additional assumptions."}

@@ -15,10 +15,12 @@ class WorkspaceTools:
 
     def path(self, name: str, *, write: bool = False) -> Path:
         name = safe_relative(name)
-        if name.startswith("inputs/"):
-            if write or name not in {"inputs/spec.json", "inputs/target.json", "inputs/index.json", "inputs/acceptance.json"}:
-                raise ValueError("input assets are read-only; only original facts/index/acceptance description are exposed")
+        if name == "inputs" or name.startswith("inputs/"):
+            if write:
+                raise ValueError("input and acceptance assets are read-only")
             root, name = self.inputs, name.removeprefix("inputs/")
+            if name == "inputs":
+                name = "."
         elif name.startswith("evidence/"):
             if write:
                 raise ValueError("evidence is read-only")
@@ -31,10 +33,16 @@ class WorkspaceTools:
             raise ValueError("path or symlink escaped its allowed root")
         return path
 
+    def display(self, path: Path) -> str:
+        for prefix, root in (("inputs/", self.inputs), ("evidence/", self.evidence), ("", self.project)):
+            if path.is_relative_to(root):
+                return prefix + path.relative_to(root).as_posix()
+        raise ValueError("path outside tool roots")
+
     def execute(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         if tool == "list_files":
             root = self.path(args.get("path", "."))
-            return {"files": [{"path": str(p.relative_to(self.project)), "size": p.lstat().st_size}
+            return {"files": [{"path": self.display(p), "size": p.lstat().st_size}
                               for p in sorted(root.rglob("*")) if p.is_file() and not p.is_symlink()][:500]}
         if tool == "read_file":
             path = self.path(args["path"])
@@ -46,19 +54,19 @@ class WorkspaceTools:
                     value = value[int(key)] if isinstance(value, list) else value[key]
                 text = json.dumps(value, ensure_ascii=False, indent=2)
             offset, limit = args.get("offset", 0), args.get("limit", 16000)
-            return {"content": text[offset:offset + limit], "offset": offset,
+            return {"content": text[offset:offset + limit], "offset": offset, "offset_unit": "characters",
                     "next_offset": offset + limit if offset + limit < len(text) else None, "total_chars": len(text)}
         if tool == "search":
             root = self.path(args.get("path", "."))
             matches = []
             paths = [root] if root.is_file() else sorted(root.rglob("*"))
             for path in paths:
-                if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(self.project):
+                if not path.is_file() or path.is_symlink():
                     continue
                 try:
                     for number, line in enumerate(path.read_text().splitlines(), 1):
                         if args["pattern"] in line:
-                            matches.append({"path": str(path.relative_to(self.project)), "line": number, "text": line[:1000]})
+                            matches.append({"path": self.display(path), "line": number, "text": line[:1000]})
                             if len(matches) >= 100:
                                 return {"matches": matches, "truncated": True}
                 except UnicodeError:
@@ -77,5 +85,8 @@ class WorkspaceTools:
             path.write_text(content)
             return {"written": args["path"], "bytes": len(content.encode())}
         if tool == "run_command":
-            return asdict(self.executor.exec(args["argv"], str(self.project), self.timeout_s))
+            readonly = {"/inputs": self.inputs}
+            if (self.inputs / "checks").is_dir():
+                readonly["/checks"] = self.inputs / "checks"
+            return asdict(self.executor.exec(args["argv"], str(self.project), self.timeout_s, readonly=readonly))
         raise ValueError(f"unknown workspace tool: {tool}")

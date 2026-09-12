@@ -66,7 +66,7 @@ def lint_spec(source: str | Path | dict[str, Any]) -> dict[str, Any]:
         reqs = {v["id"] for v in data["requirements"]}
         types = {v["id"] for v in data["types"]} | BUILTIN_TYPES
         roles = set(data["protocol"]["roles"])
-        objects = [data["transport"], *data["types"], *data["messages"]]
+        objects = [data.get("transport", {}), *data["types"], *data["messages"]]
         objects += [f for m in data["messages"] for f in m["fields"]]
         for obj in objects:
             for ref in obj.get("req_ids", []):
@@ -100,6 +100,13 @@ def lint_target(source: str | Path | dict[str, Any], spec: str | Path | dict[str
             raise ValueError("initial implementation supports C99 server targets")
         for item in data["builds"]:
             safe_relative(item["artifact"])
+            required = {"-std=c99", "-Wall", "-Wextra", "-Werror"}
+            if item["id"] == "san":
+                required.add("-fsanitize=address,undefined")
+            if not required.issubset(item["required_flags"]):
+                raise ValueError("target cannot omit required C99/compiler/sanitizer flags")
+        if "{artifact}" not in data["run"]:
+            raise ValueError("run command must launch the generated artifact")
         if {b["id"] for b in data["builds"]} != {"release", "san"} or len(data["builds"]) != 2:
             raise ValueError("target must declare release and san exactly once")
         if len({b["artifact"] for b in data["builds"]}) != 2:

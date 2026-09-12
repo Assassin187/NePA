@@ -58,7 +58,7 @@ class SandboxExecutor:
         if timeout_s <= 0:
             raise ValueError("sandbox timeout must be positive")
         base_command = self.command_vector(cmd, cwd, net=net, readonly=readonly)
-        descriptor, cid_name = tempfile.mkstemp(prefix="nepa-s5-cid-")
+        descriptor, cid_name = tempfile.mkstemp(prefix="nepa-cid-")
         os.close(descriptor)
         cid_path = Path(cid_name)
         cid_path.unlink()
@@ -91,7 +91,7 @@ class SandboxExecutor:
             try:
                 returncode = process.wait(timeout=timeout_s)
                 timed_out = False
-            except (subprocess.TimeoutExpired, KeyboardInterrupt) as interruption:
+            except BaseException as interruption:
                 process.kill()
                 process.wait()
                 timed_out = True
@@ -101,7 +101,7 @@ class SandboxExecutor:
                     cleanup = subprocess.run(["docker", "rm", "-f", cid], capture_output=True, check=False)
                     if cleanup.returncode != 0:
                         raise RuntimeError("timed-out sandbox container could not be removed")
-                if isinstance(interruption, KeyboardInterrupt):
+                if not isinstance(interruption, subprocess.TimeoutExpired):
                     for reader in readers:
                         reader.join()
                     raise

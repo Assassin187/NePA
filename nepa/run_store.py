@@ -7,14 +7,14 @@ import fcntl
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
-import shutil
 import time
 from typing import Any, Iterator
 import uuid
 
 from .config import ResolvedConfig, public_config_snapshot
-from .speclib.lint import canonical_json_bytes, digest, lint_acceptance, lint_spec, lint_target, safe_relative
+from .speclib.lint import canonical_json_bytes, digest, lint_acceptance, lint_spec, lint_target, safe_relative, _schema_errors
 from .speclib.plan import compile_plan
 from .speclib.planning import planning_index
 from .tools.git_ops import GitCheckpoints
@@ -80,6 +80,9 @@ class RunStore:
         self.run = json.loads((self.root / "run.json").read_bytes())
         if self.run.get("schema_version") != "5.0":
             raise RunStoreError("unsupported legacy run; use baseline code, not in-place resume")
+        errors = _schema_errors(self.run, "run.schema.json")
+        if errors:
+            raise RunStoreError(f"invalid run state: {errors}")
         self.config = ResolvedConfig.model_validate(self.run["config_snapshot"])
         self.project = self.root / "project"
         self.git = GitCheckpoints(self.root / "checkpoints.git", self.project)
@@ -160,6 +163,23 @@ class RunStore:
     def lock(self) -> Iterator[None]:
         with file_lock(self.root / ".lock"):
             yield
+
+    @contextmanager
+    def deadline(self) -> Iterator[None]:
+        """Enforce the Linux CLI deadline even during a provider or tool call."""
+        if self.run["status"] == "success":
+            yield
+            return
+        def expired(signum: int, frame: Any) -> None:
+            raise BudgetExhausted("run time limit reached during external operation")
+        previous = signal.signal(signal.SIGALRM, expired)
+        remaining = self.run["created_at"] + self.config.budgets.wall_clock_hours * 3600 - time.time()
+        signal.setitimer(signal.ITIMER_REAL, max(.001, remaining))
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
 
     def read_ref(self, ref: dict[str, str]) -> Any:
         path = self.root / safe_relative(ref["path"])

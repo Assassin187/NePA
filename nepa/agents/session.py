@@ -29,7 +29,12 @@ class CodingSession:
         state = store.run["tasks"][task["id"]]
         spec, target, acceptance = store.inputs()
         index = store.read_ref(store.run["inputs"]["index"])
+        index = {key: value for key, value in index.items() if key != "requirements"}
+        index["full_requirement_index"] = "inputs/index.json"
         base = {"task": task, "target": target, "spec_index": index,
+                "pipeline": [{"id": entry["id"], "kind": entry["kind"],
+                              "primary_requirement_count": len(entry["requirement_ids"])}
+                             for entry in store.plan()["tasks"]],
                 "initial_feedback": feedback if feedback is not None else state.get("last_feedback")}
         messages = [{"role": "user", "content": json.dumps(base, ensure_ascii=False)}]
         remaining = 1 if repair else config.budgets.sessions_per_task - state["sessions"]

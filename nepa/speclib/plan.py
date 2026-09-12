@@ -14,13 +14,15 @@ def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]
         tasks.append({"id": task_id, "kind": kind, "goal": goal, "context": context,
                       "requirement_ids": primary or [], "depends_on": tasks[-1]["id"] if tasks else None})
     add("bootstrap", "bootstrap",
-        "Create a real self-contained project honoring Target build/run commands. Implement the startup path, README, "
-        "initial interfaces and build both variants. No protocol implementation dependency or canned project. "
-        "Later tasks may change every project file.",
-        {"protocol": spec["protocol"], "transport": spec["transport"]})
+        "BOOTSTRAP ONLY: create the project, Makefile, README and a server startup/shutdown path honoring Target. "
+        "Build both variants. Do not implement message codecs or all protocol behaviors here: dedicated later tasks "
+        "will implement them. A listening process with clean shutdown is sufficient for THIS task, not final success. "
+        "Use the provided transport/target facts; avoid reading the entire protocol before creating initial files. "
+        "No protocol implementation dependency or canned project. All interfaces remain editable by later tasks.",
+        {"protocol": spec["protocol"], "transport": spec.get("transport")})
     add("shared-wire", "wire", "Implement the common wire types, buffers and transport foundations from the full original facts. "
         "Do not prematurely discard information needed by specified error responses.",
-        {"transport": spec["transport"], "types": spec["types"]})
+        {"transport": spec.get("transport"), "types": spec["types"]})
     roles = set(target["roles"])
     for message in spec["messages"]:
         directions = []

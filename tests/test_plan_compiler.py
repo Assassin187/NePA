@@ -28,6 +28,11 @@ def test_all_current_inputs_valid():
     assert lint_target(target, spec)["valid"]
     assert lint_acceptance(ROOT / "gold_file/acceptance.json", spec)["valid"]
 
+def test_schema_optional_transport_is_not_an_internal_key_error():
+    spec, target = inputs()
+    spec.pop("transport")
+    assert compile_plan(spec, target)["tasks"][0]["context"]["transport"] is None
+
 def test_renaming_protocol_and_message_is_structural_not_special():
     spec, target = inputs()
     spec["protocol"]["name"] = "SyntheticName"

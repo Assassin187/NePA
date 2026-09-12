@@ -1,5 +1,3 @@
-"""Narrow external-tool boundaries used by S5."""
-
+"""Isolated workspace, build and verification boundaries."""
 from .sandbox import ExecResult, SandboxExecutor
-
 __all__ = ["ExecResult", "SandboxExecutor"]

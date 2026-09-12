@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 import pytest
 from nepa.config import load_config
-from nepa.run_store import RunStore, RunStoreError, BudgetExhausted, tree_hashes, file_lock
+from nepa.run_store import RunStore, RunStoreError, BudgetExhausted
 
 ROOT = Path(__file__).parents[1]
 
@@ -93,3 +93,54 @@ def test_secrets_redacted_from_evidence(store, monkeypatch):
 def test_invalid_run_id_rejected(store):
     with pytest.raises(ValueError):
         RunStore.open(store.root.parent, "../escape")
+
+def test_crash_after_response_keeps_reservation_and_never_reuses_call(store, monkeypatch):
+    seq = store.reserve_call("bootstrap", .05, {})
+    def crash():
+        raise RuntimeError("publication interrupted")
+    monkeypatch.setattr(store, "save", crash)
+    with pytest.raises(RuntimeError):
+        store.settle_call(seq, {"cost_usd": .01, "tokens_in": 1, "tokens_out": 1}, elapsed_s=0)
+    reopened = RunStore(store.root)
+    assert reopened.run["budget"]["cost_usd"] == .05
+    assert (store.root / "evidence/calls/000001.response.json").exists()
+    assert reopened.reserve_call("bootstrap", .01, {}) == 2
+
+def test_checkpoint_before_state_publication_is_not_accepted(store, monkeypatch):
+    old_checkpoint = store.run["accepted_checkpoint"]
+    store.run["current_task"] = "bootstrap"
+    identifier = store.start_action("bootstrap", {"tool": "write_file"})
+    (store.project / "a.c").write_text("attempt")
+    ref = store.finish_action(identifier, {"passed": True})
+    def crash():
+        raise RuntimeError("publication interrupted")
+    monkeypatch.setattr(store, "save", crash)
+    with pytest.raises(RuntimeError):
+        store.accept("bootstrap", [], ref)
+    reopened = RunStore(store.root)
+    assert reopened.run["accepted_checkpoint"] == old_checkpoint
+    reopened.recover()
+    assert not (reopened.project / "a.c").exists()
+    assert (reopened.root / reopened.run["history"][-1]["path"] / "a.c").read_text() == "attempt"
+
+def test_followup_is_versioned_bounded_and_does_not_claim_primary_requirements(store):
+    old = (store.root / "plans/0001.json").read_bytes()
+    ref = store.evidence("diagnostic.json", {"error": "test-only integration gap"})
+    request = {"issue": "repair shared call site", "requirement_ids": [], "diagnostic_refs": [ref]}
+    for _ in range(3):
+        store.append_followup(request, "shared-wire")
+    assert (store.root / "plans/0001.json").read_bytes() == old
+    assert store.plan()["revision"] == 4
+    assert len(store.plan()["primary_tasks"]) == 110
+    assert store.plan()["tasks"][-2]["id"] == "followup:003"
+    with pytest.raises(ValueError, match="limit"):
+        store.append_followup(request, "shared-wire")
+
+def test_wall_deadline_interrupts_an_inflight_operation(store):
+    import time
+    store.run["created_at"] = time.time() - store.config.budgets.wall_clock_hours * 3600 + .05
+    started = time.monotonic()
+    with pytest.raises(BudgetExhausted, match="external operation"):
+        with store.deadline():
+            time.sleep(2)
+    assert time.monotonic() - started < 1

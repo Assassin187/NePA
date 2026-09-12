@@ -5,7 +5,7 @@ from .lint import type_dependencies
 
 
 def planning_index(spec: dict[str, Any]) -> dict[str, Any]:
-    return {"protocol": spec["protocol"], "transport": spec["transport"],
+    return {"protocol": spec["protocol"], "transport": spec.get("transport"),
             "types": [{"id": t["id"], "pointer": f"/types/{i}"} for i, t in enumerate(spec["types"])],
             "messages": [{"id": m["id"], "pointer": f"/messages/{i}", "senders": m["senders"], "receivers": m["receivers"]}
                          for i, m in enumerate(spec["messages"])],

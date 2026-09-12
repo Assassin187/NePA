@@ -1,7 +1,6 @@
 """One serial generation path through actual coding, verification and export."""
 from __future__ import annotations
 import os
-from pathlib import Path
 import shutil
 import subprocess
 from typing import Any
@@ -54,7 +53,7 @@ class Orchestrator:
         return True
 
     def run(self, store: RunStore, *, resume: bool = False) -> int:
-        with store.lock():
+        with store.lock(), store.deadline():
             try:
                 if store.run["status"] == "success":
                     publish_report(store)
@@ -80,7 +79,10 @@ class Orchestrator:
                         break
                     if not self.session.run(pending[0]):
                         raise RuntimeError("task sessions exhausted: " + pending[0]["id"])
-                while not self._delivery(store, target, acceptance):
+                while True:
+                    all_passed = all(task['status'] == 'passed' for task in store.run['tasks'].values())
+                    if all_passed and self._delivery(store, target, acceptance):
+                        break
                     if store.run["final_repairs"] >= store.config.budgets.final_repairs:
                         raise RuntimeError("final independent checks failed after bounded repairs")
                     store.run["final_repairs"] += 1

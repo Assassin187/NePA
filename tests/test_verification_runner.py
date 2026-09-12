@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from nepa.tools.sandbox import SandboxExecutor
 from nepa.tools.verification import VerificationRunner
-from nepa.tools.verification_worker import supervise
 
 ROOT = Path(__file__).parents[1]
 SERVER = """

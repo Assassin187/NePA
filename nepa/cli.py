@@ -1,14 +1,12 @@
 """Generation, resume and read-only status with explicit terminal outcomes."""
 from __future__ import annotations
 import json
-from pathlib import Path
 from typing import Sequence
 import typer
 from .application import build_orchestrator
 from .config import ConfigError, load_config
 from .run_store import RunStore, RunStoreError
 from .speclib.lint import lint_acceptance, lint_spec, lint_target, read_json, _schema_errors
-from .speclib.plan import compile_plan
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 lint_app = typer.Typer(no_args_is_help=True)

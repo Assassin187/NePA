@@ -1,1 +1,20 @@
-{"schema_version":"5.0","input_refs":{"spec":{"path":"inputs/spec.json","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"target_profile":{"path":"inputs/target.json","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"test_bundle":{"path":"inputs/test_bundle.json","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}},"delivery_blueprint_sha256":"0000000000000000000000000000000000000000000000000000000000000000","architecture":{"schema_version":"2.0","decisions":[],"assumptions":["The example contains one application entry."],"contracts":[],"modules":[{"id":"app","name":"Application","purpose":"Application entry","responsibilities":["entry"],"non_goals":["network io"],"owns_files":["apps/app_main.c"],"provides_contracts":[],"consumes_contracts":[]}],"layout":{"roots":{"include":"include","source":"src","app":"apps","build":"build"},"files":[{"slot_id":"app-entry","path":"apps/app_main.c","path_pattern":null,"expand_over":null,"class":"s6_owned","render_rule":"source_stub","owner_module":"app","contract_id":null,"build_role":"entry_point","purpose":"Application entry"}],"build_graph":{"artifacts":[{"artifact_id":"application","output_path":"build/application","entry_file_slot":"app-entry","link_source_slots":["app-entry"]}]}}},"work_packages":[],"tasks":[],"coverage":{"requirements":[],"tests":[]},"review":{"verdict":"pass","unresolved_minor_issues":[]}}
+{
+  "input_hashes": {
+    "spec": "fd781c6b72dd6f3dd222c64dbb296b8f43bffd8aa43b8a861d1ce1105e404b15",
+    "target": "21d08a1cd8806fe3a5ea5c0ab78f97026bb1135edd59e8416bc04c949d78be2e"
+  },
+  "primary_tasks": {},
+  "reason": "deterministic input compilation",
+  "revision": 1,
+  "schema_version": "6.0",
+  "tasks": [
+    {
+      "context": {},
+      "depends_on": null,
+      "goal": "BOOTSTRAP ONLY: create the project, Makefile, README and a server startup/shutdown path honoring Target. Build both variants. Do not implement message codecs or all protocol behaviors here: dedicated later tasks will implement them. A listening process with clean shutdown is sufficient for THIS task, not final success. Use the provided transport/target facts; avoid reading the entire protocol before creating initial files. No protocol implementation dependency or canned project. All interfaces remain editable by later tasks.",
+      "id": "bootstrap",
+      "kind": "bootstrap",
+      "requirement_ids": []
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "tool": "list_files",
+  "arguments": {
+    "path": "."
+  }
+}
