@@ -63,3 +63,46 @@ do not introduce that larger rewrite unless the smaller documented JSON mode fai
 Current experiment remains on its existing production runtime. Implementation and
 final measurements follow its terminal result. Any changed candidate needs fresh
 empty-project verification; the mixed-version first run is not its stability proof.
+
+## Final first-run result and timing baseline
+
+The run completed2026-09-12T13:50:04UTC with23/23 tasks accepted, all110 primary
+requirement declarations, actual CLI exit0, release/san build and minimum interaction
+checks passed. A separately copied export also passed make clean/release/san and both
+independent interaction variants, with server/client exit0 and no sanitizer report.
+Evidence: runs/e2e/_acceptance/first-continuation-20260912/batch.json and its
+independent-checks-1; the generated delivery remains unchanged in the original run.
+
+Reproduction of timing audit (read-only, no API):
+`PYTHONPATH=. .venv/bin/python runs/_refactor/audit_latency.py runs/e2e/20260912T112242Z-56f67d18`.
+The audit script is preserved with local experiment artifacts, not a production import.
+
+| Measurement | Final value |
+|---|---:|
+| Original creation to successful publication | 147.36 minutes |
+| HTTP402-to-resume pause (evidence file timestamps) | 18.58 minutes |
+| Wall time excluding that pause | 128.78 minutes |
+| Completed API calls | 820 responses + one402 error |
+| API elapsed time of completed responses | 125.35 minutes |
+| Invalid action responses (no tool executed) | 205/820 =25.0% |
+| API time spent producing invalid actions | 31.28 minutes |
+| Flash invalid actions | 149/347 =42.9%,12.59 API minutes |
+| Pro invalid actions, including pre-recharge | 56/473 =11.8%,18.69 API minutes |
+| Measured command tools + finish checks | 155.991 seconds |
+| Run conservative cost | USD21.78629862 |
+| Campaign cumulative cost | USD70.80887574 / USD300 |
+
+The remaining unknown call278 reservationUSD0.29382936 is included, not cleared.
+Provider/cache/off-peak discounts are not deducted. This is accounted cost, not an
+invoice. API latency includes provider processing/network and is not decomposable
+into inference versus network from existing evidence. Models handled different
+tasks/contexts, so medians are descriptive, not an A/B quality/speed comparison.
+
+Decision before next experiment: enable documented JSON-object mode in the existing
+configuration/request/context/provider path. Do not alter the tool language, parse
+DSML permissively, lower reasoning/output limits, increase task budgets, shrink
+context, skip requirements or remove builds. Keep Flash/Pro route unchanged so the
+largest remaining measured defect can be evaluated without confounded changes.
+The next fresh run must still satisfy all gates; compare its invalid-action rate,
+API and wall time, task-session escalation, cost and independent acceptance. A
+reduction in formatting waste is a hypothesis until real run evidence confirms it.

@@ -24,17 +24,17 @@ def action(tool, **arguments):
 
 @pytest.mark.sandbox_integration
 @pytest.mark.parametrize("long_history", [False, True])
-@pytest.mark.parametrize("malformed", [None, "<tool_calls><invoke name='write_file'/></tool_calls>",
+@pytest.mark.parametrize("malformed", [None, "", "<tool_calls><invoke name='write_file'/></tool_calls>",
                                        '{"tool":"finish","arguments":{"summary":"ready","claims":[]}'])
 def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_history):
     config = load_config(overrides={"budgets": {"sessions_per_task": 3, "decisions_per_session": 5},
-                                    "coder": {"context_max_bytes": 60000, "fast_model": "deepseek-flash"}})
+                                    "coder": {"context_max_bytes": 60000, "fast_model": "deepseek-flash", "json_output": True}})
     store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
                                 ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
                 "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie main.c -o build/san/protocol-server\n"
                 "clean:\n\trm -rf build\n")
-    provider = SequenceProvider(([malformed] if malformed else []) + [
+    provider = SequenceProvider(([malformed] if malformed is not None else []) + [
         action("write_file", path="Makefile", content=makefile),
         action("write_file", path="main.c", content="int main(void){ broken syntax }"),
         action("finish", summary="request checks", claims=[]),
@@ -46,14 +46,15 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     session = build_orchestrator(store, {"deepseek": provider}).session
     assert session.run(store.plan()["tasks"][0])
     assert store.run["tasks"]["bootstrap"]["status"] == "passed"
-    calls = 6 + int(bool(malformed)) + (7 if long_history else 0)
+    calls = 6 + int(malformed is not None) + (7 if long_history else 0)
     assert store.run["budget"]["calls"] == calls
     assert store.run["tasks"]["bootstrap"]["sessions"] == (calls + 4) // 5
     for request in provider.requests:
+        assert request.json_output
         assert [m["role"] for m in request.messages] == ["user"] + ["assistant", "user"] * ((len(request.messages) - 1) // 2)
     assert [request.model for request in provider.requests] == [
         "deepseek-flash" if i < 5 else "deepseek-v4-pro" for i in range(calls)]
-    if malformed:
+    if malformed is not None:
         assert "No tool executed" in provider.requests[1].messages[-1]["content"]
     assert "decisions_left" in provider.requests[-1].messages[-1]["content"]
     assert any("error:" in json.dumps(request.messages) for request in provider.requests[3:])

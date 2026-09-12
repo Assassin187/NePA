@@ -61,6 +61,8 @@ The paid harness first requires one complete generation and independent export
 verification. Only then does it launch two independent repetitions in parallel on
 the same frozen candidate. Current authorized ceilings: $100 per run, $300 total
 including prior failed/debug runs, and four hours per run.
-For the explicitly authorized continuation workflow, set NEPA_LIVE_FIRST_RUN to
-its successful run ID. The harness rechecks its export before starting two fresh
-repetitions and explicitly records the first run's configuration changes.
+For the explicitly authorized baseline-then-optimization workflow, set
+NEPA_LIVE_FIRST_EVIDENCE to the baseline's passed independent-verification JSON.
+The harness rechecks that export against its recorded configuration/runtime before
+starting two fresh repetitions of the optimized candidate. It records both versions;
+this must not be described as three unchanged-candidate successes.

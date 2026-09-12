@@ -103,6 +103,25 @@ def test_openai_compat_missing_secret_fails_before_http(monkeypatch):
     assert called is False
 
 
+@pytest.mark.parametrize("json_output", [False, True])
+def test_json_object_setting_reaches_actual_http_without_duplicate_schema(monkeypatch, json_output):
+    config = load_config()
+    monkeypatch.setenv("NEPA_DS_API_KEY", "test-only")
+    def handler(request):
+        payload = json.loads(request.read())
+        if json_output:
+            assert payload["response_format"] == {"type": "json_object"}
+        else:
+            assert "response_format" not in payload
+        assert "json_schema" not in json.dumps(payload)
+        assert "reasoning_effort" not in payload and "thinking" not in payload
+        return _stream_response(chunks=("{}",))
+    provider = OpenAICompatibleProvider("deepseek", config.providers["deepseek"],
+                                        client=httpx.Client(transport=httpx.MockTransport(handler)))
+    request = _request().model_copy(update={"json_output": json_output})
+    assert provider.complete(request, model="deepseek-flash").text == "{}"
+
+
 def test_openai_compat_malformed_success_is_typed_and_not_secret_bearing(monkeypatch):
     secret = "do-not-leak"
 

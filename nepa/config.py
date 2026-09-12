@@ -33,6 +33,7 @@ class CoderConfig(_Model):
     provider: str = "deepseek"
     model: str = "deepseek-v4-pro"
     fast_model: str | None = None
+    json_output: bool = False
     temperature: float = 0
     max_tokens: int = Field(default=16000, gt=0)
     context_max_bytes: int = Field(default=180000, gt=0)

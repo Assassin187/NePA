@@ -33,6 +33,11 @@ A first-run failure does not launch stability repetitions. All three must pass.
 The user subsequently authorized continuing the payment-interrupted first run with
 a changed Flash/Pro model configuration. That development run may have multiple
 recorded code/configuration versions; it is not a fixed-candidate stability sample.
+After that first successful run, the user requested time-cost analysis and optimization
+before another experiment. Preserve its independent baseline evidence; reverify it
+against its own recorded runtime/configuration, then run two fresh projects with the
+same optimized candidate. Reports distinguish one earlier development baseline plus
+two optimized-candidate repetitions, never three unchanged-candidate runs.
 
 ## 2. Deterministic planning
 
@@ -96,6 +101,14 @@ Retries preserve validated observations and latest diagnostics without breaking
 transaction pairing; resumed processes re-read actual files as necessary.
 Native provider function calling is not required. Serialize the action schema once,
 budget actual wire requests including corrections, and honor explicit coder config.
+Use configured JSON-object output for providers that support it: the actual request
+includes response_format={"type":"json_object"}. This constrains syntax only;
+strict local action schema/claim checks and all host build/oracle gates remain.
+Empty, malformed or schema-invalid responses execute no tool and consume their
+normal decision/cost budget. Do not scrape DSML/XML or execute nested fragments.
+The first complete run spent31.3 API minutes on205 invalid action responses;
+see session_latency_analysis.md. Keep reasoning effort, full task scope and all
+existing resource/output/context limits unchanged while evaluating this correction.
 Include concrete JSON action examples, reject XML pseudo-tool calls with corrective
 feedback, and show the remaining decision budget. Search accepts regular expressions.
 

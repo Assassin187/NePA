@@ -303,3 +303,30 @@ development continuation: it must already be successful and pass the same curren
 input/config/runtime/image, empty-root, call, export, clean-build and oracle checks
 before launching two fresh projects. Reports distinguish that mixed-version first
 run from the two stability samples. A failed first run never triggers repetitions.
+
+### First complete live result, then measured latency optimization
+
+Run20260912T112242Z-56f67d18 completed13:50:04UTC,23/23 tasks,110 requirement
+declarations, real CLI0, release/san and mandatory interactions passed. Delivery:
+runs/e2e/20260912T112242Z-56f67d18/delivery. An additional copied export was clean-built
+and independently checked: runs/e2e/_acceptance/first-continuation-20260912/batch.json.
+Both variants' server/client exits0, no sanitizer reports, no manual generated edits.
+Run accountingUSD21.78629862; campaignUSD70.80887574, retaining402 reservation.
+
+The user then required time analysis and optimization before further experiments.
+See session_latency_analysis.md:147.36 wall minutes including18.58-minute recharge/
+development pause;125.35 API minutes,31.28 spent on205 invalid action responses.
+The next candidate enables explicit JSON-object output in config/request/context/
+provider payload. It keeps model routing, thinking defaults, full context/output
+limits,23-task planning,110 requirements, task/session budgets and all independent
+quality gates unchanged. Regression coverage includes actual HTTP serialization,
+wire-byte budgeting, malformed/empty output rejection and real compiler repair.
+Full non-paid suite138 passed / one deselected,38.28s; Ruff and all30-module mypy pass.
+
+Scheduling adjustment supersedes the preceding NEPA_LIVE_FIRST_RUN interface:
+NEPA_LIVE_FIRST_EVIDENCE identifies the first passed independent-verification JSON.
+Reverify that baseline with its recorded runtime/config; require identical input and
+image hashes, then launch two fresh projects on one frozen optimized candidate.
+Record distinct baseline/current versions. This implements the user's requested
+baseline-then-optimize-then-repeat sequence, not three unchanged-candidate samples.
+No repetitions had started before the time analysis and offline validation above.

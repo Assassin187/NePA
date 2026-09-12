@@ -56,7 +56,8 @@ class CodingContext:
                                  {"role": "user", "content": json.dumps(feedback, ensure_ascii=False)}])
             messages[-1]["content"] += "\nDecision budget:" + json.dumps(progress)
             request = LLMRequest(role="coder", model=self.coder.model, system=self.system, user=json.dumps(self.base, ensure_ascii=False),
-                                 messages=messages, temperature=self.coder.temperature, max_tokens=self.coder.max_tokens)
+                                 messages=messages, json_output=self.coder.json_output,
+                                 temperature=self.coder.temperature, max_tokens=self.coder.max_tokens)
             size = len(json.dumps(OpenAICompatibleProvider._payload(request, self.coder.model, False), ensure_ascii=False).encode())
             if size <= self.coder.context_max_bytes:
                 return request

@@ -235,6 +235,8 @@ class OpenAICompatibleProvider:
                 "type": "json_schema",
                 "json_schema": {"name": "nepa_response", "schema": request.json_schema, "strict": True},
             }
+        elif request.json_output:
+            payload["response_format"] = {"type": "json_object"}
         return payload
 
     def complete(self, request: LLMRequest, *, model: str, native_schema: bool = False) -> LLMResponse:

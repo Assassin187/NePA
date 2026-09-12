@@ -108,3 +108,13 @@ def test_pointer_observations_are_versioned_by_original_file(context):
     assert initial(context.request({}))["current_observations"][0]["result"]["content"] == '"fact"'
     Path(path).write_text('{"a": "changed"}')
     assert initial(context.request({}))["current_observations"] == []
+
+
+def test_json_object_wire_bytes_are_included_in_context_limit(context):
+    request = context.request({})
+    context.coder.context_max_bytes = len(json.dumps(
+        OpenAICompatibleProvider._payload(request, context.coder.model, False), ensure_ascii=False).encode())
+    context.request({})
+    context.coder.json_output = True
+    with pytest.raises(LLMRequestError):
+        context.request({})

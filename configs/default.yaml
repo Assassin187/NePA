@@ -3,6 +3,7 @@ coder:
   provider: deepseek
   model: deepseek-v4-pro
   fast_model: deepseek-flash
+  json_output: true
   temperature: 0
   max_tokens: 16000
   context_max_bytes: 180000

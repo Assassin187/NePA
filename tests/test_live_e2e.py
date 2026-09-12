@@ -90,11 +90,20 @@ def verify_row(row, config, frozen, batch):
     assert builds["passed"] and checks["passed"], row
 
 
-def run_batch(first_run_id=None):
+def run_batch(first_evidence_path=None):
     assert os.environ.get("NEPA_LIVE_E2E") == "1", "paid API requires explicit opt-in"
     config = load_config(ROOT / "configs/default.yaml")
+    first_evidence = json.loads(Path(first_evidence_path).read_bytes()) if first_evidence_path else None
+    if first_evidence:
+        assert first_evidence["status"] == "passed" and len(first_evidence["runs"]) == 1
+        first_run_id = first_evidence["runs"][0]["run_id"]
+    else:
+        first_run_id = None
     assert os.environ.get(config.providers[config.coder.provider].api_key_env or ""), "configured credential missing"
     frozen = fingerprint(config)
+    if first_evidence:
+        assert first_evidence["frozen"]["inputs"] == frozen["inputs"]
+        assert first_evidence["frozen"]["image"] == frozen["image"]
     assert not git("status", "--porcelain"), "freeze and commit before formal acceptance"
     harness_sha = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     runs_root = ROOT / "runs/e2e"  # All earlier paid experiments remain included.
@@ -103,6 +112,8 @@ def run_batch(first_run_id=None):
     record = {"status": "running", "frozen": frozen, "harness_sha256": harness_sha,
               "scheduling": "one-success-then-two-parallel-repetitions", "phase": "first_generation",
               "first_run_continuation": first_run_id,
+              "first_run_frozen": first_evidence["frozen"] if first_evidence else None,
+              "first_run_evidence": str(first_evidence_path) if first_evidence_path else None,
               "runs": [], "scope": "configured minimum scenarios, not full conformance"}
     atomic_json(batch / "batch.json", record)
     print(f"Starting first real end-to-end generation; batch={batch}", flush=True)
@@ -119,9 +130,11 @@ def run_batch(first_run_id=None):
                        "stdout": json.dumps({"run_dir": str(store.root)}), "stderr": "",
                        "configuration_changes": [entry for entry in store.run["history"]
                                                  if entry["kind"] == "configuration_change"]}
+                verification_config, verification_frozen = store.config, first_evidence["frozen"]
             else:
                 row = launch(index, runs_root)
-            verify_row(row, config, frozen, batch)
+                verification_config, verification_frozen = config, frozen
+            verify_row(row, verification_config, verification_frozen, batch)
             assert fingerprint(config) == frozen
             assert hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == harness_sha
             row["passed"] = True
@@ -149,7 +162,7 @@ def run_batch(first_run_id=None):
     record["statement"] = ("Three real generations passed configured build/minimum interactions; other behavior is not fully verified."
                            if record["status"] == "passed" else "One or more real runs failed; batch does not satisfy acceptance.")
     if first_run_id:
-        record["statement"] += " First run is an explicitly resumed development run, not a fixed-candidate stability sample; repetitions are fresh projects."
+        record["statement"] += " First run is a separately frozen development baseline; only the two fresh repetitions validate the current candidate. This is not three unchanged-candidate runs."
     atomic_json(batch / "batch.json", record)
     return record
 
@@ -157,4 +170,4 @@ def run_batch(first_run_id=None):
 def test_three_independent_real_generations():
     if os.environ.get("NEPA_LIVE_E2E") != "1":
         pytest.skip("paid real-API acceptance requires NEPA_LIVE_E2E=1")
-    assert run_batch(os.environ.get("NEPA_LIVE_FIRST_RUN"))["status"] == "passed"
+    assert run_batch(os.environ.get("NEPA_LIVE_FIRST_EVIDENCE"))["status"] == "passed"

@@ -65,6 +65,7 @@ class LLMRequest(_LLMModel):
     system: str
     user: str
     model: str | None = None
+    json_output: bool = False
     messages: list[dict[str, str]] | None = None
     json_schema: dict[str, Any] | list[Any] | None = None
     temperature: float = Field(ge=0)

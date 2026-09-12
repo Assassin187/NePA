@@ -30,6 +30,7 @@ def test_authorized_cost_ceilings_do_not_change_time_budget():
     assert config.budgets.max_cost_usd == 100
     assert config.budgets.campaign_max_cost_usd == 300
     assert config.budgets.wall_clock_hours == 4
+    assert config.coder.json_output
     for key, limit in (("max_cost_usd", 100), ("campaign_max_cost_usd", 300)):
         with pytest.raises(ConfigError):
             load_config(overrides={"budgets": {key: limit + 1}})
@@ -72,11 +73,12 @@ def test_selected_model_controls_wire_and_cost(tmp_path):
     config = load_config(ROOT / "configs/default.yaml")
     store = make_store(tmp_path, config)
     response = LLMClient(config, {"deepseek": Provider()}).complete(
-        LLMRequest(role="coder", model="deepseek-flash", system="s", user="u", temperature=0, max_tokens=1000),
+        LLMRequest(role="coder", model="deepseek-flash", json_output=True, system="s", user="u", temperature=0, max_tokens=1000),
         store=store, task_id="bootstrap")
     assert response.cost_usd == pytest.approx((100 * .30 + 200 * 1.20) / 1_000_000)
     evidence = json.loads((store.root / "evidence/calls/000001.request.json").read_text())
     assert "deepseek-flash" in json.dumps(evidence)
+    assert evidence["wire"]["response_format"] == {"type": "json_object"}
     with pytest.raises(ConfigError, match="fast coder price"):
         load_config(overrides={"coder": {"fast_model": "unpriced"}})
 

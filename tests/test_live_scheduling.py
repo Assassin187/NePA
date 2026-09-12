@@ -43,13 +43,18 @@ def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeyp
     monkeypatch.setenv("NEPA_DS_API_KEY", "test-only-no-api")
     monkeypatch.setattr(module, "ROOT", tmp_path)
     monkeypatch.setattr(module, "load_config", lambda _: load_config())
-    monkeypatch.setattr(module, "fingerprint", lambda _: {"test_only": True})
+    current_frozen = {"test_only": True, "inputs": {}, "image": "test-image"}
+    baseline_frozen = {"test_only_baseline": True, "inputs": {}, "image": "test-image"}
+    monkeypatch.setattr(module, "fingerprint", lambda _: current_frozen)
     monkeypatch.setattr(module, "git", lambda *args: "")
     if resumed_first:
         from types import SimpleNamespace
         state = {"status": "failed" if failed_index == 1 else "success",
                  "exit_code": 2 if failed_index == 1 else 0, "history": []}
-        monkeypatch.setattr(module.RunStore, "open", lambda *args: SimpleNamespace(root=tmp_path, run=state))
+        monkeypatch.setattr(module.RunStore, "open", lambda *args: SimpleNamespace(root=tmp_path, run=state, config=load_config()))
+        evidence = tmp_path / "first-evidence.json"
+        evidence.write_text(json.dumps({"status": "passed", "frozen": baseline_frozen,
+                                        "runs": [{"run_id": "test-only-resumed-first"}]}))
     barrier = threading.Barrier(2)
     first_verified = threading.Event()
     started = []
@@ -59,13 +64,14 @@ def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeyp
             assert first_verified.is_set()
             barrier.wait(timeout=10)
         return {"index": index, "returncode": 2 if index == failed_index else 0}
-    def verify(row, *args):
+    def verify(row, config, frozen, batch):
         assert row["returncode"] == 0
+        assert frozen == (baseline_frozen if resumed_first and row["index"] == 1 else current_frozen)
         if row["index"] == 1:
             first_verified.set()
     monkeypatch.setattr(module, "launch", launch)
     monkeypatch.setattr(module, "verify_row", verify)
-    result = module.run_batch("test-only-resumed-first" if resumed_first else None)
+    result = module.run_batch(evidence if resumed_first else None)
     expected = ([1] if failed_index == 1 else [1, 2, 3])
     if resumed_first:
         expected.remove(1)
