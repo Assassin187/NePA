@@ -27,7 +27,8 @@ def action(tool, **arguments):
 @pytest.mark.parametrize("malformed", [None, "<tool_calls><invoke name='write_file'/></tool_calls>",
                                        '{"tool":"finish","arguments":{"summary":"ready","claims":[]}'])
 def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_history):
-    config = load_config(overrides={"budgets": {"sessions_per_task": 1}})
+    config = load_config(overrides={"budgets": {"sessions_per_task": 3, "decisions_per_session": 5},
+                                    "coder": {"context_max_bytes": 60000}})
     store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
                                 ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
@@ -47,6 +48,9 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     assert store.run["tasks"]["bootstrap"]["status"] == "passed"
     calls = 6 + int(bool(malformed)) + (7 if long_history else 0)
     assert store.run["budget"]["calls"] == calls
+    assert store.run["tasks"]["bootstrap"]["sessions"] == (calls + 4) // 5
+    for request in provider.requests:
+        assert [m["role"] for m in request.messages] == ["user"] + ["assistant", "user"] * ((len(request.messages) - 1) // 2)
     if malformed:
         assert "No tool executed" in provider.requests[1].messages[-1]["content"]
     assert "decisions_left" in provider.requests[-1].messages[-1]["content"]
@@ -56,7 +60,8 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     assert all(request.system.count("Action schema:") == 1 for request in provider.requests)
     if long_history:
         from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
-        assert len(provider.requests[-1].messages) < 2 * calls - 1
+        observations = json.loads(provider.requests[-1].messages[0]["content"])["current_observations"]
+        assert len(observations) == 1  # Repeated reads of unchanged code are deduplicated.
         for request in provider.requests:
             wire = OpenAICompatibleProvider._payload(request, config.coder.model, False)
             assert len(json.dumps(wire, ensure_ascii=False).encode()) <= 60000

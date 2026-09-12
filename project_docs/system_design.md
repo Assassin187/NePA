@@ -26,6 +26,10 @@ then raised the cumulative campaign ceiling to USD300. Both include prior costs;
 this is not a reset or an additional USD300 allocation.
 The Linux CLI installs a run deadline alarm, including provider/tool calls; deadline
 interruption retains unknown-call reservations and cleans active tool containers.
+Scheduling (latest user instruction): first complete one real end-to-end run and
+its independent export checks. Only after it passes, launch two additional empty
+projects with that same frozen candidate; these two may execute concurrently.
+A first-run failure does not launch stability repetitions. All three must pass.
 
 ## 2. Deterministic planning
 
@@ -70,15 +74,33 @@ vocabulary or shadow signature JSON. Fix affected callers when changing interfac
 Reuse current provider adapters in a JSON action loop:
 list_files/read_file/search/write_file/replace_text/run_command/finish/request_followup.
 Carry executed actions as actual assistant messages and tool results as subsequent
-user messages, not as a history blob inside a single user message. Retain complete
-messages in evidence and trim old action/result pairs only at the context boundary.
+user messages, not as a history blob inside a single user message. Context assembly
+uses complete action/result transactions; session transitions are request metadata,
+never additional unpaired messages. Retain complete calls/actions in evidence.
+Keep task facts, deduplicated current file observations and the latest diagnostic
+in the model request. A successful read observation contains its exact selected
+content, original file SHA256 and evidence reference. Before each request, compare
+observed file hashes with the actual allowed workspace/input files; invalidate
+changed/deleted/escaped paths. This also handles edits through arbitrary commands
+without discarding unchanged source observations after a harmless build.
+Read results appear once in the observation set; transcript receipts refer to them
+and durable evidence. Only older whole transactions may be evicted for space, not
+the current working observations or the latest action/result. If those required
+parts exceed the configured actual-wire limit, fail with an explicit capacity
+diagnostic before another paid call instead of silently entering a reread loop.
+This is disposable model context, not a second authoritative project/run state.
+Retries preserve validated observations and latest diagnostics without breaking
+transaction pairing; resumed processes re-read actual files as necessary.
 Native provider function calling is not required. Serialize the action schema once,
 budget actual wire requests including corrections, and honor explicit coder config.
 Include concrete JSON action examples, reject XML pseudo-tool calls with corrective
 feedback, and show the remaining decision budget. Search accepts regular expressions.
 
 Default: configured deepseek/deepseek-v4-pro, temperature 0, max output 16000. This is
-a starting configuration, not a proven model ranking. Maximum 40 decisions per
+a starting configuration, not a proven model ranking. Restore the actual-wire
+window to 180000 bytes after the evidenced 60000-byte source-eviction regression;
+the working-set invariants above, not the larger number alone, fix the mechanism.
+Maximum 40 decisions per
 session, three sessions per task; retries carry real prior diagnostics and consume
 the same run budgets. Full evidence is durable; file/log tools paginate outputs.
 Retain task/target/index and recent transcript in context; older evidence remains

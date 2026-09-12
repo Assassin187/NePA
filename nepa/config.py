@@ -34,7 +34,7 @@ class CoderConfig(_Model):
     model: str = "deepseek-v4-pro"
     temperature: float = 0
     max_tokens: int = Field(default=16000, gt=0)
-    context_max_bytes: int = Field(default=60000, gt=0)
+    context_max_bytes: int = Field(default=180000, gt=0)
 
 
 class BudgetConfig(_Model):

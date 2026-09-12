@@ -1,6 +1,7 @@
 """Host-mediated project tools; generated commands execute only in the sandbox."""
 from __future__ import annotations
 from dataclasses import asdict
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -42,6 +43,9 @@ class WorkspaceTools:
                 return prefix + path.relative_to(root).as_posix()
         raise ValueError("path outside tool roots")
 
+    def file_sha256(self, name: str) -> str:
+        return hashlib.sha256(self.path(name).read_bytes()).hexdigest()
+
     def execute(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         if tool == "list_files":
             root = self.path(args.get("path", "."))
@@ -49,7 +53,8 @@ class WorkspaceTools:
                               for p in sorted(root.rglob("*")) if p.is_file() and not p.is_symlink()][:500]}
         if tool == "read_file":
             path = self.path(args["path"])
-            text = path.read_text()
+            data = path.read_bytes()
+            text = data.decode("utf-8")
             if "json_pointer" in args:
                 value = json.loads(text)
                 for key in args["json_pointer"].split("/")[1:]:
@@ -57,7 +62,8 @@ class WorkspaceTools:
                     value = value[int(key)] if isinstance(value, list) else value[key]
                 text = json.dumps(value, ensure_ascii=False, indent=2)
             offset, limit = args.get("offset", 0), args.get("limit", 16000)
-            return {"content": text[offset:offset + limit], "offset": offset, "offset_unit": "characters",
+            return {"path": self.display(path), "file_sha256": hashlib.sha256(data).hexdigest(),
+                    "content": text[offset:offset + limit], "offset": offset, "offset_unit": "characters",
                     "next_offset": offset + limit if offset + limit < len(text) else None, "total_chars": len(text)}
         if tool == "search":
             root = self.path(args.get("path", "."))

@@ -36,3 +36,12 @@ tasks, mandatory checks and published artifacts. Claims are not verified behavio
 The minimum MQTT oracle covers CONNECT, PING and a refusal path; it does not prove
 all requirements, full MQTT conformance, other protocols or other languages. Paid
 live tests are opt-in. Old run versions require their original code for reproduction.
+
+```bash
+NEPA_LIVE_E2E=1 uv run pytest -s -q -m live_e2e tests/test_live_e2e.py
+```
+
+The paid harness first requires one complete generation and independent export
+verification. Only then does it launch two independent repetitions in parallel on
+the same frozen candidate. Current authorized ceilings: $100 per run, $300 total
+including prior failed/debug runs, and four hours per run.

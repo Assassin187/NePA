@@ -198,5 +198,48 @@ request trimming while retaining complete current task facts. A test process tha
 had imported the earlier USD100 campaign validator was restarted after the live
 user-authorized config update; only the fresh full run above is the final result.
 
+## Context-mechanism root-cause correction
+
+The user authorized all evidence-driven design changes during this refactor without
+further per-change approval. Remote writes, existing user changes, cost ceilings and
+the actual end-to-end acceptance boundary remain protected. Latest scheduling:
+prove one complete real run first, then execute two independent stability repeats
+on the identical frozen candidate; these two can run concurrently.
+
+The fc170b1 parallel batch failed: two task-session exhaustions and one subsequent
+user-authorized interruption, cumulative campaign USD49.02257712. See
+session_context_failure_analysis.md for the exact runs and transcript audit.
+Its one-time adoption scheduler is preserved byte-for-byte in that batch's
+scheduler.py (SHA256 matches batch.harness_sha256); its completed adoption CLI has
+been removed from the active test harness. The active harness gates repetitions
+on the first run's full independent export verification, not only its CLI result.
+
+Root fix implemented in agents/context.py and the existing session/workspace path:
+versioned exact read observations are deduplicated and checked against actual file
+hashes before requests; unchanged source survives command/build actions, changed
+source is invalidated. Requests use complete action/result transactions and retain
+the latest observed failure/check diagnostic. Older transactions may be evicted;
+current facts/observations/latest feedback cannot silently disappear. Over-capacity
+working sets cause an explicit error before further paid API calls. Repeated
+sessions share valid observations without inserting unpaired user messages. This
+is ephemeral model context, not another persisted project state or answer cache.
+
+Read-only replay runs/_refactor/replay_failed_context.py executes the exact 120-step
+failed SUBSCRIBE read sequence without API calls or code changes. At 60000 bytes,
+the eighth step requires 62714 bytes and explicitly fails; at 180000, all 120 steps
+fit, retaining eight observations with a 130855-byte peak request. This is context
+retention evidence only, not a claim of autonomous generation success.
+
+Regression coverage includes working-set retention, source hash invalidation,
+deletion/symlink changes, JSON-pointer reads, latest compiler diagnostic retention,
+capacity exhaustion, real compiler repair spanning three sessions, concurrent
+campaign reservations, and first-success-before-repetitions scheduling. Full suite:
+120 passed / one paid test deselected in 34.88s; Ruff and mypy passed all 30 production
+modules. Model, complete input, serial task plan, budgets and oracle are unchanged.
+Final pre-live rerun: 120 passed / one deselected in 33.97s. Wheel reinstalled in the
+isolated package-test environment; new context module imports from site-packages,
+and Spec/Target/Acceptance lint all pass from outside the source directory.
+Original workspace status and research SHA256 were rechecked unchanged.
+
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.

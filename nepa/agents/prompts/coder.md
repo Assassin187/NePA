@@ -25,6 +25,13 @@ these assets. read_file accepts a JSON Pointer for structured inputs; offset/lim
 CHARACTER counts after pointer selection, not array indexes. Use next_offset exactly,
 or select a small pointer like /requirements/3. The current task already supplies its
 relevant facts: avoid repeatedly rereading unchanged data or the entire Spec.
+The first request message also carries current_observations: exact file content
+from your successful reads, with file SHA256 and evidence references. This working
+set survives transcript trimming and session transitions. Repeated reads do not add
+new information. Use those contents directly. Changed/deleted file versions are
+removed before each request; historical receipts alone are not current source.
+latest_observed_diagnostic is the last observed failure/check, not a claim that
+later edits failed. Repair it and request finish to obtain fresh host checks.
 Every requirement in task.context.requirements is already its full original text.
 Use that text directly, not another read of the same requirement. Type definitions
 in task.context.types are likewise complete. Inspect existing source once, implement
