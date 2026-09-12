@@ -69,6 +69,23 @@ def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypa
     assert len(store.run["pending_calls"]) == 3
     assert store.run["budget"]["cost_usd"] > 0
 
+def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path):
+    class PaymentRejected:
+        native_structured_output = False
+        def __init__(self):
+            self.calls = 0
+        def complete(self, request, **kwargs):
+            self.calls += 1
+            raise ProviderError("deepseek returned HTTP 402", provider="deepseek", status_code=402)
+    provider = PaymentRejected()
+    store = make_store(tmp_path)
+    client = LLMClient(store.config, {"deepseek": provider})
+    with pytest.raises(ProviderError, match="402"):
+        client.complete(LLMRequest(role="coder", system="s", user="u", temperature=0, max_tokens=1), store=store, task_id="bootstrap")
+    assert provider.calls == store.run["budget"]["calls"] == 1
+    assert store.run["budget"]["cost_usd"] > 0
+    assert len(store.run["pending_calls"]) == 1
+
 def test_failed_run_with_input_drift_still_reports_truthfully(tmp_path):
     store = make_store(tmp_path)
     (store.root / "inputs/spec.json").write_text("{}")

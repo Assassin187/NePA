@@ -241,5 +241,26 @@ isolated package-test environment; new context module imports from site-packages
 and Spec/Target/Acceptance lint all pass from outside the source directory.
 Original workspace status and research SHA256 were rechecked unchanged.
 
+Candidate ebd3341 / batch e5e9fb02bb134fba86707b8372df9f4c / run
+20260912T112242Z-56f67d18 stopped after 3566.52s with CLI 2 because the configured
+DeepSeek endpoint returned HTTP402 on call278 (error response after 0.86s, not a
+network hang or NePA budget limit). All 12 foundation/message tasks passed within
+one session each; CONNECT used22 decisions and SUBSCRIBE23, compared with the
+previous read-loop failures at120. This is progress evidence, not full generation
+or a controlled model-success-rate comparison. requirements:001 was in progress;
+no delivery and no independent final acceptance. Repetition runs were not launched.
+
+This run accounts USD8.12165244, including an unresolved USD0.29382936 reservation
+for the402 call. Historical cumulative accounting: USD57.14422956 out of USD300.
+Do not clear reservations or reset prior costs. The provider adapter correctly
+does not retry402. Its response body was not retained, so the exact account billing
+condition is not proven solely by the recorded status. Restoring API availability
+requires an external account action or a verified alternative provider config.
+Alternative configured credentials are present, but their model prices are absent;
+do not initiate unpriced paid generation or claim those accounts are usable.
+After adding a402 regression (one attempt, reservation retained), full non-live
+suite:121 passed / one paid test deselected in34.30s; Ruff and all30-module mypy
+passed. No production code or prompt changed after candidate ebd3341.
+
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.
