@@ -1,0 +1,245 @@
+{
+  "schema_version": "1.0",
+  "description": "Independent HTTP/1.1 fixed-length application-subset oracle. GET/HEAD/POST, framing and connection behavior; not full HTTP conformance.",
+  "assets": [
+    "acceptance/http_behavior.py"
+  ],
+  "checks": [
+    {
+      "id": "get_head",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "get_head"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-APP-GET-001",
+        "REQ-HTTP-APP-HEAD-001",
+        "REQ-HTTP-RESPONSE-001",
+        "REQ-HTTP-HEAD-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001",
+        "REQ-HTTP-PERSISTENCE-001"
+      ]
+    },
+    {
+      "id": "echo",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "echo"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-APP-ECHO-001",
+        "REQ-HTTP-BODY-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001"
+      ]
+    },
+    {
+      "id": "routes",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "routes"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-APP-ROUTES-001",
+        "REQ-HTTP-APP-METHODS-001"
+      ]
+    },
+    {
+      "id": "header_case",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "header_case"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-FIELD-NAMES-001",
+        "REQ-HTTP-OWS-001",
+        "REQ-HTTP-BODY-001"
+      ]
+    },
+    {
+      "id": "host_errors",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "host_errors"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-HOST-001"
+      ]
+    },
+    {
+      "id": "length_errors",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "length_errors"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-LENGTH-INVALID-001",
+        "REQ-HTTP-LENGTH-CONFLICT-001"
+      ]
+    },
+    {
+      "id": "fragmented",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "fragmented"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-STREAM-001",
+        "REQ-HTTP-INCOMPLETE-WAIT-001",
+        "REQ-HTTP-BODY-001"
+      ]
+    },
+    {
+      "id": "pipeline",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "pipeline"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-STREAM-001",
+        "REQ-HTTP-PERSISTENCE-001",
+        "REQ-HTTP-PIPELINE-001",
+        "REQ-HTTP-INCOMPLETE-WAIT-001"
+      ]
+    },
+    {
+      "id": "connection_close",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "connection_close"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-CLOSE-001"
+      ]
+    },
+    {
+      "id": "truncated",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "truncated"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-TRUNCATED-001",
+        "REQ-HTTP-ISOLATION-001"
+      ]
+    },
+    {
+      "id": "malformed",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "malformed"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-CRLF-001",
+        "REQ-HTTP-REQUEST-LINE-001",
+        "REQ-HTTP-FIELD-SYNTAX-001",
+        "REQ-HTTP-BAD-REQUEST-001"
+      ]
+    },
+    {
+      "id": "transfer_encoding",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/http_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "transfer_encoding"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-HTTP-SUBSET-TRANSFER-001"
+      ]
+    }
+  ]
+}

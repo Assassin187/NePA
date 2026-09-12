@@ -15,8 +15,8 @@ def test_packaged_example_matches_schema(name):
     assert not _schema_errors(example, name + ".schema.json")
 
 def test_actual_plan_run_and_failed_report_match_current_contracts(tmp_path):
-    store = RunStore.initialize(tmp_path, ROOT / "gold_file/specIR.json", ROOT / "gold_file/target.json",
-                                ROOT / "gold_file/acceptance.json", load_config())
+    store = RunStore.initialize(tmp_path, ROOT / "gold_file/mqtt/specIR.json", ROOT / "gold_file/mqtt/target.json",
+                                ROOT / "gold_file/mqtt/acceptance.json", load_config())
     assert not _schema_errors(store.plan(), "plan.schema.json")
     assert not _schema_errors(store.run, "run.schema.json")
     store.run.update(status="failed", exit_code=2, reason="test-only interrupted attempt")

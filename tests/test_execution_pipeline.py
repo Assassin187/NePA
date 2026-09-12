@@ -78,7 +78,7 @@ class TestProvider:
             claims = [{"id": ref, "status": "already_present", "reason": "test provider claim, not semantic proof",
                        "code_refs": ["main.c:1"]} for ref in task["requirement_ids"]]
             action = {"tool": "finish", "arguments": {"summary": "request host checks", "claims": claims}}
-        return LLMResponse(text=json.dumps(action), tokens_in=10, tokens_out=10, cost_usd=0, model=model,
+        return LLMResponse(text=json.dumps(action), tokens_in=10, tokens_out=10, cost_cny=0, model=model,
                            parameter_support={}, provider_metadata={"finish_reason": "stop"})
 
 @pytest.mark.sandbox_integration
@@ -92,7 +92,7 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "build_orchestrator", lambda store: build_orchestrator(store, {"deepseek": provider}))
     runner = CliRunner()
     result = runner.invoke(cli.app, ["run", "--spec", str(ROOT / "tests/fixtures/non_mqtt_application/spec.json"),
-                          "--target", str(ROOT / "gold_file/target.json"), "--acceptance", str(tmp_path / "acceptance.json"),
+                          "--target", str(ROOT / "gold_file/mqtt/target.json"), "--acceptance", str(tmp_path / "acceptance.json"),
                           "--runs-root", str(tmp_path / "runs")])
     assert result.exit_code == 0, result.output
     value = json.loads(result.output)

@@ -12,8 +12,8 @@ from nepa.schemas import load_schema
 ROOT = Path(__file__).parents[1]
 
 def make_store(tmp_path, config=None):
-    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
-                               ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config or load_config())
+    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                               ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", config or load_config())
 
 def test_config_override_and_secret_free_snapshot(monkeypatch):
     monkeypatch.setenv("NEPA_DS_API_KEY", "secret-value")
@@ -21,17 +21,17 @@ def test_config_override_and_secret_free_snapshot(monkeypatch):
     assert config.coder.max_tokens == 2000
     assert "secret-value" not in json.dumps(public_config_snapshot(config))
     with pytest.raises(ConfigError):
-        load_config(overrides={"budgets": {"max_cost_usd": 1000}})
+        load_config(overrides={"budgets": {"max_cost_cny": 1000}})
     with pytest.raises(ConfigError):
         load_config(overrides={"calibration_models": {}})
 
 def test_authorized_cost_ceilings_do_not_change_time_budget():
     config = load_config(ROOT / "configs/default.yaml")
-    assert config.budgets.max_cost_usd == 100
-    assert config.budgets.campaign_max_cost_usd == 300
+    assert config.budgets.max_cost_cny == 20
+    assert config.budgets.campaign_max_cost_cny == 300
     assert config.budgets.wall_clock_hours == 4
-    assert config.coder.json_output
-    for key, limit in (("max_cost_usd", 100), ("campaign_max_cost_usd", 300)):
+    assert config.coder.action_format == "json_object"
+    for key, limit in (("max_cost_cny", 20), ("campaign_max_cost_cny", 300)):
         with pytest.raises(ConfigError):
             load_config(overrides={"budgets": {key: limit + 1}})
 
@@ -47,7 +47,7 @@ def test_action_error_identifies_missing_argument_not_generic_schema_dump():
 def test_pricing_known_and_negative():
     config = load_config()
     price = config.pricing["deepseek/deepseek-v4-pro"]
-    assert calculate_cost(price, 1_000_000, 1_000_000) == pytest.approx(5.28)
+    assert calculate_cost(price, 1_000_000, 1_000_000) == pytest.approx(36)
     with pytest.raises(ValueError):
         calculate_cost(price, -1, 0)
 
@@ -68,14 +68,16 @@ def test_selected_model_controls_wire_and_cost(tmp_path):
         native_structured_output = False
         def complete(self, request, *, model, native_schema):
             assert model == request.model == "deepseek-flash"
-            return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_usd=0,
+            return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_cny=0,
                                model=model, parameter_support={})
     config = load_config(ROOT / "configs/default.yaml")
     store = make_store(tmp_path, config)
     response = LLMClient(config, {"deepseek": Provider()}).complete(
-        LLMRequest(role="coder", model="deepseek-flash", json_output=True, system="s", user="u", temperature=0, max_tokens=1000),
+        LLMRequest(role="coder", model="deepseek-flash", action_format="json_object", system="s", user="u", temperature=0, max_tokens=1000),
         store=store, task_id="bootstrap")
-    assert response.cost_usd == pytest.approx((100 * .30 + 200 * 1.20) / 1_000_000)
+    assert response.pricing is not None
+    factor = .5 if response.pricing["period"] == "off_peak" else 1
+    assert response.cost_cny == pytest.approx((100 * 2 + 200 * 8) * factor / 1_000_000)
     evidence = json.loads((store.root / "evidence/calls/000001.request.json").read_text())
     assert "deepseek-flash" in json.dumps(evidence)
     assert evidence["wire"]["response_format"] == {"type": "json_object"}
@@ -99,7 +101,7 @@ def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypa
     assert provider.calls == 3
     assert store.run["budget"]["calls"] == 3
     assert len(store.run["pending_calls"]) == 3
-    assert store.run["budget"]["cost_usd"] > 0
+    assert store.run["budget"]["cost_cny"] > 0
 
 def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path):
     class PaymentRejected:
@@ -115,7 +117,7 @@ def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path
     with pytest.raises(ProviderError, match="402"):
         client.complete(LLMRequest(role="coder", system="s", user="u", temperature=0, max_tokens=1), store=store, task_id="bootstrap")
     assert provider.calls == store.run["budget"]["calls"] == 1
-    assert store.run["budget"]["cost_usd"] > 0
+    assert store.run["budget"]["cost_cny"] > 0
     assert len(store.run["pending_calls"]) == 1
 
 def test_failed_run_with_input_drift_still_reports_truthfully(tmp_path):

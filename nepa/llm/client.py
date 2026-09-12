@@ -6,13 +6,13 @@ from enum import Enum
 import json
 import re
 import time
-from typing import Any, Mapping, Protocol
+from typing import Any, Literal, Mapping, Protocol
 
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..config import ResolvedConfig, configured_model_price
-from .telemetry import calculate_cost
+from .telemetry import calculate_cost, price_usage
 
 
 class LLMError(RuntimeError):
@@ -65,8 +65,8 @@ class LLMRequest(_LLMModel):
     system: str
     user: str
     model: str | None = None
-    json_output: bool = False
-    messages: list[dict[str, str]] | None = None
+    action_format: Literal["json_object", "tool_calls"] = "json_object"
+    messages: list[dict[str, Any]] | None = None
     json_schema: dict[str, Any] | list[Any] | None = None
     temperature: float = Field(ge=0)
     max_tokens: int = Field(gt=0)
@@ -81,14 +81,54 @@ class LLMRequest(_LLMModel):
 
 class LLMResponse(_LLMModel):
     text: str
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    reasoning_content: str = ""
     parsed: Any | None = None
     tokens_in: int = Field(ge=0)
     tokens_out: int = Field(ge=0)
-    cost_usd: float = Field(ge=0)
+    cost_cny: float = Field(ge=0)
     model: str = Field(min_length=1)
+    pricing: dict[str, Any] | None = None
     cached: bool = False
     parameter_support: dict[str, ParameterSupportState]
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def assistant_message(self) -> dict[str, Any]:
+        message: dict[str, Any] = {"role": "assistant", "content": self.text or None,
+                                   "reasoning_content": self.reasoning_content}
+        if self.tool_calls:
+            message["tool_calls"] = self.tool_calls
+        return message
+
+
+def action_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"type": "function", "function": {"name": entry["properties"]["tool"]["const"],
+              "parameters": entry["properties"]["arguments"]}} for entry in schema["oneOf"]]
+
+
+def decode_action(response: LLMResponse, action_format: str, schema: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+    """Only a complete outer JSON action or one genuine native function may execute."""
+    if response.provider_metadata.get("finish_reason") in {"length", "content_filter"}:
+        return None, [{"path": [], "message": "Incomplete provider response; no tool executed."}]
+    if action_format == "tool_calls":
+        if len(response.tool_calls) != 1:
+            return None, [{"path": [], "message": "Exactly one native tool call is required; no tool executed."}]
+        call = response.tool_calls[0]
+        if not call.get("id") or call.get("type") != "function" or not isinstance(call.get("function"), dict):
+            return None, [{"path": [], "message": "Invalid native tool envelope; no tool executed."}]
+        function = call["function"]
+        raw = function.get("arguments", "")
+    else:
+        raw = response.text
+    try:
+        action = json.loads(raw)
+        if action_format == "tool_calls":
+            action = {"tool": function.get("name"), "arguments": action}
+        return action, structured_validation_errors(action, schema)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return None, [{"path": [], "message": f"Invalid JSON: {exc}. Return the complete action/arguments with all closing braces."}]
+
+
 class Provider(Protocol):
     """One provider-owned, single-attempt wire operation."""
 
@@ -150,7 +190,11 @@ class LLMClient:
             except BaseException as exc:
                 store.fail_call(sequence, exc, elapsed_s=time.monotonic() - started)
                 raise
-            response.cost_usd = calculate_cost(price, response.tokens_in, response.tokens_out)
+            usage = response.provider_metadata.get("usage", {})
+            response.pricing = price_usage(price, response.tokens_in, response.tokens_out,
+                                          started_at=store.run["pending_calls"][str(sequence)]["started_at"],
+                                          cache_hit_tokens=usage.get("prompt_cache_hit_tokens"))
+            response.cost_cny = response.pricing["cost_cny"]
             try:
                 response.parsed = extract_first_json_value(response.text)
             except ValueError:

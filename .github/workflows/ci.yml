@@ -13,7 +13,10 @@ jobs:
       - run: uv run ruff check nepa tests
       - run: uv run mypy nepa
       - run: uv run pytest -q -m "not live_e2e"
-      - run: uv run nepa lint spec gold_file/specIR.json
-      - run: uv run nepa lint target gold_file/target.json --spec gold_file/specIR.json
-      - run: uv run nepa lint acceptance gold_file/acceptance.json --spec gold_file/specIR.json
+      - run: uv run nepa lint spec gold_file/mqtt/specIR.json
+      - run: uv run nepa lint target gold_file/mqtt/target.json --spec gold_file/mqtt/specIR.json
+      - run: uv run nepa lint acceptance gold_file/mqtt/acceptance.json --spec gold_file/mqtt/specIR.json
+      - run: uv run nepa lint spec gold_file/http/specIR.json
+      - run: uv run nepa lint target gold_file/http/target.json --spec gold_file/http/specIR.json
+      - run: uv run nepa lint acceptance gold_file/http/acceptance.json --spec gold_file/http/specIR.json
       - run: uv build

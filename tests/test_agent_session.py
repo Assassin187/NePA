@@ -16,7 +16,7 @@ class SequenceProvider:
     def complete(self, request, *, model, native_schema):
         self.requests.append(request)
         value = next(self.actions)
-        return LLMResponse(text=value if isinstance(value, str) else json.dumps(value), tokens_in=10, tokens_out=10, cost_usd=0,
+        return LLMResponse(text=value if isinstance(value, str) else json.dumps(value), tokens_in=10, tokens_out=10, cost_cny=0,
                            model=model, parameter_support={}, provider_metadata={"finish_reason": "stop"})
 
 def action(tool, **arguments):
@@ -28,9 +28,9 @@ def action(tool, **arguments):
                                        '{"tool":"finish","arguments":{"summary":"ready","claims":[]}'])
 def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_history):
     config = load_config(overrides={"budgets": {"sessions_per_task": 3, "decisions_per_session": 5},
-                                    "coder": {"context_max_bytes": 60000, "fast_model": "deepseek-flash", "json_output": True}})
-    store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
-                                ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
+                                    "coder": {"context_max_bytes": 60000, "fast_model": "deepseek-flash", "action_format": "json_object"}})
+    store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                                ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
                 "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie main.c -o build/san/protocol-server\n"
                 "clean:\n\trm -rf build\n")
@@ -50,7 +50,7 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     assert store.run["budget"]["calls"] == calls
     assert store.run["tasks"]["bootstrap"]["sessions"] == (calls + 4) // 5
     for request in provider.requests:
-        assert request.json_output
+        assert request.action_format == "json_object"
         assert [m["role"] for m in request.messages] == ["user"] + ["assistant", "user"] * ((len(request.messages) - 1) // 2)
     assert [request.model for request in provider.requests] == [
         "deepseek-flash" if i < 5 else "deepseek-v4-pro" for i in range(calls)]

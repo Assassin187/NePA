@@ -61,6 +61,17 @@ def runtime_fingerprint() -> dict[str, Any]:
     return {"package_sha256": digest(files), "files": files}
 
 
+def campaign_cost_cny(root: Path) -> float:
+    """Sum the current CNY campaign; never reinterpret old USD records as CNY."""
+    total = 0.0
+    for path in root.glob("*/run.json"):
+        value = json.loads(path.read_bytes())
+        if value.get("schema_version") != "6.0":
+            raise RunStoreError("Use a new CNY campaign root; historical USD runs remain separate: " + str(path))
+        total += value["budget"]["cost_cny"]
+    return total
+
+
 @contextmanager
 def file_lock(path: Path, *, nonblocking: bool = True) -> Iterator[None]:
     with path.open("a+b") as stream:
@@ -78,7 +89,7 @@ class RunStore:
     def __init__(self, root: Path | str):
         self.root = Path(root).resolve()
         self.run = json.loads((self.root / "run.json").read_bytes())
-        if self.run.get("schema_version") != "5.0":
+        if self.run.get("schema_version") != "6.0":
             raise RunStoreError("unsupported legacy run; use baseline code, not in-place resume")
         errors = _schema_errors(self.run, "run.schema.json")
         if errors:
@@ -133,13 +144,13 @@ class RunStore:
         (staging / "evidence").mkdir()
         checkpoint = GitCheckpoints(staging / "checkpoints.git", staging / "project").initialize()
         now = time.time()
-        run = {"schema_version": "5.0", "run_id": run_id, "created_at": now, "updated_at": now,
+        run = {"schema_version": "6.0", "run_id": run_id, "created_at": now, "updated_at": now,
                "status": "pending", "exit_code": None, "inputs": refs, "runtime": runtime_fingerprint(),
                "config_snapshot": public_config_snapshot(config), "config_sha256": digest(public_config_snapshot(config)),
                "active_plan": {"path": "plans/0001.json", "sha256": digest(plan)}, "accepted_checkpoint": checkpoint,
                "tasks": {t["id"]: {"status": "pending", "sessions": 0, "decisions": 0, "claims": [], "evidence": []} for t in plan["tasks"]},
                "current_task": None, "pending_action": None, "working_hashes": {},
-               "budget": {"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "calls": 0},
+               "budget": {"cost_cny": 0.0, "settled_cny": {"peak": 0.0, "off_peak": 0.0, "unclassified": 0.0}, "tokens_in": 0, "tokens_out": 0, "calls": 0},
                "call_counter": 0, "pending_calls": {}, "followups": 0, "final_repairs": 0, "history": []}
         atomic_json(staging / "run.json", run)
         for key, path in sources.items():
@@ -218,20 +229,16 @@ class RunStore:
     def check_budget(self) -> None:
         if time.time() - self.run["created_at"] >= self.config.budgets.wall_clock_hours * 3600:
             raise BudgetExhausted("run time limit reached")
-        if self.run["budget"]["cost_usd"] >= self.config.budgets.max_cost_usd:
+        if self.run["budget"]["cost_cny"] >= self.config.budgets.max_cost_cny:
             raise BudgetExhausted("run cost limit reached")
 
     def reserve_call(self, task_id: str, reservation: float, wire: dict[str, Any]) -> int:
         self.check_budget()
         with file_lock(self.root.parent / ".campaign.lock", nonblocking=False):
-            total = 0.0
-            for path in self.root.parent.glob("*/run.json"):
-                value = json.loads(path.read_bytes())
-                if value.get("schema_version") == "5.0":
-                    total += value["budget"]["cost_usd"]
-            if total + reservation > self.config.budgets.campaign_max_cost_usd:
+            total = campaign_cost_cny(self.root.parent)
+            if total + reservation > self.config.budgets.campaign_max_cost_cny:
                 raise BudgetExhausted("campaign cost limit reached")
-            if self.run["budget"]["cost_usd"] + reservation > self.config.budgets.max_cost_usd:
+            if self.run["budget"]["cost_cny"] + reservation > self.config.budgets.max_cost_cny:
                 raise BudgetExhausted("run cannot reserve next call within budget")
             sequence = self.run["call_counter"] + 1
             # Never reuse orphan call evidence, including an interrupted reservation.
@@ -239,17 +246,20 @@ class RunStore:
                 sequence += 1
             self.run["call_counter"] = sequence
             self.run["budget"]["calls"] += 1
-            self.run["budget"]["cost_usd"] += reservation
-            self.run["pending_calls"][str(sequence)] = {"reserved": reservation, "task_id": task_id}
+            self.run["budget"]["cost_cny"] += reservation
+            self.run["pending_calls"][str(sequence)] = {"reserved": reservation, "task_id": task_id, "started_at": time.time()}
             self.save()
-            self.evidence(f"calls/{sequence:06d}.request.json", {"task_id": task_id, "wire": wire, "reserved_usd": reservation})
+            self.evidence(f"calls/{sequence:06d}.request.json", {"task_id": task_id, "wire": wire, "reserved_cny": reservation,
+                          "started_at": self.run["pending_calls"][str(sequence)]["started_at"]})
             return sequence
 
     def settle_call(self, sequence: int, response: dict[str, Any], *, elapsed_s: float) -> None:
         ref = self.evidence(f"calls/{sequence:06d}.response.json", {"response": response, "elapsed_s": elapsed_s})
         with file_lock(self.root.parent / ".campaign.lock", nonblocking=False):
             pending = self.run["pending_calls"].pop(str(sequence))
-            self.run["budget"]["cost_usd"] += response["cost_usd"] - pending["reserved"]
+            self.run["budget"]["cost_cny"] += response["cost_cny"] - pending["reserved"]
+            period = (response.get("pricing") or {}).get("period", "unclassified")
+            self.run["budget"]["settled_cny"][period] += response["cost_cny"]
             self.run["budget"]["tokens_in"] += response["tokens_in"]
             self.run["budget"]["tokens_out"] += response["tokens_out"]
             self.run["last_response"] = ref

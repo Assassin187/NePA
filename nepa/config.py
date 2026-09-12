@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -25,15 +25,17 @@ class ProviderConfig(_Model):
 
 
 class ModelPrice(_Model):
-    input_usd_per_million_tokens: float = Field(ge=0)
-    output_usd_per_million_tokens: float = Field(ge=0)
+    input_cny_per_million_tokens: float = Field(ge=0)
+    output_cny_per_million_tokens: float = Field(ge=0)
+    cache_hit_input_cny_per_million_tokens: float = Field(ge=0)
+    off_peak_multiplier: float = Field(default=0.5, gt=0, le=1)
 
 
 class CoderConfig(_Model):
     provider: str = "deepseek"
     model: str = "deepseek-v4-pro"
     fast_model: str | None = None
-    json_output: bool = False
+    action_format: Literal["json_object", "tool_calls"] = "json_object"
     temperature: float = 0
     max_tokens: int = Field(default=16000, gt=0)
     context_max_bytes: int = Field(default=180000, gt=0)
@@ -44,8 +46,8 @@ class CoderConfig(_Model):
 
 
 class BudgetConfig(_Model):
-    max_cost_usd: float = Field(default=100, gt=0, le=100)
-    campaign_max_cost_usd: float = Field(default=300, gt=0, le=300)
+    max_cost_cny: float = Field(default=20, gt=0, le=20)
+    campaign_max_cost_cny: float = Field(default=300, gt=0, le=300)
     wall_clock_hours: float = Field(default=4, gt=0, le=4)
     decisions_per_session: int = Field(default=40, gt=0, le=40)
     sessions_per_task: int = Field(default=3, gt=0, le=3)
@@ -62,7 +64,7 @@ class SandboxConfig(_Model):
 
 
 class ResolvedConfig(_Model):
-    schema_version: str = "1.0"
+    schema_version: str = "2.0"
     providers: dict[str, ProviderConfig]
     coder: CoderConfig = Field(default_factory=CoderConfig)
     pricing: dict[str, ModelPrice]
@@ -71,7 +73,7 @@ class ResolvedConfig(_Model):
 
     @model_validator(mode="after")
     def check_model(self) -> ResolvedConfig:
-        if self.schema_version != "1.0":
+        if self.schema_version != "2.0":
             raise ValueError("unsupported configuration version; use the baseline for legacy runs")
         if self.coder.provider not in self.providers:
             raise ValueError("coder provider is not configured")
@@ -83,16 +85,16 @@ class ResolvedConfig(_Model):
 
 
 _DEFAULTS: dict[str, Any] = {
-    "schema_version": "1.0",
+    "schema_version": "2.0",
     "providers": {
         "deepseek": {"kind": "openai_compat", "base_url": "https://api.deepseek.com", "api_key_env": "NEPA_DS_API_KEY"},
         "qwen": {"kind": "openai_compat", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key_env": "NEPA_QWEN_API_KEY"},
         "anthropic": {"kind": "anthropic", "base_url": "https://www.sotamodel.net/v1/chat/completions", "api_key_env": "NEPA_CLAUDE_API_KEY"},
     },
     "pricing": {
-        "deepseek/deepseek-v4-pro": {"input_usd_per_million_tokens": 1.32, "output_usd_per_million_tokens": 3.96},
-        "deepseek/deepseek-v4-flash": {"input_usd_per_million_tokens": 0.30, "output_usd_per_million_tokens": 1.20},
-        "deepseek/deepseek-flash": {"input_usd_per_million_tokens": 0.30, "output_usd_per_million_tokens": 1.20},
+        "deepseek/deepseek-v4-pro": {"input_cny_per_million_tokens": 9.0, "output_cny_per_million_tokens": 27.0, "cache_hit_input_cny_per_million_tokens": 0.30},
+        "deepseek/deepseek-v4-flash": {"input_cny_per_million_tokens": 2.0, "output_cny_per_million_tokens": 8.0, "cache_hit_input_cny_per_million_tokens": 0.04},
+        "deepseek/deepseek-flash": {"input_cny_per_million_tokens": 2.0, "output_cny_per_million_tokens": 8.0, "cache_hit_input_cny_per_million_tokens": 0.04},
     },
 }
 

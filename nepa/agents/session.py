@@ -6,7 +6,7 @@ from typing import Any, cast
 import uuid
 
 from .context import CodingContext
-from ..llm.client import LLMClient, structured_validation_errors
+from ..llm.client import LLMClient, decode_action
 from ..run_store import RunStore
 from ..schemas import load_schema
 from ..speclib.plan import validate_claims
@@ -22,7 +22,16 @@ class CodingSession:
         self.builder, self.verifier = builder, verifier
         self.schema = load_schema("agent-action.schema.json")
         prompt = (Path(__file__).parent / "prompts/coder.md").read_text()
-        self.system = prompt + "\nAction schema:\n" + json.dumps(self.schema, ensure_ascii=False, separators=(",", ":"))
+        if store.config.coder.action_format == "tool_calls":
+            instructions = ("Use exactly ONE native function call per decision. The host executes the function and returns a matched tool result. "
+                            "Never output XML or pretend that a tool ran. JSON envelopes below illustrate action semantics; use the supplied native functions instead.")
+        else:
+            instructions = ("Return exactly ONE JSON tool action conforming to the supplied action schema, without\n"
+                            "Markdown fences. The host executes tools and returns actual feedback.\n"
+                            "Never output XML, tool_calls or invoke tags: those do not execute here.")
+        self.system = prompt.replace("{{action_instructions}}", instructions)
+        if store.config.coder.action_format == "json_object":
+            self.system += "\nAction schema:\n" + json.dumps(self.schema, ensure_ascii=False, separators=(",", ":"))
 
     def run(self, task: dict[str, Any], *, repair: bool = False, feedback: Any = None) -> bool:
         store, config = self.store, self.store.config
@@ -36,7 +45,7 @@ class CodingSession:
                               "primary_requirement_count": len(entry["requirement_ids"])}
                              for entry in store.plan()["tasks"]],
                 "initial_feedback": feedback if feedback is not None else state.get("last_feedback")}
-        context = CodingContext(self.system, base, config.coder, self.tools)
+        context = CodingContext(self.system, base, config.coder, self.tools, self.schema)
         remaining = 1 if repair else config.budgets.sessions_per_task - state["sessions"]
         for _ in range(remaining):
             selected = config.coder.for_task(task["kind"], retry=state["sessions"] > 0, repair=repair)
@@ -56,18 +65,12 @@ class CodingSession:
                             "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
                 current = context.request(progress)
                 response = self.client.complete(current, store=store, task_id=task["id"])
-                # An incomplete outer action must not become a valid inner JSON
-                # object via the provider-neutral prose/JSON extraction helper.
-                try:
-                    action = json.loads(response.text)
-                    errors = structured_validation_errors(action, self.schema)
-                except json.JSONDecodeError as exc:
-                    action = None
-                    errors = [{"path": [], "message": f"Invalid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}. Return the complete outer action object, including all closing braces."}]
+                action, errors = decode_action(response, selected.action_format, self.schema)
+                history = response if selected.action_format == "tool_calls" else response.text
                 if errors:
-                    context.record(response.text,
+                    context.record(history,
                         {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason"),
-                         "instruction": "No tool executed. Return JSON, never XML/tool_calls/invoke tags. Correct the intended action.",
+                         "instruction": "No tool executed. Correct the intended action using " + selected.action_format + "; never XML/invoke tags.",
                          "required_primary_ids": task["requirement_ids"],
                          "finish_format": '{"tool":"finish","arguments":{"summary":"explanation","claims":[...]}}',
                          "claim_format": {"id": "one of required_primary_ids", "status": "implemented",
@@ -106,7 +109,7 @@ class CodingSession:
                 feedback_row = {"tool_result": result if tool == "read_file" or len(view) <= 20000 else
                                 {"excerpt": view[:20000], "complete_result_ref": ref}, "evidence_ref": ref,
                                 "instruction": "This action has already executed. Continue with the next necessary action."}
-                state["last_feedback"] = context.record(response.text, feedback_row, action=action)
+                state["last_feedback"] = context.record(history, feedback_row, action=action)
                 store.save()
         state["status"] = "failed"
         store.save()

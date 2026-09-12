@@ -18,6 +18,7 @@ from ..client import (
     ParameterSupportState,
     ProviderError,
     TransportError,
+    action_tools,
 )
 
 
@@ -75,9 +76,12 @@ def _complete_chat_stream(
 
     payload = OpenAICompatibleProvider._payload(request, model, native_schema)
     text_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_parts: dict[int, dict[str, Any]] = {}
     returned_model: str | None = None
     finish_reason: str | None = None
     usage: tuple[int, int] | None = None
+    usage_details: dict[str, Any] = {}
     saw_done = False
     parameter_support: dict[str, ParameterSupportState] = {"temperature": ParameterSupportState.UNKNOWN}
 
@@ -131,6 +135,28 @@ def _complete_chat_stream(
                             if not isinstance(content, str):
                                 raise _stream_decoding_error(provider_name, "delta content is not text")
                             text_parts.append(content)
+                        reasoning = delta.get("reasoning_content")
+                        if reasoning is not None:
+                            if not isinstance(reasoning, str):
+                                raise _stream_decoding_error(provider_name, "reasoning_content is not text")
+                            reasoning_parts.append(reasoning)
+                        for tool in delta.get("tool_calls") or []:
+                            if not isinstance(tool, Mapping) or type(tool.get("index")) is not int or tool["index"] < 0:
+                                raise _stream_decoding_error(provider_name, "invalid tool call index")
+                            part = tool_parts.setdefault(tool["index"], {"function": {"name": "", "arguments": ""}})
+                            for key in ("id", "type"):
+                                if tool.get(key) is not None:
+                                    if not isinstance(tool[key], str) or (key in part and part[key] != tool[key]):
+                                        raise _stream_decoding_error(provider_name, f"invalid/changing tool {key}")
+                                    part[key] = tool[key]
+                            function = tool.get("function") or {}
+                            if not isinstance(function, Mapping):
+                                raise _stream_decoding_error(provider_name, "invalid tool function")
+                            for key in ("name", "arguments"):
+                                if function.get(key) is not None:
+                                    if not isinstance(function[key], str):
+                                        raise _stream_decoding_error(provider_name, f"tool {key} is not text")
+                                    part["function"][key] += function[key]
                         event_finish = first.get("finish_reason")
                         if event_finish is not None:
                             if not isinstance(event_finish, str) or not event_finish:
@@ -142,6 +168,13 @@ def _complete_chat_stream(
                 event_usage = _stream_usage(event, provider_name=provider_name)
                 if event_usage is not None:
                     usage = event_usage
+                    usage_details = dict(event["usage"])
+                    hit, miss = usage_details.get("prompt_cache_hit_tokens"), usage_details.get("prompt_cache_miss_tokens")
+                    for count in (hit, miss):
+                        if count is not None and (type(count) is not int or not 0 <= count <= usage[0]):
+                            raise _stream_decoding_error(provider_name, "invalid cache usage")
+                    if hit is not None and miss is not None and hit + miss != usage[0]:
+                        raise _stream_decoding_error(provider_name, "cache usage does not sum to input tokens")
                 reported_support = _parameter_support(event)
                 for key, value in reported_support.items():
                     if value is not ParameterSupportState.UNKNOWN:
@@ -165,14 +198,17 @@ def _complete_chat_stream(
 
     return LLMResponse(
         text="".join(text_parts),
+        tool_calls=[tool_parts[index] for index in sorted(tool_parts)],
+        reasoning_content="".join(reasoning_parts),
         tokens_in=usage[0],
         tokens_out=usage[1],
-        cost_usd=0,
+        cost_cny=0,
         model=returned_model or model,
         cached=False,
         parameter_support=parameter_support,
         provider_metadata={
             "finish_reason": finish_reason,
+            "usage": usage_details,
             "provider": provider_name,
             "native_structured_output": native_schema,
             "returned_model_identity": returned_model,
@@ -228,14 +264,19 @@ class OpenAICompatibleProvider:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if native_schema:
+        if request.action_format == "tool_calls":
+            if not isinstance(request.json_schema, dict):
+                raise LLMConfigurationError("tool_calls requires the action schema")
+            payload["tools"] = action_tools(request.json_schema)
+            payload["tool_choice"] = "auto"
+        elif native_schema:
             if request.json_schema is None:
                 raise LLMConfigurationError("native structured mode requires a JSON Schema")
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {"name": "nepa_response", "schema": request.json_schema, "strict": True},
             }
-        elif request.json_output:
+        elif request.action_format == "json_object":
             payload["response_format"] = {"type": "json_object"}
         return payload
 

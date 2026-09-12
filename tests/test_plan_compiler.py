@@ -9,7 +9,7 @@ from nepa.speclib.planning import message_context
 ROOT = Path(__file__).parents[1]
 
 def inputs():
-    return [json.loads((ROOT / "gold_file" / name).read_bytes()) for name in ("specIR.json", "target.json")]
+    return [json.loads((ROOT / "gold_file/mqtt" / name).read_bytes()) for name in ("specIR.json", "target.json")]
 
 def test_gold_exact_plan_and_complete_primary_requirements():
     spec, target = inputs()
@@ -26,7 +26,7 @@ def test_all_current_inputs_valid():
     spec, target = inputs()
     assert lint_spec(spec)["valid"]
     assert lint_target(target, spec)["valid"]
-    assert lint_acceptance(ROOT / "gold_file/acceptance.json", spec)["valid"]
+    assert lint_acceptance(ROOT / "gold_file/mqtt/acceptance.json", spec)["valid"]
 
 def test_schema_optional_transport_is_not_an_internal_key_error():
     spec, target = inputs()

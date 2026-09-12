@@ -6,64 +6,81 @@
   },
   "budget": {
     "calls": 0,
-    "cost_usd": 0,
+    "cost_cny": 0,
     "tokens_in": 0,
-    "tokens_out": 0
+    "tokens_out": 0,
+    "settled_cny": {
+      "peak": 0.0,
+      "off_peak": 0.0,
+      "unclassified": 0
+    }
   },
   "call_counter": 0,
-  "config_sha256": "3a546719f345628af45097191a9bf81eb855687f88f60d5baf70537f80400822",
+  "config_sha256": "d498e4ea58cbba8e4b54087ab0f4c7ce898a4ac783efe0ce80c954bbf1c1abf3",
   "config_snapshot": {
-    "budgets": {
-      "campaign_max_cost_usd": 100,
-      "decisions_per_session": 40,
-      "final_repairs": 3,
-      "followups": 3,
-      "max_cost_usd": 20,
-      "sessions_per_task": 3,
-      "wall_clock_hours": 4
-    },
-    "coder": {
-      "context_max_bytes": 180000,
-      "max_tokens": 16000,
-      "model": "deepseek-v4-pro",
-      "provider": "deepseek",
-      "temperature": 0
-    },
-    "pricing": {
-      "deepseek/deepseek-v4-flash": {
-        "input_usd_per_million_tokens": 0.3,
-        "output_usd_per_million_tokens": 1.2
-      },
-      "deepseek/deepseek-v4-pro": {
-        "input_usd_per_million_tokens": 1.32,
-        "output_usd_per_million_tokens": 3.96
-      }
-    },
+    "schema_version": "2.0",
     "providers": {
-      "anthropic": {
-        "api_key_env": "NEPA_CLAUDE_API_KEY",
-        "base_url": "https://www.sotamodel.net/v1/chat/completions",
-        "kind": "anthropic"
-      },
       "deepseek": {
-        "api_key_env": "NEPA_DS_API_KEY",
+        "kind": "openai_compat",
         "base_url": "https://api.deepseek.com",
-        "kind": "openai_compat"
+        "api_key_env": "NEPA_DS_API_KEY"
       },
       "qwen": {
-        "api_key_env": "NEPA_QWEN_API_KEY",
+        "kind": "openai_compat",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "kind": "openai_compat"
+        "api_key_env": "NEPA_QWEN_API_KEY"
+      },
+      "anthropic": {
+        "kind": "anthropic",
+        "base_url": "https://www.sotamodel.net/v1/chat/completions",
+        "api_key_env": "NEPA_CLAUDE_API_KEY"
       }
     },
-    "sandbox": {
-      "build_timeout_s": 180,
-      "command_timeout_s": 120,
-      "cpu": 2,
-      "image": "nepa-sandbox:refactor",
-      "mem_gb": 4
+    "coder": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "fast_model": null,
+      "action_format": "json_object",
+      "temperature": 0.0,
+      "max_tokens": 16000,
+      "context_max_bytes": 180000
     },
-    "schema_version": "1.0"
+    "pricing": {
+      "deepseek/deepseek-v4-pro": {
+        "input_cny_per_million_tokens": 9.0,
+        "output_cny_per_million_tokens": 27.0,
+        "cache_hit_input_cny_per_million_tokens": 0.3,
+        "off_peak_multiplier": 0.5
+      },
+      "deepseek/deepseek-v4-flash": {
+        "input_cny_per_million_tokens": 2.0,
+        "output_cny_per_million_tokens": 8.0,
+        "cache_hit_input_cny_per_million_tokens": 0.04,
+        "off_peak_multiplier": 0.5
+      },
+      "deepseek/deepseek-flash": {
+        "input_cny_per_million_tokens": 2.0,
+        "output_cny_per_million_tokens": 8.0,
+        "cache_hit_input_cny_per_million_tokens": 0.04,
+        "off_peak_multiplier": 0.5
+      }
+    },
+    "budgets": {
+      "max_cost_cny": 20.0,
+      "campaign_max_cost_cny": 300.0,
+      "wall_clock_hours": 4.0,
+      "decisions_per_session": 40,
+      "sessions_per_task": 3,
+      "followups": 3,
+      "final_repairs": 3
+    },
+    "sandbox": {
+      "image": "nepa-sandbox:refactor",
+      "cpu": 2,
+      "mem_gb": 4.0,
+      "command_timeout_s": 120,
+      "build_timeout_s": 180
+    }
   },
   "created_at": 1789192384.3447387,
   "current_task": null,
@@ -100,7 +117,7 @@
     "files": {},
     "package_sha256": "0c12a468b1aa493e445a3996f0d327402005ffffefdc62e564b88cf0c2c17fc9"
   },
-  "schema_version": "5.0",
+  "schema_version": "6.0",
   "status": "failed",
   "tasks": {
     "bootstrap": {

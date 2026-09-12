@@ -30,21 +30,22 @@ Set the API-key environment variable named by your provider configuration; never
 write credentials into committed configuration or a generated project.
 
 ```bash
-uv run nepa run --spec gold_file/specIR.json --target gold_file/target.json \
-  --acceptance gold_file/acceptance.json --config configs/default.yaml --runs-root runs/e2e
-uv run nepa status RUN_ID --runs-root runs/e2e
-uv run nepa resume RUN_ID --runs-root runs/e2e
+uv run nepa run --spec gold_file/mqtt/specIR.json --target gold_file/mqtt/target.json \
+  --acceptance gold_file/mqtt/acceptance.json --config configs/default.yaml --runs-root runs/mqtt-e2e
+uv run nepa status RUN_ID --runs-root runs/mqtt-e2e
+uv run nepa resume RUN_ID --runs-root runs/mqtt-e2e
 ```
 
 The supplied config uses V4.1 Flash (`deepseek-flash`) for initial ordinary coding
-sessions and V4 Pro for wire/integration and retry/repair sessions. Token costs are
-conservative peak, cache-miss estimates, not the provider invoice. See the pricing
-source and rates in configs/default.yaml and project_docs/refactor_plan.md.
+sessions and V4 Pro for wire/integration and retry/repair sessions. Costs use domestic CNY rates and the Asia/Shanghai busy/off-peak schedule.
+Responses record cache usage when provided; missing cache counts assume misses.
+Unknown calls retain peak-price reservations. These are estimates, not invoices.
+See configs/default.yaml and project_docs/protocol_expansion.md.
 
 An explicitly approved development continuation can change its active configuration:
 
 ```bash
-uv run nepa resume RUN_ID --runs-root runs/e2e --config configs/default.yaml \
+uv run nepa resume RUN_ID --runs-root runs/mqtt-e2e --config configs/default.yaml \
   --accept-runtime-change --change-reason "Describe the authorized experiment change"
 ```
 
@@ -56,20 +57,27 @@ Successful exports contain sources, Makefile, README and release/san executables
 Build without NePA using make clean then make release san. Exit zero requires all
 tasks, mandatory checks and published artifacts. Claims are not verified behavior.
 
-The minimum MQTT oracle covers CONNECT, PING and a refusal path; it does not prove
-all requirements, full MQTT conformance, other protocols or other languages. Paid
-live tests are opt-in. Old run versions require their original code for reproduction.
+Manual input sets are parallel: `gold_file/mqtt/` and `gold_file/http/`, each with
+`specIR.json`, `target.json`, `acceptance.json` and independent oracle scripts.
+MQTT retains 110 requirements and now has 20 core-behavior checks. HTTP contains
+27 manually curated fixed-length-subset requirements and 12 checks. Both use the
+same C99/server target. These checks do not establish full protocol conformance.
+Report4.0 joins every claim to actual final-export scenario results or explicit gaps.
+Config2.0 selects `coder.action_format: json_object` or `tool_calls`; local action
+validation stays strict in both modes. Old runs require their original runtime.
 
 ```bash
+uv run nepa run --spec gold_file/http/specIR.json --target gold_file/http/target.json \
+  --acceptance gold_file/http/acceptance.json --config configs/default.yaml --runs-root runs/http-e2e
 NEPA_LIVE_E2E=1 uv run pytest -s -q -m live_e2e tests/test_live_e2e.py
 ```
 
-The paid harness first requires one complete generation and independent export
-verification. Only then does it launch two independent repetitions in parallel on
-the same frozen candidate. Current authorized ceilings: $100 per run, $300 total
-including prior failed/debug runs, and four hours per run.
-For the explicitly authorized baseline-then-optimization workflow, set
-NEPA_LIVE_FIRST_EVIDENCE to the baseline's passed independent-verification JSON.
-The harness rechecks that export against its recorded configuration/runtime before
-starting two fresh repetitions of the optimized candidate. It records both versions;
-this must not be described as three unchanged-candidate successes.
+The opt-in paid harness runs fresh MQTT and HTTP generations concurrently after
+freezing both input sets and the same candidate, then independently checks each export.
+MQTT uses the new `runs/mqtt-e2e` CNY campaign; HTTP uses `runs/http-e2e`.
+Each has a ¥300 cumulative ceiling, including new failures and reservations;
+each generation is capped at ¥20/four hours. The interface study has a fixed ¥10
+sublimit within the new MQTT campaign. The user explicitly excluded old USD runs
+from these new ceilings; old evidence remains in its original historical root.
+Run6.0 and Config2.0 reject currency mixing. Evidence and remaining work:
+`project_docs/protocol_expansion.md`.

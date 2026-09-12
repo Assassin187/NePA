@@ -1,9 +1,14 @@
 {
   "type": "object",
   "properties": {
-    "configuration_changes": {"type": "array", "items": {"type": "object"}},
+    "configuration_changes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
     "schema_version": {
-      "const": "3.0"
+      "const": "4.0"
     },
     "run_id": {
       "type": "string",
@@ -226,13 +231,81 @@
           },
           "verification_scope": {
             "type": "string"
+          },
+          "verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "reason",
+              "scenarios"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "scenarios_passed",
+                  "failed",
+                  "incomplete",
+                  "unverified"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "check_id",
+                    "variant",
+                    "required",
+                    "status",
+                    "returncode",
+                    "evidence"
+                  ],
+                  "properties": {
+                    "check_id": {
+                      "type": "string"
+                    },
+                    "variant": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "incomplete"
+                      ]
+                    },
+                    "returncode": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "evidence": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
           "id",
           "primary_task",
           "agent_claim",
-          "verification_scope"
+          "verification_scope",
+          "verification"
         ],
         "additionalProperties": false
       }
@@ -240,7 +313,7 @@
     "budget": {
       "type": "object",
       "properties": {
-        "cost_usd": {
+        "cost_cny": {
           "type": "number",
           "minimum": 0
         },
@@ -255,13 +328,37 @@
         "calls": {
           "type": "integer",
           "minimum": 0
+        },
+        "settled_cny": {
+          "type": "object",
+          "properties": {
+            "peak": {
+              "type": "number",
+              "minimum": 0
+            },
+            "off_peak": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unclassified": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "peak",
+            "off_peak",
+            "unclassified"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "cost_usd",
+        "cost_cny",
         "tokens_in",
         "tokens_out",
-        "calls"
+        "calls",
+        "settled_cny"
       ],
       "additionalProperties": false
     },

@@ -50,9 +50,10 @@ def test_independent_oracle_correct_and_wrong_responses(tmp_path, mode, expected
     (project / "server.py").write_text(SERVER)
     target = {"builds": [{"id": "release", "artifact": "server.py"}, {"id": "san", "artifact": "server.py"}],
               "run": ["python", "{artifact}", "{host}", "{port}", mode]}
-    acceptance = json.loads((ROOT / "gold_file/acceptance.json").read_bytes())
+    acceptance = json.loads((ROOT / "gold_file/mqtt/acceptance.json").read_bytes())
+    acceptance["checks"] = acceptance["checks"][:1]  # This supervisor double implements only the minimum oracle.
     runner = VerificationRunner(SandboxExecutor("nepa-sandbox:refactor", 1, 1))
-    result = runner.run(target, acceptance, project, ROOT / "gold_file", tmp_path / "evidence")
+    result = runner.run(target, acceptance, project, ROOT / "gold_file/mqtt", tmp_path / "evidence")
     assert result["passed"] is expected, result
     if mode == "sanitizer":
         assert all(v["detail"]["sanitizer_error"] for v in result["variants"])
@@ -62,10 +63,11 @@ def test_missing_binary_and_idle_server_fail(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     runner = VerificationRunner(SandboxExecutor("nepa-sandbox:refactor", 1, 1))
-    acceptance = json.loads((ROOT / "gold_file/acceptance.json").read_bytes())
+    acceptance = json.loads((ROOT / "gold_file/mqtt/acceptance.json").read_bytes())
+    acceptance["checks"] = acceptance["checks"][:1]  # This supervisor double implements only the minimum oracle.
     target = {"builds": [{"id": "release", "artifact": "missing"}], "run": ["{artifact}"]}
-    assert not runner.run(target, acceptance, project, ROOT / "gold_file", tmp_path / "missing")["passed"]
+    assert not runner.run(target, acceptance, project, ROOT / "gold_file/mqtt", tmp_path / "missing")["passed"]
     (project / "idle.py").write_text("import time; time.sleep(60)")
     target = {"builds": [{"id": "release", "artifact": "idle.py"}], "run": ["python", "{artifact}"]}
     acceptance["checks"][0]["timeout_s"] = 1
-    assert not runner.run(target, acceptance, project, ROOT / "gold_file", tmp_path / "idle")["passed"]
+    assert not runner.run(target, acceptance, project, ROOT / "gold_file/mqtt", tmp_path / "idle")["passed"]

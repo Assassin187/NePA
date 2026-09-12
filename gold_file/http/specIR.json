@@ -1,0 +1,570 @@
+{
+  "schema_version": "3.0",
+  "protocol": {
+    "name": "HTTP fixed-length subset",
+    "version": "1.1-profile-1",
+    "roles": [
+      "client",
+      "server"
+    ]
+  },
+  "transport": {
+    "name": "TCP",
+    "port": 80,
+    "byte_order": "octets",
+    "req_ids": [
+      "REQ-HTTP-STREAM-001"
+    ]
+  },
+  "types": [],
+  "messages": [
+    {
+      "id": "get_request",
+      "name": "GET request",
+      "senders": [
+        "client"
+      ],
+      "receivers": [
+        "server"
+      ],
+      "wire_layout": [
+        "request_line",
+        "headers",
+        "body"
+      ],
+      "fields": [
+        {
+          "name": "request_line",
+          "loc": "request_line",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-REQUEST-LINE-001",
+            "REQ-HTTP-CRLF-001"
+          ]
+        },
+        {
+          "name": "headers",
+          "loc": "headers",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-HOST-001",
+            "REQ-HTTP-FIELD-SYNTAX-001",
+            "REQ-HTTP-FIELD-NAMES-001",
+            "REQ-HTTP-OWS-001"
+          ]
+        },
+        {
+          "name": "body",
+          "loc": "body",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-BODY-001",
+            "REQ-HTTP-INCOMPLETE-WAIT-001"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-HTTP-SCOPE-001",
+        "REQ-HTTP-STREAM-001",
+        "REQ-HTTP-REQUEST-LINE-001",
+        "REQ-HTTP-CRLF-001",
+        "REQ-HTTP-FIELD-NAMES-001",
+        "REQ-HTTP-FIELD-SYNTAX-001",
+        "REQ-HTTP-OWS-001",
+        "REQ-HTTP-HOST-001",
+        "REQ-HTTP-BODY-001",
+        "REQ-HTTP-LENGTH-INVALID-001",
+        "REQ-HTTP-LENGTH-CONFLICT-001",
+        "REQ-HTTP-INCOMPLETE-WAIT-001",
+        "REQ-HTTP-TRUNCATED-001",
+        "REQ-HTTP-RESPONSE-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001",
+        "REQ-HTTP-HEAD-001",
+        "REQ-HTTP-PERSISTENCE-001",
+        "REQ-HTTP-PIPELINE-001",
+        "REQ-HTTP-CLOSE-001",
+        "REQ-HTTP-BAD-REQUEST-001",
+        "REQ-HTTP-ISOLATION-001",
+        "REQ-HTTP-SUBSET-TRANSFER-001",
+        "REQ-HTTP-APP-GET-001",
+        "REQ-HTTP-APP-HEAD-001",
+        "REQ-HTTP-APP-ECHO-001",
+        "REQ-HTTP-APP-ROUTES-001",
+        "REQ-HTTP-APP-METHODS-001"
+      ]
+    },
+    {
+      "id": "head_request",
+      "name": "HEAD request",
+      "senders": [
+        "client"
+      ],
+      "receivers": [
+        "server"
+      ],
+      "wire_layout": [
+        "request_line",
+        "headers",
+        "body"
+      ],
+      "fields": [
+        {
+          "name": "request_line",
+          "loc": "request_line",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-REQUEST-LINE-001",
+            "REQ-HTTP-CRLF-001"
+          ]
+        },
+        {
+          "name": "headers",
+          "loc": "headers",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-HOST-001",
+            "REQ-HTTP-FIELD-SYNTAX-001",
+            "REQ-HTTP-FIELD-NAMES-001",
+            "REQ-HTTP-OWS-001"
+          ]
+        },
+        {
+          "name": "body",
+          "loc": "body",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-BODY-001",
+            "REQ-HTTP-INCOMPLETE-WAIT-001"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-HTTP-SCOPE-001",
+        "REQ-HTTP-STREAM-001",
+        "REQ-HTTP-REQUEST-LINE-001",
+        "REQ-HTTP-CRLF-001",
+        "REQ-HTTP-FIELD-NAMES-001",
+        "REQ-HTTP-FIELD-SYNTAX-001",
+        "REQ-HTTP-OWS-001",
+        "REQ-HTTP-HOST-001",
+        "REQ-HTTP-BODY-001",
+        "REQ-HTTP-LENGTH-INVALID-001",
+        "REQ-HTTP-LENGTH-CONFLICT-001",
+        "REQ-HTTP-INCOMPLETE-WAIT-001",
+        "REQ-HTTP-TRUNCATED-001",
+        "REQ-HTTP-RESPONSE-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001",
+        "REQ-HTTP-HEAD-001",
+        "REQ-HTTP-PERSISTENCE-001",
+        "REQ-HTTP-PIPELINE-001",
+        "REQ-HTTP-CLOSE-001",
+        "REQ-HTTP-BAD-REQUEST-001",
+        "REQ-HTTP-ISOLATION-001",
+        "REQ-HTTP-SUBSET-TRANSFER-001",
+        "REQ-HTTP-APP-GET-001",
+        "REQ-HTTP-APP-HEAD-001",
+        "REQ-HTTP-APP-ECHO-001",
+        "REQ-HTTP-APP-ROUTES-001",
+        "REQ-HTTP-APP-METHODS-001"
+      ]
+    },
+    {
+      "id": "post_request",
+      "name": "POST request",
+      "senders": [
+        "client"
+      ],
+      "receivers": [
+        "server"
+      ],
+      "wire_layout": [
+        "request_line",
+        "headers",
+        "body"
+      ],
+      "fields": [
+        {
+          "name": "request_line",
+          "loc": "request_line",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-REQUEST-LINE-001",
+            "REQ-HTTP-CRLF-001"
+          ]
+        },
+        {
+          "name": "headers",
+          "loc": "headers",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-HOST-001",
+            "REQ-HTTP-FIELD-SYNTAX-001",
+            "REQ-HTTP-FIELD-NAMES-001",
+            "REQ-HTTP-OWS-001"
+          ]
+        },
+        {
+          "name": "body",
+          "loc": "body",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-BODY-001",
+            "REQ-HTTP-INCOMPLETE-WAIT-001"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-HTTP-SCOPE-001",
+        "REQ-HTTP-STREAM-001",
+        "REQ-HTTP-REQUEST-LINE-001",
+        "REQ-HTTP-CRLF-001",
+        "REQ-HTTP-FIELD-NAMES-001",
+        "REQ-HTTP-FIELD-SYNTAX-001",
+        "REQ-HTTP-OWS-001",
+        "REQ-HTTP-HOST-001",
+        "REQ-HTTP-BODY-001",
+        "REQ-HTTP-LENGTH-INVALID-001",
+        "REQ-HTTP-LENGTH-CONFLICT-001",
+        "REQ-HTTP-INCOMPLETE-WAIT-001",
+        "REQ-HTTP-TRUNCATED-001",
+        "REQ-HTTP-RESPONSE-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001",
+        "REQ-HTTP-HEAD-001",
+        "REQ-HTTP-PERSISTENCE-001",
+        "REQ-HTTP-PIPELINE-001",
+        "REQ-HTTP-CLOSE-001",
+        "REQ-HTTP-BAD-REQUEST-001",
+        "REQ-HTTP-ISOLATION-001",
+        "REQ-HTTP-SUBSET-TRANSFER-001",
+        "REQ-HTTP-APP-GET-001",
+        "REQ-HTTP-APP-HEAD-001",
+        "REQ-HTTP-APP-ECHO-001",
+        "REQ-HTTP-APP-ROUTES-001",
+        "REQ-HTTP-APP-METHODS-001"
+      ]
+    },
+    {
+      "id": "response",
+      "name": "HTTP response",
+      "senders": [
+        "server"
+      ],
+      "receivers": [
+        "client"
+      ],
+      "wire_layout": [
+        "status_line",
+        "headers",
+        "body"
+      ],
+      "fields": [
+        {
+          "name": "status_line",
+          "loc": "status_line",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-RESPONSE-001"
+          ]
+        },
+        {
+          "name": "headers",
+          "loc": "headers",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-RESPONSE-LENGTH-001",
+            "REQ-HTTP-CLOSE-001"
+          ]
+        },
+        {
+          "name": "body",
+          "loc": "body",
+          "type": "bytes",
+          "req_ids": [
+            "REQ-HTTP-HEAD-001",
+            "REQ-HTTP-APP-GET-001",
+            "REQ-HTTP-APP-ECHO-001"
+          ]
+        }
+      ],
+      "req_ids": [
+        "REQ-HTTP-RESPONSE-001",
+        "REQ-HTTP-RESPONSE-LENGTH-001",
+        "REQ-HTTP-HEAD-001",
+        "REQ-HTTP-CLOSE-001",
+        "REQ-HTTP-PIPELINE-001"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-HTTP-SCOPE-001",
+      "text": "The application implements only the fixed-length HTTP/1.1 origin-server subset in this profile. It is not a full HTTP/1.1 receiver. Chunked, TLS, proxies, upgrade, caching and HTTP/2 are excluded.",
+      "level": "DEFINITION",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-SCOPE; Profile scope",
+        "quote": "The application implements only the fixed-length HTTP/1.1 origin-server subset in this profile. It is not a full HTTP/1.1 receiver. Chunked, TLS, proxies, upgrade, caching and HTTP/2 are excluded."
+      }
+    },
+    {
+      "id": "REQ-HTTP-STREAM-001",
+      "text": "Process an ordered TCP byte stream independently of receive boundaries. A request may arrive in many fragments, and one receive may contain multiple requests.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-STREAM; RFC 9112 sections 2, 9",
+        "quote": "Process an ordered TCP byte stream independently of receive boundaries. A request may arrive in many fragments, and one receive may contain multiple requests."
+      }
+    },
+    {
+      "id": "REQ-HTTP-REQUEST-LINE-001",
+      "text": "Parse method SP request-target SP HTTP/1.1 CRLF as the request line. Methods are case-sensitive. This subset accepts origin-form paths; malformed request lines produce 400 and connection close.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-REQUEST-LINE; RFC 9112 section 3; subset policy",
+        "quote": "Parse method SP request-target SP HTTP/1.1 CRLF as the request line. Methods are case-sensitive. This subset accepts origin-form paths; malformed request lines produce 400 and connection close."
+      }
+    },
+    {
+      "id": "REQ-HTTP-CRLF-001",
+      "text": "Use CRLF to terminate the request/status line and each header line, and an empty CRLF line to end headers. Parse octets, not Unicode messages. Only CRLF input is in this subset.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-CRLF; RFC 9112 section 2.1",
+        "quote": "Use CRLF to terminate the request/status line and each header line, and an empty CRLF line to end headers. Parse octets, not Unicode messages. Only CRLF input is in this subset."
+      }
+    },
+    {
+      "id": "REQ-HTTP-FIELD-NAMES-001",
+      "text": "Match HTTP header field names case-insensitively; ignore well-formed unrecognized header fields in this subset.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-FIELD-NAMES; RFC 9110 section 5.1",
+        "quote": "Match HTTP header field names case-insensitively; ignore well-formed unrecognized header fields in this subset."
+      }
+    },
+    {
+      "id": "REQ-HTTP-FIELD-SYNTAX-001",
+      "text": "Parse header fields as a token name immediately followed by colon and value. Reject whitespace before colon, missing colon and folded lines with 400 then close.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-FIELD-SYNTAX; RFC 9112 section 5",
+        "quote": "Parse header fields as a token name immediately followed by colon and value. Reject whitespace before colon, missing colon and folded lines with 400 then close."
+      }
+    },
+    {
+      "id": "REQ-HTTP-OWS-001",
+      "text": "Remove leading/trailing space or horizontal-tab whitespace from a header field value before interpreting it.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-OWS; RFC 9112 section 5.1",
+        "quote": "Remove leading/trailing space or horizontal-tab whitespace from a header field value before interpreting it."
+      }
+    },
+    {
+      "id": "REQ-HTTP-HOST-001",
+      "text": "Require exactly one Host field containing a valid nonempty host with optional port; absent, repeated or invalid Host (including embedded whitespace) produces 400 and close.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-HOST; RFC 9112 section 3.2; nonempty-host subset",
+        "quote": "Require exactly one Host field containing a valid nonempty host with optional port; absent, repeated or invalid Host (including embedded whitespace) produces 400 and close."
+      }
+    },
+    {
+      "id": "REQ-HTTP-BODY-001",
+      "text": "When Content-Length is present and no Transfer-Encoding exists, consume exactly that decimal number of octets as the request body. Treat body bytes as opaque, including NUL and CRLF. Without either field, the request body has zero bytes.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-BODY; RFC 9112 section 6.3",
+        "quote": "When Content-Length is present and no Transfer-Encoding exists, consume exactly that decimal number of octets as the request body. Treat body bytes as opaque, including NUL and CRLF. Without either field, the request body has zero bytes."
+      }
+    },
+    {
+      "id": "REQ-HTTP-LENGTH-INVALID-001",
+      "text": "Content-Length contains one or more decimal digits only after trimming optional whitespace. Negative, mixed-character or overflowing lengths produce 400 then close; do not process their body as subsequent requests.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-LENGTH-INVALID; RFC 9112 section 6.3",
+        "quote": "Content-Length contains one or more decimal digits only after trimming optional whitespace. Negative, mixed-character or overflowing lengths produce 400 then close; do not process their body as subsequent requests."
+      }
+    },
+    {
+      "id": "REQ-HTTP-LENGTH-CONFLICT-001",
+      "text": "Reject conflicting Content-Length values with 400 then close. This subset also rejects repeated identical Content-Length fields and comma-separated Content-Length lists with 400 then close.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-LENGTH-CONFLICT; RFC 9112 section 6.3; permitted rejection policy",
+        "quote": "Reject conflicting Content-Length values with 400 then close. This subset also rejects repeated identical Content-Length fields and comma-separated Content-Length lists with 400 then close."
+      }
+    },
+    {
+      "id": "REQ-HTTP-INCOMPLETE-WAIT-001",
+      "text": "Keep incomplete request lines, headers and bodies buffered until complete or EOF. Do not emit an early successful response or discard a valid incomplete prefix. Preserve any bytes after the complete body for the next request.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-INCOMPLETE-WAIT; RFC 9112 sections 2, 6.3",
+        "quote": "Keep incomplete request lines, headers and bodies buffered until complete or EOF. Do not emit an early successful response or discard a valid incomplete prefix. Preserve any bytes after the complete body for the next request."
+      }
+    },
+    {
+      "id": "REQ-HTTP-TRUNCATED-001",
+      "text": "If the client sends EOF before a complete request/body arrives, close that connection without sending a response in this profile. Do not treat a partial body as complete.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-TRUNCATED; RFC 9112 section 8; close-without-response policy",
+        "quote": "If the client sends EOF before a complete request/body arrives, close that connection without sending a response in this profile. Do not treat a partial body as complete."
+      }
+    },
+    {
+      "id": "REQ-HTTP-RESPONSE-001",
+      "text": "Send responses using HTTP/1.1 SP three-digit-status SP reason-phrase CRLF followed by headers, empty CRLF and the allowed body.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-RESPONSE; RFC 9112 section 4",
+        "quote": "Send responses using HTTP/1.1 SP three-digit-status SP reason-phrase CRLF followed by headers, empty CRLF and the allowed body."
+      }
+    },
+    {
+      "id": "REQ-HTTP-RESPONSE-LENGTH-001",
+      "text": "Every response in this profile includes exactly one Content-Length giving its body length in octets. Responses never use Transfer-Encoding. For HEAD this length describes the corresponding GET representation while no body is sent.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-RESPONSE-LENGTH; RFC 9110 section 8.6; profile framing",
+        "quote": "Every response in this profile includes exactly one Content-Length giving its body length in octets. Responses never use Transfer-Encoding. For HEAD this length describes the corresponding GET representation while no body is sent."
+      }
+    },
+    {
+      "id": "REQ-HTTP-HEAD-001",
+      "text": "Never send a response body for HEAD, including errors. Its Content-Length describes the response that GET would have returned for the same path.",
+      "level": "MUST NOT",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-HEAD; RFC 9110 section 9.3.2",
+        "quote": "Never send a response body for HEAD, including errors. Its Content-Length describes the response that GET would have returned for the same path."
+      }
+    },
+    {
+      "id": "REQ-HTTP-PERSISTENCE-001",
+      "text": "Keep a successfully processed HTTP/1.1 connection open for subsequent requests unless Connection: close was requested. Maintain parsing state separately per connection.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-PERSISTENCE; RFC 9112 section 9.3",
+        "quote": "Keep a successfully processed HTTP/1.1 connection open for subsequent requests unless Connection: close was requested. Maintain parsing state separately per connection."
+      }
+    },
+    {
+      "id": "REQ-HTTP-PIPELINE-001",
+      "text": "For multiple requests on one connection, send complete responses in request order; an incomplete trailing request must not lose earlier complete requests or their responses.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-PIPELINE; RFC 9112 section 9.3.2",
+        "quote": "For multiple requests on one connection, send complete responses in request order; an incomplete trailing request must not lose earlier complete requests or their responses."
+      }
+    },
+    {
+      "id": "REQ-HTTP-CLOSE-001",
+      "text": "For Connection: close (case-insensitive token), complete the response, include Connection: close, and close the connection without processing further requests.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-CLOSE; RFC 9112 section 9.6",
+        "quote": "For Connection: close (case-insensitive token), complete the response, include Connection: close, and close the connection without processing further requests."
+      }
+    },
+    {
+      "id": "REQ-HTTP-BAD-REQUEST-001",
+      "text": "Malformed requests in the selected syntax produce a 400 response with explicit Content-Length and Connection: close, followed by connection closure. Complete all response writes before close.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-BAD-REQUEST; RFC 9112 sections 2.2, 5; profile error policy",
+        "quote": "Malformed requests in the selected syntax produce a 400 response with explicit Content-Length and Connection: close, followed by connection closure. Complete all response writes before close."
+      }
+    },
+    {
+      "id": "REQ-HTTP-ISOLATION-001",
+      "text": "A malformed or truncated client connection must not terminate the listening server or prevent other clients from completing requests. Release each disconnected connection state.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-ISOLATION; Profile application behavior",
+        "quote": "A malformed or truncated client connection must not terminate the listening server or prevent other clients from completing requests. Release each disconnected connection state."
+      }
+    },
+    {
+      "id": "REQ-HTTP-SUBSET-TRANSFER-001",
+      "text": "Reject any Transfer-Encoding field with 400 and Connection: close, including Transfer-Encoding together with Content-Length. Do not parse chunked data. This is a deliberate subset limitation, not full HTTP/1.1 compliance.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-SUBSET-TRANSFER; Profile limitation; RFC 9112 section 7.1 requires chunked for full receivers",
+        "quote": "Reject any Transfer-Encoding field with 400 and Connection: close, including Transfer-Encoding together with Content-Length. Do not parse chunked data. This is a deliberate subset limitation, not full HTTP/1.1 compliance."
+      }
+    },
+    {
+      "id": "REQ-HTTP-APP-GET-001",
+      "text": "GET / returns status 200 with exact body bytes nepa followed by LF (five octets) and Content-Length: 5.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-APP-GET; Application route contract",
+        "quote": "GET / returns status 200 with exact body bytes nepa followed by LF (five octets) and Content-Length: 5."
+      }
+    },
+    {
+      "id": "REQ-HTTP-APP-HEAD-001",
+      "text": "HEAD / returns 200 with Content-Length: 5 and no response body.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-APP-HEAD; Application route contract",
+        "quote": "HEAD / returns 200 with Content-Length: 5 and no response body."
+      }
+    },
+    {
+      "id": "REQ-HTTP-APP-ECHO-001",
+      "text": "POST /echo returns 200 with the request body byte-for-byte, including empty and binary bodies, with the corresponding Content-Length. No transformation is permitted.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-APP-ECHO; Application route contract",
+        "quote": "POST /echo returns 200 with the request body byte-for-byte, including empty and binary bodies, with the corresponding Content-Length. No transformation is permitted."
+      }
+    },
+    {
+      "id": "REQ-HTTP-APP-ROUTES-001",
+      "text": "For implemented methods GET, HEAD and POST, any other method/path combination returns 404 with zero body bytes and Content-Length: 0.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-APP-ROUTES; Application route contract",
+        "quote": "For implemented methods GET, HEAD and POST, any other method/path combination returns 404 with zero body bytes and Content-Length: 0."
+      }
+    },
+    {
+      "id": "REQ-HTTP-APP-METHODS-001",
+      "text": "Syntactically valid methods other than GET, HEAD and POST return 501 with zero body bytes and Content-Length: 0.",
+      "level": "MUST",
+      "source_ref": {
+        "doc_id": "http-fixed-profile",
+        "section": "HTTP-APP-METHODS; Application route contract",
+        "quote": "Syntactically valid methods other than GET, HEAD and POST return 501 with zero body bytes and Content-Length: 0."
+      }
+    }
+  ]
+}

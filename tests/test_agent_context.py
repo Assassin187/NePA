@@ -115,6 +115,8 @@ def test_json_object_wire_bytes_are_included_in_context_limit(context):
     context.coder.context_max_bytes = len(json.dumps(
         OpenAICompatibleProvider._payload(request, context.coder.model, False), ensure_ascii=False).encode())
     context.request({})
-    context.coder.json_output = True
+    from nepa.schemas import load_schema
+    context.schema = load_schema("agent-action.schema.json")
+    context.coder.action_format = "tool_calls"
     with pytest.raises(LLMRequestError):
         context.request({})

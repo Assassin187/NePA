@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-spec = importlib.util.spec_from_file_location("sample_oracle", ROOT / "gold_file/acceptance/mqtt_smoke.py")
+spec = importlib.util.spec_from_file_location("sample_oracle", ROOT / "gold_file/mqtt/acceptance/mqtt_smoke.py")
 oracle = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(oracle)
 
@@ -25,6 +25,6 @@ def test_short_read_and_early_eof():
         oracle.receive(Socket(b"a"), 2)
 
 def test_refusal_and_ping_expectations_are_not_process_survival():
-    source = (ROOT / "gold_file/acceptance/mqtt_smoke.py").read_text()
+    source = (ROOT / "gold_file/mqtt/acceptance/mqtt_smoke.py").read_text()
     assert 'sock.recv(1) == b""' in source
     assert "subsequent-connection" in source

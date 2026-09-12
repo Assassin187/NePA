@@ -9,9 +9,7 @@ All requirements, including definitions and behaviors outside the
 minimum oracle, must be handled by their tasks. Do not import a prebuilt protocol
 implementation, retrieve a canned answer, modify checks, or merely return stubs.
 
-Return exactly ONE JSON tool action conforming to the supplied action schema, without
-Markdown fences. The host executes tools and returns actual feedback.
-Never output XML, tool_calls or invoke tags: those do not execute here.
+{{action_instructions}}
 For example, a file edit is {"tool":"write_file","arguments":{"path":"src/file.c","content":"your actual code"}}.
 Do not put a complete design or imagined tool execution in your response. Make the
 next small, concrete edit, compile it, and use the actual result.
