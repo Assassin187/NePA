@@ -29,6 +29,22 @@ uv run nepa status RUN_ID --runs-root runs/e2e
 uv run nepa resume RUN_ID --runs-root runs/e2e
 ```
 
+The supplied config uses V4.1 Flash (`deepseek-flash`) for initial ordinary coding
+sessions and V4 Pro for wire/integration and retry/repair sessions. Token costs are
+conservative peak, cache-miss estimates, not the provider invoice. See the pricing
+source and rates in configs/default.yaml and project_docs/refactor_plan.md.
+
+An explicitly approved development continuation can change its active configuration:
+
+```bash
+uv run nepa resume RUN_ID --runs-root runs/e2e --config configs/default.yaml \
+  --accept-runtime-change --change-reason "Describe the authorized experiment change"
+```
+
+This preserves previous state/report evidence, costs, attempts and the original
+deadline. Ordinary resume rejects runtime drift. A mixed-version development run
+must not be presented as an unchanged-candidate stability sample.
+
 Successful exports contain sources, Makefile, README and release/san executables.
 Build without NePA using make clean then make release san. Exit zero requires all
 tasks, mandatory checks and published artifacts. Claims are not verified behavior.
@@ -45,3 +61,6 @@ The paid harness first requires one complete generation and independent export
 verification. Only then does it launch two independent repetitions in parallel on
 the same frozen candidate. Current authorized ceilings: $100 per run, $300 total
 including prior failed/debug runs, and four hours per run.
+For the explicitly authorized continuation workflow, set NEPA_LIVE_FIRST_RUN to
+its successful run ID. The harness rechecks its export before starting two fresh
+repetitions and explicitly records the first run's configuration changes.
