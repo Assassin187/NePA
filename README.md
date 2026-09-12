@@ -14,6 +14,13 @@ This is not full MQTT conformance or three unchanged-candidate runs. Detailed
 evidence and limitations: project_docs/refactor_plan.md and
 project_docs/session_latency_analysis.md.
 
+Validated2026-09-13: one fresh MQTT generation and one fresh HTTP fixed-length-subset
+generation passed expanded mandatory scenarios and independent export rebuilds in
+both release and san variants. The 110 MQTT requirements remain intact, with 51 mapped
+scenario passes and 59 explicit gaps. Action-interface comparison did not support
+switching away from JSON. Current domestic-CNY costs, archives and limitations:
+[protocol expansion results](project_docs/protocol_expansion.md).
+
 ## Development
 
 ```bash

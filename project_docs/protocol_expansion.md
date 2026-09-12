@@ -99,11 +99,76 @@ ability. No thresholds or fixture checks were changed after seeing results.
 
 Strict Beta returned HTTP400: required properties must match all object properties.
 The unchanged AgentAction schemas include optional properties; the probe did not
-rewrite them or weaken local validation. Its unknown usage keeps a CNY0.145658 peak
-reservation. Total study ledger cost is CNY1.16708254 (settled estimate CNY1.02142454
+rewrite them or weaken local validation. Its unknown usage keeps a CNY0.145724 peak
+reservation. Total study ledger cost is CNY1.16708254 (settled estimate CNY1.02135854
 plus that reservation), within the fixed CNY10 sublimit. All settled calls used off-peak
 rates and available provider cache usage. No response cache or generated protocol is
 claimed by this study. The default remains JSON-object: promotion gates failed.
 
-New protocol generations have not yet run. Record their independent final-export
-results here before claiming this iteration complete.
+## Final frozen-candidate generations
+
+Both experiments passed. Candidate commit: `10cb987178c329cefb909c8651a2daa9e9c548b5`.
+Runtime package SHA256: `cf4b589a6dadd872890bcaba8428a50edfc4d11992b8d844c3a0a3bec70d5b35`.
+They started concurrently from empty projects and used real API calls. No source,
+prompt, configuration or input changed during the runs; generated code was not manually
+edited. No cached response, historical solution or study fixture was imported.
+Documentation-only updates after this candidate record results and correct stale version
+labels; they do not change the generation runtime, prompts, configuration or inputs.
+
+| Result | MQTT | HTTP fixed-length subset |
+|---|---:|---:|
+| Run ID | 20260912T164202Z-e4b27709 | 20260912T164202Z-d0b839c4 |
+| Generation time | 69.39 min | 19.74 min |
+| Tasks passed | 23/23 | 10/10 |
+| Mandatory scenarios, each release/san | 20/20 | 12/12 |
+| Independent export clean builds and checks | Both passed | Both passed |
+| Requirements with mapped scenarios passed | 51/110 | 26/27 |
+| Requirements without an independent scenario | 59 | 1 (scope definition) |
+| Calls, including unknown usage | 750 | 208 |
+| Settled CNY estimate (all off-peak) | 9.91957752 | 2.05181392 |
+| Retained unknown-call reservations | 0 | 0.236486 |
+| Generation budget consumed, CNY | 9.91957752 | 2.28829992 |
+| New campaign used, CNY | 11.08666006 (includes study) | 2.28829992 |
+| New campaign remaining, CNY | 288.91333994 | 297.71170008 |
+
+HTTP retained call102's reservation after a ConnectTimeout; its usage was not returned.
+The study retains its strict-Beta reservation. No unknown reservation was reset.
+Each generation stayed below CNY20/four hours, the study below CNY10, and each new
+campaign below CNY300. Historical USD records are excluded by the user's later explicit
+authorization, and remain unchanged. These figures are estimates, not invoices.
+
+The default JSON interface still produced 192 format-invalid responses in MQTT
+(152 XML/DSML, 22 syntax/prose, 17 empty, one schema error; 11.27 API minutes) and
+52 in HTTP (41 XML/DSML, eight syntax/prose, three empty; 3.89 API minutes).
+Their full local validation rejected execution. The new MQTT run does not establish
+an improvement over the historical 185/180 counts; scope and context also differ.
+Long source-inspection sessions remain another observed cost. Interface evaluation
+is complete, but the action-format error problem remains open.
+
+Only current final-export checks feed requirement status. The independent repeat
+checks use copied exports, clean release/san builds and read-only oracle assets.
+Every requirement keeps its original text, model claim and evidence references in
+the delivered requirement-evidence JSON. Passing means only mapped scenarios passed;
+it is not proof of all compound clauses, client duties or background definitions.
+
+No stability or complete protocol-conformance claim is made. MQTT remains the selected
+core behavior set, without expanded QoS1/2 acknowledgement/retransmission or persistent
+session Spec. HTTP deliberately excludes chunked, TLS, proxying, upgrades, caching and
+HTTP/2; rejecting Transfer-Encoding does not satisfy full HTTP/1.1 receiver requirements.
+
+Offline validation passed 172 non-paid tests, Ruff, mypy and sdist/wheel builds. The
+paid parallel harness passed both generations and independent export checks. Subsequent
+changes are result documents/artifacts only.
+
+## Deliverables
+
+
+- [MQTT source/binary/input/report archive](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/mqtt-c99-server.tar.gz) · [Report4.0](/home/ljf/NePA/runs/mqtt-e2e/20260912T164202Z-e4b27709/report.json) · [full requirement evidence](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/mqtt-requirement-evidence.json)
+- [HTTP source/binary/input/report archive](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/http-c99-server.tar.gz) · [Report4.0](/home/ljf/NePA/runs/http-e2e/20260912T164202Z-d0b839c4/report.json) · [full requirement evidence](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/http-requirement-evidence.json)
+
+[Shared batch and independent verification](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/batch.json), [all hashes and measured costs](/home/ljf/NePA/experiments/protocol-expansion/generation-results.json), [MQTT 110-row requirement index](/home/ljf/NePA/project_docs/mqtt_requirement_evidence.md).
+
+Each archive contains unchanged generated project sources and both binaries, manual
+inputs, frozen run inputs, Report4.0, requirement evidence and independent verification
+results. Extract and run `make clean && make release san` inside `project/` with a C99
+compiler and ASan/UBSan support. No NePA import is required by either Makefile.

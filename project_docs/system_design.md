@@ -1,7 +1,7 @@
 # NePA System Design 10.0
 
 Status: approved architecture. Actual implementation/acceptance progress is in
-`refactor_plan.md`. Replaces 8.0.3 and the separate S4–S9 pipeline design.
+`protocol_expansion.md` (this iteration) and `refactor_plan.md` (historical evidence). Replaces 8.0.3 and the separate S4–S9 pipeline design.
 
 ## 1. Success contract
 
@@ -226,7 +226,7 @@ as real generation. Remaining protocol behavior is explicitly unverified.
 
 ## 5. State, repair and recovery
 
-One atomic Run 5.0 run.json is authoritative: input/config refs, immutable active
+One atomic Run 6.0 run.json is authoritative: input/config refs, immutable active
 plan ref, task/session counters, accepted Git checkpoint, budgets, current operation
 and terminal result. Independent immutable traces are evidence, not shadow state.
 Single-controller lock; status is read-only.
@@ -263,7 +263,7 @@ fail explicitly; reproduce them with the baseline, never implicitly convert.
 Interfaces: compile_plan → ExecutionPlan; CodingSession.run → TaskResult;
 BuildRunner.run → BuildResult; VerificationRunner.run → VerificationResult;
 RunStore.accept → RunState; Orchestrator.run/resume → FinalRunResult.
-Contracts: Spec3.0, Target1.0, Acceptance1.0, AgentAction1.0, Plan6.0, Run5.0,
+Contracts: Spec3.0, Target1.0, Acceptance1.0, AgentAction1.0, Plan6.0, Run6.0,
 Config2.0 and Report4.0. Old configuration/runtime snapshots require their old code.
 
 Report4.0 retains every primary claim and joins Acceptance check IDs/req_ids to the
