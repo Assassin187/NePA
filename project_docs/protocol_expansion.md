@@ -35,7 +35,7 @@ unchanged and require their original runtime.
 
 The original deliveries and reports were not changed. Copies were clean-built for
 release and ASan/UBSan and run through 20 mandatory checks (minimum plus 19 additions).
-Raw results and per-requirement scenario joins: runs/behavior-audit-v3/summary.json.
+Raw results and per-requirement scenario joins: runs/behavior-audit-v4/summary.json.
 
 | Historical run | Build variants | Expanded checks |
 |---|---|---|
@@ -49,10 +49,12 @@ invalid_flags, invalid_utf8. 22021a32 failures: session_reset, duplicate_connect
 invalid_qos, fragmented_publish, coalesced, invalid_flags. This does not revoke the
 historical minimum-check result; it exposes behavior that it did not verify.
 An initial audit attempt retained its build/check output but its summary publication
-failed on relative-path handling; v2 reran after that harness fix. The final v3 audit
+failed on relative-path handling; v2 reran after that harness fix. The v3 audit
 freezes its own input assets and accepts TCP reset as connection closure where the
 scenario only requires closure. Both later audits found the same failing cases.
-Original input/source hashes were unchanged for all three deliveries.
+The final v4 audit narrows the requirement mapping (the underlying transport
+assumption remains unverified); failing scenarios are unchanged. Original input/source
+hashes were unchanged for all three deliveries.
 
 ## Current implementation
 
@@ -72,5 +74,36 @@ RFC9110/9112 rules from application decisions. Chunked is deliberately excluded,
 this is not full HTTP/1.1 conformance. No HTTP-specific generator path was added.
 
 Offline verification passed 172 non-paid tests, Ruff, mypy and sdist/wheel builds.
-Paid study and new protocol generations have not yet run. Their results must be
-recorded here before claiming the iteration complete.
+## Completed action-interface comparison
+
+Frozen study candidate: 73cdc4b. Preregistration and complete raw results are under
+runs/action-study-cny-v1; individual calls/fixtures remain in runs/mqtt-e2e and are
+marked as study-only runs, never protocol-generation successes. All 64 format samples
+(24 Flash and 8 Pro per mode), eight short sessions and strict Beta probe completed.
+
+| Metric | JSON-object | Native tool calls |
+|---|---:|---:|
+| Flash invalid | 15/24 (62.5%) | 22/24 (91.7%) |
+| Pro invalid | 0/8 | 4/8 |
+| Format-call seconds per valid action | 3.843 | 13.457 |
+| Format-call CNY per valid action | 0.01069 | 0.08291 |
+| Invalid format generation time | 21.693 s | 58.902 s |
+| Actual short sessions passed | 3/4 | 3/4 |
+
+JSON failures: 11 XML/DSML and four syntax/prose responses. All 26 native failures
+were multiple calls; none executed. Read/write, replacement and finish sessions passed
+in both modes. Compiler-repair sessions built successfully but expanded the tiny fixture
+into a persistent server and timed out in the predeclared execution check. Those fixtures
+retain server-task context, so these failures alone do not measure pure syntax-repair
+ability. No thresholds or fixture checks were changed after seeing results.
+
+Strict Beta returned HTTP400: required properties must match all object properties.
+The unchanged AgentAction schemas include optional properties; the probe did not
+rewrite them or weaken local validation. Its unknown usage keeps a CNY0.145658 peak
+reservation. Total study ledger cost is CNY1.16708254 (settled estimate CNY1.02142454
+plus that reservation), within the fixed CNY10 sublimit. All settled calls used off-peak
+rates and available provider cache usage. No response cache or generated protocol is
+claimed by this study. The default remains JSON-object: promotion gates failed.
+
+New protocol generations have not yet run. Record their independent final-export
+results here before claiming this iteration complete.

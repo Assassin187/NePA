@@ -1,0 +1,95 @@
+{
+  "complete": true,
+  "error": null,
+  "gates": {
+    "complete": true,
+    "cost": false,
+    "flash_rate": false,
+    "flash_reduction": false,
+    "pro_no_regression": false,
+    "short_sessions": false,
+    "time": false
+  },
+  "metrics": {
+    "json_object": {
+      "all": {
+        "cny_per_valid": 0.01068612,
+        "invalid": 15,
+        "invalid_api_s": 21.692882919916883,
+        "invalid_rate": 0.46875,
+        "samples": 32,
+        "seconds_per_valid": 3.8434393145246704
+      },
+      "deepseek-flash": {
+        "cny_per_valid": 0.005407893333333334,
+        "invalid": 15,
+        "invalid_api_s": 21.692882919916883,
+        "invalid_rate": 0.625,
+        "samples": 24,
+        "seconds_per_valid": 4.016405352986315
+      },
+      "deepseek-v4-pro": {
+        "cny_per_valid": 0.016624125,
+        "invalid": 0,
+        "invalid_api_s": 0,
+        "invalid_rate": 0.0,
+        "samples": 8,
+        "seconds_per_valid": 3.6488525212553213
+      }
+    },
+    "tool_calls": {
+      "all": {
+        "cny_per_valid": 0.08291389666666667,
+        "invalid": 26,
+        "invalid_api_s": 58.9016497801058,
+        "invalid_rate": 0.8125,
+        "samples": 32,
+        "seconds_per_valid": 13.456898677861318
+      },
+      "deepseek-flash": {
+        "cny_per_valid": 0.11245664,
+        "invalid": 22,
+        "invalid_api_s": 34.25352528307121,
+        "invalid_rate": 0.9166666666666666,
+        "samples": 24,
+        "seconds_per_valid": 23.239076877041953
+      },
+      "deepseek-v4-pro": {
+        "cny_per_valid": 0.06814252500000001,
+        "invalid": 4,
+        "invalid_api_s": 24.648124497034587,
+        "invalid_rate": 0.5,
+        "samples": 8,
+        "seconds_per_valid": 8.565809578271
+      }
+    }
+  },
+  "no_generated_protocol_claim": true,
+  "preregistration_sha256": "5c0454986a5cc2cee67f657b0d66d76360d62f3f745fcb5b6b0b88d54da339f5",
+  "promote_native": false,
+  "run_ids": [
+    "20260912T163124Z-d3f1a86b",
+    "20260912T163124Z-3f3f8a16",
+    "20260912T163351Z-0c99e481",
+    "20260912T163400Z-8fbbe842",
+    "20260912T163412Z-f081329d",
+    "20260912T163418Z-79cd076b",
+    "20260912T163430Z-f8d05191",
+    "20260912T163726Z-7c22af46",
+    "20260912T164101Z-e13d78ca",
+    "20260912T164104Z-a4e03496",
+    "20260912T164116Z-e8b8f4f4"
+  ],
+  "scope": "small paired format study and tool fixtures, not protocol-generation or statistical stability evidence",
+  "study_cost_cny": 1.16708254,
+  "evidence_directory": "runs/action-study-cny-v1",
+  "candidate_commit": "73cdc4b",
+  "strict_probe": {
+    "elapsed_s": 0.23947279900312424,
+    "endpoint": "https://api.deepseek.com/beta/chat/completions",
+    "response": "{\"error\":{\"message\":\"Required properties must match all properties in the object\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
+    "run_id": "20260912T164116Z-e8b8f4f4",
+    "status_code": 400,
+    "unchanged_local_schemas": true
+  }
+}
