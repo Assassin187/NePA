@@ -136,5 +136,20 @@ Pre-live frozen candidate: full non-live regression 100 passed / one paid test
 deselected in 23.49s; Ruff passed and mypy passed all 29 production modules.
 Wheel resource imports and lints passed outside the source checkout.
 
+Candidate 2241bbd / batch 69de2630c7494280b25345caef93c5c8 failed by controlled
+interruption (CLI 130), not task-budget exhaustion: run 20260912T055806Z-895133e7
+accepted bootstrap, then spent all 40 decisions of shared-wire's first session
+without modifying source. Repeated individual requirement reads and invalid XML
+pseudo-tool outputs were preserved. One read-only response consumed 12040 output
+tokens. Stopped after 56 calls / USD1.40643492, with 1/23 tasks accepted.
+Combined live accounting is USD2.78982396; no completed generation.
+
+Evidence-driven correction: include all structurally referenced requirement texts
+in bootstrap/shared-wire context (no semantic guessing or protocol branch), show
+remaining decisions, supply JSON action examples and explicit XML correction.
+Search now supports regex because actual agent actions used regex alternation and
+the literal implementation silently returned no matches. Oracle, task ownership,
+model, budgets and final acceptance remain unchanged. Next batch starts at zero.
+
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.

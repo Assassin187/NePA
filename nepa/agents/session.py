@@ -48,9 +48,14 @@ class CodingSession:
                 state["decisions"] += 1
                 store.save()
                 def request() -> LLMRequest:
-                    return LLMRequest(role="coder", system=self.system, user=messages[0]["content"],
+                    return LLMRequest(role="coder", system=self.system, user=json.dumps(base, ensure_ascii=False),
                                       messages=[dict(m) for m in messages],
                                       temperature=config.coder.temperature, max_tokens=config.coder.max_tokens)
+                progress = {"session": state["sessions"], "decisions_left": config.budgets.decisions_per_session - decision,
+                            "instruction": "Use already supplied facts. Make the next concrete implementation or validation action."}
+                if messages[-1]["role"] == "user":
+                    # Replace, rather than accumulate, the per-decision reminder.
+                    messages[-1]["content"] = messages[-1]["content"].split("\nDecision budget:")[0] + "\nDecision budget:" + json.dumps(progress)
                 current = request()
                 while len(json.dumps(OpenAICompatibleProvider._payload(current, config.coder.model, False), ensure_ascii=False).encode()) > config.coder.context_max_bytes and len(messages) > 1:
                     del messages[1:3]
@@ -61,7 +66,9 @@ class CodingSession:
                 errors = structured_validation_errors(action, self.schema)
                 if errors:
                     messages.append({"role": "user", "content": json.dumps(
-                        {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason")})})
+                        {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason"),
+                         "instruction": "No tool executed. Return JSON, never XML/tool_calls/invoke tags. Correct the intended action.",
+                         "example": {"tool": "write_file", "arguments": {"path": "src/example.c", "content": "/* your actual code */"}}})})
                     continue
                 action = cast(dict[str, Any], action)
                 identifier = store.start_action(task["id"], action)

@@ -12,6 +12,11 @@ def planning_index(spec: dict[str, Any]) -> dict[str, Any]:
             "requirements": [{"id": r["id"], "pointer": f"/requirements/{i}"} for i, r in enumerate(spec["requirements"])]}
 
 
+def referenced_requirements(spec: dict[str, Any], objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs = {ref for obj in objects for ref in obj.get("req_ids", [])}
+    return [requirement for requirement in spec["requirements"] if requirement["id"] in refs]
+
+
 def message_context(spec: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
     definitions = {t["id"]: t for t in spec["types"]}
     needed: set[str] = set()
@@ -23,7 +28,5 @@ def message_context(spec: dict[str, Any], message: dict[str, Any]) -> dict[str, 
         needed.add(ref)
         pending.extend(type_dependencies(definitions[ref]))
     types = [t for t in spec["types"] if t["id"] in needed]
-    refs = set(message.get("req_ids", []))
-    for item in [*message["fields"], *types]:
-        refs.update(item.get("req_ids", []))
-    return {"message": message, "types": types, "requirements": [r for r in spec["requirements"] if r["id"] in refs]}
+    return {"message": message, "types": types,
+            "requirements": referenced_requirements(spec, [message, *message["fields"], *types])}

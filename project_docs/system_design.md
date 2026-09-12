@@ -43,6 +43,8 @@ Current gold: 8 types, 10 messages, 110 requirements, 23 tasks. Every requiremen
 exactly one primary batch. Codec/type req references provide context, not completion.
 Resolve type closure through fields, encoding members/item_type/length_type/base_type.
 Keep constraints, bits, presence, derived values and source references intact.
+Bootstrap and shared-wire receive the complete requirement texts referenced by
+transport/types, just as message tasks do; those facts are support, not primary claims.
 All tasks may read the full input/current project. Batches are not filesystem or
 semantic boundaries. Never infer behavior ownership from protocol names or ID prefixes.
 
@@ -69,6 +71,8 @@ user messages, not as a history blob inside a single user message. Retain comple
 messages in evidence and trim old action/result pairs only at the context boundary.
 Native provider function calling is not required. Serialize the action schema once,
 budget actual wire requests including corrections, and honor explicit coder config.
+Include concrete JSON action examples, reject XML pseudo-tool calls with corrective
+feedback, and show the remaining decision budget. Search accepts regular expressions.
 
 Default: configured deepseek/deepseek-v4-pro, temperature 0, max output 16000. This is
 a starting configuration, not a proven model ranking. Maximum 40 decisions per

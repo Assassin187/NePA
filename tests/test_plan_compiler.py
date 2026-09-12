@@ -33,6 +33,13 @@ def test_schema_optional_transport_is_not_an_internal_key_error():
     spec.pop("transport")
     assert compile_plan(spec, target)["tasks"][0]["context"]["transport"] is None
 
+def test_wire_context_contains_complete_referenced_requirement_facts():
+    spec, target = inputs()
+    task = compile_plan(spec, target)["tasks"][1]
+    expected = {ref for obj in [spec["transport"], *spec["types"]] for ref in obj.get("req_ids", [])}
+    assert task["context"]["requirements"] == [r for r in spec["requirements"] if r["id"] in expected]
+    assert task["requirement_ids"] == []  # Supporting facts do not claim primary coverage.
+
 def test_renaming_protocol_and_message_is_structural_not_special():
     spec, target = inputs()
     spec["protocol"]["name"] = "SyntheticName"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import asdict
 import json
+import re
 from pathlib import Path
 from typing import Any
 from ..speclib.lint import safe_relative
@@ -58,6 +59,10 @@ class WorkspaceTools:
                     "next_offset": offset + limit if offset + limit < len(text) else None, "total_chars": len(text)}
         if tool == "search":
             root = self.path(args.get("path", "."))
+            try:
+                pattern = re.compile(args["pattern"])
+            except re.error as exc:
+                raise ValueError(f"invalid search regular expression: {exc}") from exc
             matches = []
             paths = [root] if root.is_file() else sorted(root.rglob("*"))
             for path in paths:
@@ -65,7 +70,7 @@ class WorkspaceTools:
                     continue
                 try:
                     for number, line in enumerate(path.read_text().splitlines(), 1):
-                        if args["pattern"] in line:
+                        if pattern.search(line):
                             matches.append({"path": self.display(path), "line": number, "text": line[:1000]})
                             if len(matches) >= 100:
                                 return {"matches": matches, "truncated": True}

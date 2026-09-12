@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from .lint import digest, lint_spec, lint_target
-from .planning import message_context
+from .planning import message_context, referenced_requirements
 
 
 def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -19,10 +19,12 @@ def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]
         "will implement them. A listening process with clean shutdown is sufficient for THIS task, not final success. "
         "Use the provided transport/target facts; avoid reading the entire protocol before creating initial files. "
         "No protocol implementation dependency or canned project. All interfaces remain editable by later tasks.",
-        {"protocol": spec["protocol"], "transport": spec.get("transport")})
+        {"protocol": spec["protocol"], "transport": spec.get("transport"),
+         "requirements": referenced_requirements(spec, [spec.get("transport", {})])})
     add("shared-wire", "wire", "Implement the common wire types, buffers and transport foundations from the full original facts. "
         "Do not prematurely discard information needed by specified error responses.",
-        {"transport": spec.get("transport"), "types": spec["types"]})
+        {"transport": spec.get("transport"), "types": spec["types"],
+         "requirements": referenced_requirements(spec, [spec.get("transport", {}), *spec["types"]])})
     roles = set(target["roles"])
     for message in spec["messages"]:
         directions = []

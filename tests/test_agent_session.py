@@ -16,21 +16,22 @@ class SequenceProvider:
     def complete(self, request, *, model, native_schema):
         self.requests.append(request)
         value = next(self.actions)
-        return LLMResponse(text=json.dumps(value), tokens_in=10, tokens_out=10, cost_usd=0,
+        return LLMResponse(text=value if isinstance(value, str) else json.dumps(value), tokens_in=10, tokens_out=10, cost_usd=0,
                            model=model, parameter_support={}, provider_metadata={"finish_reason": "stop"})
 
 def action(tool, **arguments):
     return {"tool": tool, "arguments": arguments}
 
 @pytest.mark.sandbox_integration
-def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path):
+@pytest.mark.parametrize("malformed", [False, True])
+def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed):
     config = load_config(overrides={"budgets": {"sessions_per_task": 1}})
     store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
                                 ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config)
     makefile = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
                 "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie main.c -o build/san/protocol-server\n"
                 "clean:\n\trm -rf build\n")
-    provider = SequenceProvider([
+    provider = SequenceProvider((["<tool_calls><invoke name='write_file'/></tool_calls>"] if malformed else []) + [
         action("write_file", path="Makefile", content=makefile),
         action("write_file", path="main.c", content="int main(void){ broken syntax }"),
         action("finish", summary="request checks", claims=[]),
@@ -41,7 +42,10 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path):
     session = build_orchestrator(store, {"deepseek": provider}).session
     assert session.run(store.plan()["tasks"][0])
     assert store.run["tasks"]["bootstrap"]["status"] == "passed"
-    assert store.run["budget"]["calls"] == 6
+    assert store.run["budget"]["calls"] == 6 + int(malformed)
+    if malformed:
+        assert "No tool executed" in provider.requests[1].messages[-1]["content"]
+    assert "decisions_left" in provider.requests[-1].messages[-1]["content"]
     assert any("error:" in json.dumps(request.messages) for request in provider.requests[3:])
     assert any(message["role"] == "assistant" for message in provider.requests[-1].messages)
     assert (store.project / "build/san/protocol-server").is_file()

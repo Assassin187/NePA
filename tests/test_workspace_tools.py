@@ -14,6 +14,9 @@ def test_write_read_replace_and_search(tools):
     assert tools.execute("read_file", {"path": "src/a.c"})["content"] == "int a;\n"
     tools.execute("replace_text", {"path": "src/a.c", "old": "a;", "new": "b;"})
     assert tools.execute("search", {"pattern": "int b"})["matches"][0]["line"] == 1
+    assert tools.execute("search", {"pattern": "absent|int b"})["matches"][0]["line"] == 1
+    with pytest.raises(ValueError, match="regular expression"):
+        tools.execute("search", {"pattern": "["})
     with pytest.raises(ValueError):
         tools.execute("replace_text", {"path": "src/a.c", "old": "absent", "new": "x"})
 

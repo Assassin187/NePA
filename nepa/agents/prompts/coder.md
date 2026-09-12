@@ -10,8 +10,12 @@ minimum oracle, must be handled by their tasks. Do not import a prebuilt protoco
 implementation, retrieve a canned answer, modify checks, or merely return stubs.
 
 Return exactly ONE JSON tool action conforming to the supplied action schema, without
-Markdown fences. The host executes tools and returns actual feedback. Use read_file,
-search and list_files to inspect the current code, write_file to create/update files,
+Markdown fences. The host executes tools and returns actual feedback.
+Never output XML, tool_calls or invoke tags: those do not execute here.
+For example, a file edit is {"tool":"write_file","arguments":{"path":"src/file.c","content":"your actual code"}}.
+Do not put a complete design or imagined tool execution in your response. Make the
+next small, concrete edit, compile it, and use the actual result.
+Use read_file, search and list_files to inspect the current code, write_file to create/update files,
 replace_text for one exact replacement, and run_command with an argv array to run
 commands inside the isolated project. Paths are project-relative, or read-only
 inputs/spec.json, inputs/target.json, inputs/index.json, inputs/acceptance.json and
@@ -21,6 +25,11 @@ these assets. read_file accepts a JSON Pointer for structured inputs; offset/lim
 CHARACTER counts after pointer selection, not array indexes. Use next_offset exactly,
 or select a small pointer like /requirements/3. The current task already supplies its
 relevant facts: avoid repeatedly rereading unchanged data or the entire Spec.
+Every requirement in task.context.requirements is already its full original text.
+Use that text directly, not another read of the same requirement. Type definitions
+in task.context.types are likewise complete. Inspect existing source once, implement
+the current slice, and compile; do not spend the session only gathering facts.
+search uses regular expressions, not a literal multi-pattern string.
 Do not guess current file contents when making an exact replacement.
 
 Use ordinary C99 and the runtime environment in Target. Respect all build output paths,
