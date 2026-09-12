@@ -1,133 +1,357 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "NePA evidence report",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "artifact_availability", "termination_kind", "outcome", "termination_reason", "summary", "req_coverage", "test_final", "process", "assumptions", "known_defects", "reproduction"],
   "properties": {
-    "schema_version": {"const": "2.0"},
-    "artifact_availability": {
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": {"$ref": "#/$defs/artifactStatus"}
+    "configuration_changes": {"type": "array", "items": {"type": "object"}},
+    "schema_version": {
+      "const": "3.0"
     },
-    "termination_kind": {"enum": ["completed", "controlled_exit"]},
-    "outcome": {"enum": ["success", "degraded", "failed"]},
-    "termination_reason": {"$ref": "#/$defs/reason"},
-    "summary": {"type": "string", "minLength": 1},
-    "req_coverage": {"$ref": "#/$defs/availability"},
-    "test_final": {"$ref": "#/$defs/availability"},
-    "process": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["stage_durations", "model_usage", "repair_rounds", "convergence"],
-      "properties": {
-        "stage_durations": {
-          "type": "object",
-          "additionalProperties": {"type": "number", "minimum": 0}
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
         },
-        "model_usage": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["role", "model", "tokens_in", "tokens_out", "cost_usd"],
-            "properties": {
-              "role": {"type": "string", "minLength": 1},
-              "model": {"type": "string", "minLength": 1},
-              "tokens_in": {"type": "integer", "minimum": 0},
-              "tokens_out": {"type": "integer", "minimum": 0},
-              "cost_usd": {"type": "number", "minimum": 0}
-            }
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         },
-        "repair_rounds": {"type": "integer", "minimum": 0},
-        "convergence": {
-          "type": "array",
-          "items": {"type": "integer", "minimum": 0}
-        }
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "additionalProperties": false
       }
     },
-    "assumptions": {"$ref": "#/$defs/availability"},
-    "known_defects": {"$ref": "#/$defs/availability"},
+    "input_verification_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "config_sha256": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sandbox_image": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "passed",
+              "failed"
+            ]
+          },
+          "sessions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decisions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claims": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "enum": [
+                    "implemented",
+                    "already_present",
+                    "not_applicable"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "code_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "source_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "checkpoint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "last_feedback": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "status",
+          "sessions",
+          "decisions",
+          "claims",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "primary_task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agent_claim": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "primary_task",
+          "agent_claim",
+          "verification_scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tokens_in": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens_out": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "cost_usd",
+        "tokens_in",
+        "tokens_out",
+        "calls"
+      ],
+      "additionalProperties": false
+    },
+    "unknown_calls": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "cache_hits": {
+      "const": 0
+    },
+    "final_checks": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "delivery": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "files": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "checkpoint": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "path",
+            "files",
+            "checkpoint"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "reproduction": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["config_snapshot_sha256"],
-      "properties": {
-        "config_snapshot_sha256": {"$ref": "#/$defs/sha256"},
-        "plan_sha256": {"$ref": "#/$defs/sha256"},
-        "delivery_blueprint_sha256": {"$ref": "#/$defs/sha256"},
-        "git_commit": {"type": "string", "minLength": 1},
-        "model_versions": {
-          "type": "array",
-          "items": {"type": "string", "minLength": 1}
-        }
+      "additionalProperties": {
+        "type": "string"
       }
     }
   },
-  "$defs": {
-    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
-    "reason": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["code", "detail"],
-      "properties": {
-        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
-        "detail": {"type": "string", "minLength": 1}
-      }
-    },
-    "ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["path", "sha256"],
-      "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "sha256": {"$ref": "#/$defs/sha256"}
-      }
-    },
-    "artifactStatus": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["status"],
-      "properties": {
-        "status": {"enum": ["available", "invalid", "unavailable", "not_run"]},
-        "evidence": {"$ref": "#/$defs/ref"},
-        "reason": {"$ref": "#/$defs/reason"}
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"status": {"const": "available"}}},
-          "then": {"not": {"required": ["reason"]}},
-          "else": {"required": ["reason"]}
-        }
-      ]
-    },
-    "availability": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["status", "value"],
-      "properties": {
-        "status": {"enum": ["available", "invalid", "unavailable", "not_run"]},
-        "value": {},
-        "reason": {"$ref": "#/$defs/reason"}
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "status": {"const": "available"},
-            "value": {"not": {"type": "null"}}
-          },
-          "not": {"required": ["reason"]}
-        },
-        {
-          "properties": {
-            "status": {"enum": ["invalid", "unavailable", "not_run"]},
-            "value": {"type": "null"}
-          },
-          "required": ["reason"]
-        }
-      ]
-    }
-  }
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "exit_code",
+    "reason",
+    "inputs",
+    "input_verification_error",
+    "config_sha256",
+    "runtime",
+    "sandbox_image",
+    "plan",
+    "tasks",
+    "requirements",
+    "budget",
+    "unknown_calls",
+    "cache_hits",
+    "final_checks",
+    "delivery",
+    "limitations",
+    "reproduction"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

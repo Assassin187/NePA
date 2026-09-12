@@ -1,28 +1,19 @@
 name: nepa-ci
-
 on:
   push:
   pull_request:
-
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-        with:
-          version: latest
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - run: npm install --global @fission-ai/openspec@1.7.0
       - run: uv sync --locked --extra dev
-      - run: uv run pytest -q tests/test_schema_examples.py
-      - run: uv run ruff check .
+      - run: docker build -t nepa-sandbox:refactor -f docker/sandbox.Dockerfile .
+      - run: uv run ruff check nepa tests
       - run: uv run mypy nepa
-      - run: uv run pytest -q
-      - run: uv run python -m nepa lint spec gold_file/specIR.json
-      - run: openspec validate --all --strict
-      - run: docker build -t nepa-sandbox:latest -f docker/sandbox.Dockerfile .
-      - run: uv run pytest -q -m s5_epoch
-      - run: uv run pytest -q -m s6_execution
+      - run: uv run pytest -q -m "not live_e2e"
+      - run: uv run nepa lint spec gold_file/specIR.json
+      - run: uv run nepa lint target gold_file/target.json --spec gold_file/specIR.json
+      - run: uv run nepa lint acceptance gold_file/acceptance.json --spec gold_file/specIR.json
+      - run: uv build

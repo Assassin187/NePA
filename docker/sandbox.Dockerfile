@@ -7,9 +7,6 @@ RUN apt-get update \
         libc6-dev \
         libasan8 \
         libubsan1 \
-        mosquitto \
-        mosquitto-clients \
-    && python -m pip install --no-cache-dir pytest paho-mqtt \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

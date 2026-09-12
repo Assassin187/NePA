@@ -1,528 +1,112 @@
-"""Deterministic M1-1 stage lifecycle, budget, termination, and resume control."""
-
+"""One serial generation path through actual coding, verification and export."""
 from __future__ import annotations
+import os
+import shutil
+import subprocess
+from typing import Any
+import uuid
 
-import copy
-import re
-import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, Protocol
-
-from .run_store import ArtifactRef, RunStore, RunStoreError
-from .stages.s9_report import publish_controlled_exit_report, validate_controlled_exit_report
-
-
-class OrchestrationError(RuntimeError):
-    """Base class for deterministic controller failures."""
-
-
-class BudgetExhausted(OrchestrationError):
-    """A global budget stopped further ordinary work."""
-
-
-class CrashInjected(BaseException):
-    """Test-only interruption that leaves the last durable commit on disk."""
-
-
-class ControlledStageFailure(OrchestrationError):
-    """A stage reported an expected, controlled process failure."""
-
-    def __init__(self, reason: Mapping[str, str]):
-        self.reason = dict(reason)
-        super().__init__(self.reason["detail"])
-
-
-StageFailure = ControlledStageFailure
-
-
-@dataclass(frozen=True)
-class UsageDelta:
-    tokens_in: int = 0
-    tokens_out: int = 0
-    cost_usd: float = 0.0
-    cached: bool = False
-
-    def __post_init__(self) -> None:
-        if self.tokens_in < 0 or self.tokens_out < 0 or self.cost_usd < 0:
-            raise ValueError("usage deltas cannot be negative")
-
-
-@dataclass(frozen=True)
-class StagePause:
-    kind: str
-    selected_event_seq: int
-    candidate_ref: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.kind != "revision_handoff" or self.selected_event_seq < 1:
-            raise ValueError("invalid revision handoff pause")
-
-
-@dataclass(frozen=True)
-class StageResult:
-    output_refs: Mapping[str, ArtifactRef | Mapping[str, Any] | str] = field(default_factory=dict)
-    usage: UsageDelta | None = None
-    pause: StagePause | None = None
-
-
-@dataclass(frozen=True)
-class StageContext:
-    store: RunStore
-    stage: str
-    run: Mapping[str, Any]
-    orchestrator: "Orchestrator"
-
-
-class StageController(Protocol):
-    def run(self, context: StageContext) -> StageResult: ...
-
-
-def _reason(code: str, detail: str) -> dict[str, str]:
-    return {"code": code, "detail": detail}
+from .agents.session import CodingSession
+from .report import publish_report
+from .run_store import BudgetExhausted, RunStore, RunStoreError, tree_hashes
 
 
 class Orchestrator:
-    """Own stage admission, lifecycle transitions, budgets, and terminal routing."""
+    def __init__(self, session: CodingSession):
+        self.session = session
 
-    def __init__(
-        self,
-        controllers: Mapping[str, StageController] | None = None,
-        *,
-        monotonic: Callable[[], float] = time.monotonic,
-        utcnow: Callable[[], datetime] | None = None,
-        clock: Any | None = None,
-        fault_hook: Callable[[str], None] | None = None,
-    ) -> None:
-        self.controllers = dict(controllers or {})
-        if clock is not None:
-            monotonic = getattr(clock, "monotonic", monotonic)
-            utcnow = getattr(clock, "utcnow", utcnow)
-        self._monotonic = monotonic
-        self._utcnow = utcnow or (lambda: datetime.now(timezone.utc))
-        self._fault_hook = fault_hook
-        self._session_store: RunStore | None = None
-        self._last_mono: float | None = None
-        self._active_stage: str | None = None
-
-    def register_controller(self, stage: str, controller: StageController) -> None:
-        """Install a stage controller through the programmatic boundary."""
-
-        if stage not in {"s4", "s5", "s6"}:
-            raise OrchestrationError(f"unsupported controller stage: {stage}")
-        self.controllers[stage] = controller
-
-    def register_s4(self, controller: StageController) -> None:
-        """Register the production S4 controller without adding a CLI path."""
-
-        self.register_controller("s4", controller)
-
-    def _fault(self, point: str) -> None:
-        if self._fault_hook is not None:
-            self._fault_hook(point)
-
-    def _timestamp(self) -> str:
-        current = self._utcnow()
-        if isinstance(current, str):
-            return current
-        return current.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-    def _ensure_session(self, store: RunStore) -> None:
-        if self._session_store is not store:
-            self._session_store = store
-            self._last_mono = self._monotonic()
-
-    def _sync_budget(self, store: RunStore, *, enforce: bool = True) -> dict[str, Any]:
-        self._ensure_session(store)
-        now = self._monotonic()
-        previous = self._last_mono if self._last_mono is not None else now
-        elapsed = max(0.0, now - previous)
-        self._last_mono = now
-        run = store.load_run()
-        budget = run["budget_used"]
-        if elapsed:
-            updated = copy.deepcopy(run)
-            updated["budget_used"]["wall_clock_s"] += elapsed
-            store.replace_run(updated)
-            run = updated
-        if enforce and self._budget_exhausted(run):
-            raise BudgetExhausted("global budget exhausted")
-        return run
-
-    @staticmethod
-    def _budget_exhausted(run: Mapping[str, Any]) -> bool:
-        snapshot = run["config_snapshot"]
-        budgets = snapshot["budgets"]
-        used = run["budget_used"]
-        return (
-            used["wall_clock_s"] >= float(budgets["wall_clock_hours"]) * 3600
-            or used["cost_usd"] >= float(budgets["max_cost_usd"])
-        )
-
-    def admit_external_call(self, store: RunStore) -> None:
-        """Synchronize active time and reject a call before it has side effects."""
-
-        self._sync_budget(store, enforce=True)
-
-    def synchronize_budget(self, store: RunStore) -> dict[str, Any]:
-        """Refresh authoritative usage before a non-Agent commit boundary."""
-
-        return self._sync_budget(store, enforce=True)
-
-    def record_external_usage(self, store: RunStore, usage: UsageDelta) -> None:
-        """Persist returned usage before allowing a controller to continue."""
-
-        self._ensure_session(store)
-        now = self._monotonic()
-        previous = self._last_mono if self._last_mono is not None else now
-        elapsed = max(0.0, now - previous)
-        self._last_mono = now
-        run = store.load_run()
-        updated = copy.deepcopy(run)
-        updated["budget_used"]["wall_clock_s"] += elapsed
-        if not usage.cached:
-            updated["budget_used"]["tokens_in"] += usage.tokens_in
-            updated["budget_used"]["tokens_out"] += usage.tokens_out
-            updated["budget_used"]["cost_usd"] += usage.cost_usd
-        store.replace_run(updated)
-        if self._budget_exhausted(updated):
-            raise BudgetExhausted("global budget exhausted after external call")
-
-    @staticmethod
-    def _stage_done(store: RunStore, stage: Mapping[str, Any], stage_name: str | None = None) -> bool:
-        if stage.get("status") != "done":
+    def _delivery(self, store: RunStore, target: dict[str, Any], acceptance: dict[str, Any]) -> bool:
+        if store.run.get("delivery"):
+            delivery = store.run["delivery"]
+            if tree_hashes(store.root / delivery["path"]) != delivery["files"]:
+                raise RunStoreError("published delivery changed; refusing to overwrite")
+            return store.run["final_checks"]["result"]["passed"] is True
+        if (store.root / "delivery").exists():
+            orphan = store.root / "export-attempts" / ("unpublished-" + uuid.uuid4().hex)
+            orphan.parent.mkdir(exist_ok=True)
+            os.replace(store.root / "delivery", orphan)
+        candidate = store.root / "export-attempts" / uuid.uuid4().hex
+        shutil.copytree(store.project, candidate, symlinks=True)
+        if not (candidate / "README.md").is_file() or not any(candidate.rglob("*.c")):
+            result: dict[str, Any] = {"passed": False, "error": "export requires README.md and C sources"}
+        else:
+            builds = self.session.builder.run(target, candidate, clean=True)
+            verification = None
+            if builds["passed"]:
+                verification = self.session.verifier.run(
+                    target, acceptance, candidate, store.root / "inputs/checks",
+                    store.root / "evidence" / ("export-verification-" + uuid.uuid4().hex))
+            result = {"passed": builds["passed"] and verification is not None and verification["passed"],
+                      "build": builds, "verification": verification}
+        ref = store.evidence("exports/" + candidate.name + ".json", result)
+        store.run["final_checks"] = {"result": result, "evidence": ref}
+        store.save()
+        if not result["passed"]:
             return False
-        refs = stage.get("output_refs")
-        if not isinstance(refs, Mapping) or not refs:
-            raise RunStoreError("completed S4-S6 stage has no output_refs")
-        store.verify_stage_refs(stage, stage_name)
+        destination = store.root / "delivery"
+        if destination.exists():
+            raise RunStoreError("refusing to replace an existing delivery")
+        os.replace(candidate, destination)
+        store.run["delivery"] = {"path": "delivery", "files": tree_hashes(destination),
+                                 "checkpoint": store.run["accepted_checkpoint"]}
+        store.save()
         return True
 
-    @staticmethod
-    def _normalise_result(result: StageResult | Mapping[str, Any] | None) -> StageResult:
-        if result is None:
-            return StageResult()
-        if isinstance(result, StageResult):
-            return result
-        if isinstance(result, Mapping):
-            usage = result.get("usage")
-            if isinstance(usage, Mapping):
-                usage = UsageDelta(**dict(usage))
-            pause = result.get("pause")
-            if isinstance(pause, Mapping):
-                pause = StagePause(**dict(pause))
-            return StageResult(output_refs=result.get("output_refs", {}), usage=usage, pause=pause)
-        raise OrchestrationError("stage controller returned an unsupported result")
-
-    def _pause_stage(self, store: RunStore, run: dict[str, Any], stage_name: str, pause: StagePause) -> dict[str, Any]:
-        if stage_name != "s6":
-            raise OrchestrationError("revision handoff is only legal from S6")
-        updated = copy.deepcopy(run)
-        stage = updated["stages"][stage_name]
-        if stage["status"] not in {"running", "pending"}:
-            raise OrchestrationError("S6 is not running at revision handoff")
-        stage.update({"status": "pending", "started_at": None, "ended_at": None, "error": None})
-        stage.pop("output_refs", None)
-        updated.pop("termination_request", None)
-        store.replace_run(updated)
-        event = {
-            "run_id": run["run_id"],
-            "stage": stage_name,
-            "event": "paused",
-            "kind": pause.kind,
-            "selected_event_seq": pause.selected_event_seq,
-            "candidate_ref": pause.candidate_ref,
-        }
-        store.append_stage_event(event)
-        return updated
-
-    def _transition_running(self, store: RunStore, run: dict[str, Any], stage_name: str) -> dict[str, Any]:
-        stage = run["stages"][stage_name]
-        if stage["status"] not in {"pending", "failed"}:
-            raise OrchestrationError(f"invalid transition {stage_name}:{stage['status']} -> running")
-        order = ("s4", "s5", "s6")
-        index = order.index(stage_name)
-        if index and run["stages"][order[index - 1]]["status"] != "done":
-            raise OrchestrationError(f"upstream stage {order[index - 1]} is not committed")
-        updated = copy.deepcopy(run)
-        updated["stages"][stage_name].update({"status": "running", "started_at": self._timestamp(), "ended_at": None, "error": None})
-        updated["stages"][stage_name].pop("output_refs", None)
-        store.replace_run(updated)
-        self._fault(f"{stage_name}_running_committed")
-        store.append_stage_event({"run_id": run["run_id"], "stage": stage_name, "event": "started"})
-        return updated
-
-    def _commit_stage(self, store: RunStore, run: dict[str, Any], stage_name: str, result: StageResult) -> dict[str, Any]:
-        refs: dict[str, dict[str, str] | str] = {}
-        if not isinstance(result.output_refs, Mapping) or not result.output_refs:
-            raise OrchestrationError(f"{stage_name} cannot commit without output_refs")
-        for key, value in result.output_refs.items():
-            name = str(key)
-            if stage_name == "s4" and name in {"delivery_blueprint_sha256", "config_snapshot_sha256"}:
-                if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
-                    raise OrchestrationError(f"{stage_name} {name} is not a lowercase SHA-256 anchor")
-                refs[name] = value
-            else:
-                refs[name] = ArtifactRef.from_value(value).as_dict()
-                store.verify_ref(refs[name])
-        if stage_name == "s4" and set(refs) not in ({"receipt"}, {"plan", "active_plan", "delivery_blueprint_sha256", "config_snapshot_sha256"}):
-            raise OrchestrationError("s4 output_refs must use the complete typed seal")
-        updated = copy.deepcopy(run)
-        stage = updated["stages"][stage_name]
-        if stage["status"] != "running":
-            raise OrchestrationError(f"stage {stage_name} is not running at commit")
-        stage.update({"status": "done", "ended_at": self._timestamp(), "error": None})
-        if refs:
-            stage["output_refs"] = refs
-        else:
-            stage.pop("output_refs", None)
-        store.replace_run(updated)
-        self._fault(f"{stage_name}_done_committed")
-        store.append_stage_event({"run_id": run["run_id"], "stage": stage_name, "event": "done", "output_refs": refs})
-        return updated
-
-    def _persist_request(self, store: RunStore, run: dict[str, Any], stage_name: str, reason: Mapping[str, str], *, failed: bool) -> dict[str, Any]:
-        request = {
-            "kind": "controlled_exit",
-            "stage": stage_name,
-            "requested_at": self._timestamp(),
-            "reason": dict(reason),
-        }
-        existing = run.get("termination_request")
-        if existing is not None and existing != request:
-            # requested_at is not a decision input; identical reason/stage is an idempotent replay.
-            if existing.get("stage") != stage_name or existing.get("reason") != dict(reason):
-                raise OrchestrationError("conflicting controlled-exit request")
-            request = existing
-        updated = copy.deepcopy(run)
-        stage = updated["stages"][stage_name]
-        if failed:
-            stage.update({"status": "failed", "ended_at": self._timestamp(), "error": reason["detail"]})
-        else:
-            stage.update({"status": "pending", "ended_at": None, "error": reason["detail"]})
-        updated["termination_request"] = request
-        updated.pop("termination_kind", None)
-        updated.pop("outcome", None)
-        updated.pop("exit_code", None)
-        store.replace_run(updated)
-        self._fault("termination_request_committed")
-        store.append_stage_event({"run_id": run["run_id"], "stage": stage_name, "event": "controlled_exit_requested", "reason": dict(reason)})
-        return updated
-
-    def _finalize_internal_error(self, store: RunStore, run: dict[str, Any], detail: str) -> int:
-        updated = copy.deepcopy(run)
-        updated["termination_kind"] = "internal_error"
-        updated["exit_code"] = 1
-        updated.pop("outcome", None)
-        store.replace_run(updated)
-        store.append_stage_event({"run_id": run["run_id"], "event": "internal_error", "detail": detail})
-        return 1
-
-    def _finalize_planned_stop(self, store: RunStore, run: dict[str, Any]) -> int:
-        updated = copy.deepcopy(run)
-        updated["termination_kind"] = "planned_stop"
-        updated["exit_code"] = 0
-        updated.pop("outcome", None)
-        updated.pop("termination_request", None)
-        store.replace_run(updated)
-        return 0
-
-    def _finalize_controlled_exit(self, store: RunStore, run: dict[str, Any]) -> int:
-        request = run["termination_request"]
-        degraded = request["reason"]["code"] in {"EXECUTION_UNRESOLVED", "S6_EXIT_VALIDATION_FAILED"} or "BUDGET" in request["reason"]["code"]
-        outcome = "degraded" if degraded else "failed"
-        updated = copy.deepcopy(run)
-        updated["termination_kind"] = "controlled_exit"
-        updated["outcome"] = outcome
-        updated["exit_code"] = 10 if outcome == "degraded" else 20
-        store.replace_run(updated)
-        return updated["exit_code"]
-
-    def _run_s9(self, store: RunStore, run: dict[str, Any]) -> int:
-        request = run.get("termination_request")
-        if not isinstance(request, dict) or run["stages"][request["stage"]]["status"] not in {"failed", "pending"}:
-            return self._finalize_internal_error(store, run, "controlled-exit request is not bound to a failed or pending stage")
-        if run["stages"]["s9"]["status"] == "done":
-            if validate_controlled_exit_report(store, run):
-                return self._finalize_controlled_exit(store, run)
-            return self._finalize_internal_error(store, run, "completed S9 report is corrupt")
-        updated = copy.deepcopy(run)
-        updated["stages"]["s9"].update({"status": "running", "started_at": self._timestamp(), "ended_at": None, "error": None})
-        store.replace_run(updated)
-        store.append_stage_event({"run_id": run["run_id"], "stage": "s9", "event": "started", "enforce": False})
-        try:
-            report_ref = publish_controlled_exit_report(store)
-            self._fault("s9_report_published")
-            md_path = store._confined("report/report.md")
-            md_ref = ArtifactRef("report/report.md", __import__("hashlib").sha256(md_path.read_bytes()).hexdigest())
-            committed = copy.deepcopy(updated)
-            committed["stages"]["s9"].update({
-                "status": "done",
-                "ended_at": self._timestamp(),
-                "error": None,
-                "output_refs": {"report_json": report_ref.as_dict(), "report_md": md_ref.as_dict()},
-            })
-            store.replace_run(committed)
-            self._fault("s9_done_committed")
-            store.append_stage_event({"run_id": run["run_id"], "stage": "s9", "event": "done"})
-            self._sync_budget(store, enforce=False)
-            self._fault("terminal_before_finalize")
-            return self._finalize_controlled_exit(store, committed)
-        except Exception as exc:
-            return self._finalize_internal_error(store, store.load_run(), f"S9 failed: {exc}")
-
-    def _planned_target_reached(self, run: Mapping[str, Any], stage_name: str) -> bool:
-        until = run["config_snapshot"]["run"].get("until")
-        return until == stage_name or (until == "s3" and stage_name == "s3")
-
-    def _run_locked(self, store: RunStore, *, resume: bool) -> int:
-        self._ensure_session(store)
-        run = store.load_run()
-        if "termination_kind" in run:
-            if run["termination_kind"] == "controlled_exit" and not validate_controlled_exit_report(store, run):
-                return self._finalize_internal_error(store, run, "terminal controlled-exit report is corrupt")
+    def run(self, store: RunStore, *, resume: bool = False) -> int:
+        with store.lock(), store.deadline():
             try:
-                store.verify_frozen_inputs()
-                store.reconcile_revision_activations()
-                run = store.load_run()
-                stage = run["stages"]["s4"]
-                if stage["status"] == "done" and run["stages"]["s6"].get("status") != "done":
-                    controller = self.controllers.get("s4")
-                    if controller is not None and hasattr(controller, "verify_completed"):
-                        controller.verify_completed(store)  # type: ignore[attr-defined]
-                    self._stage_done(store, stage, "s4")
-                s5_controller = self.controllers.get("s5")
-                if run["stages"]["s6"].get("status") != "done" and s5_controller is not None and hasattr(s5_controller, "reconcile"):
-                    s5_controller.reconcile(store)  # type: ignore[attr-defined]
-                s5_stage = run["stages"]["s5"]
-                if run["stages"]["s6"].get("status") != "done" and s5_stage.get("status") == "done" and s5_controller is not None and hasattr(s5_controller, "verify_completed"):
-                    s5_controller.verify_completed(store)  # type: ignore[attr-defined]
-                s6_controller = self.controllers.get("s6")
-                if run["stages"]["s6"].get("status") == "done" and s6_controller is not None and hasattr(s6_controller, "verify_completed"):
-                    s6_controller.verify_completed(store)  # type: ignore[attr-defined]
+                if store.run["status"] == "success":
+                    publish_report(store)
+                    return 0
+                if resume:
+                    store.recover()
+                spec, target, acceptance = store.inputs()
+                store.run["status"] = "running"
+                store.save()
+                image = subprocess.run(["docker", "image", "inspect", store.config.sandbox.image, "--format", "{{.Id}}"],
+                                       capture_output=True, text=True)
+                if image.returncode:
+                    raise RuntimeError("configured sandbox image is unavailable; build it before generation")
+                if store.run.get("sandbox_image") and store.run["sandbox_image"] != image.stdout.strip():
+                    raise RunStoreError("sandbox image changed; start a new run")
+                store.run["sandbox_image"] = image.stdout.strip()
+                store.save()
+                while True:
+                    store.check_budget()
+                    plan = store.plan()
+                    pending = [t for t in plan["tasks"] if store.run["tasks"][t["id"]]["status"] != "passed"]
+                    if not pending:
+                        break
+                    if not self.session.run(pending[0]):
+                        raise RuntimeError("task sessions exhausted: " + pending[0]["id"])
+                while True:
+                    all_passed = all(task['status'] == 'passed' for task in store.run['tasks'].values())
+                    if all_passed and self._delivery(store, target, acceptance):
+                        break
+                    if store.run["final_repairs"] >= store.config.budgets.final_repairs:
+                        raise RuntimeError("final independent checks failed after bounded repairs")
+                    store.run["final_repairs"] += 1
+                    store.save()
+                    final = store.plan()["tasks"][-1]
+                    if not self.session.run(final, repair=True, feedback=store.run["final_checks"]):
+                        continue
+                store.run.update({"status": "success", "exit_code": 0, "reason": "all tasks, mandatory checks and export passed"})
+            except BudgetExhausted as exc:
+                store.run.update({"status": "budget_exhausted", "exit_code": 3, "reason": str(exc)})
+            except KeyboardInterrupt:
+                store.run.update({"status": "interrupted", "exit_code": 130, "reason": "interrupted; incomplete attempt preserved"})
+            except RunStoreError as exc:
+                store.run.update({"status": "invalid", "exit_code": 20, "reason": str(exc)})
+            except RuntimeError as exc:
+                store.run.update({"status": "failed", "exit_code": 2, "reason": str(exc)})
             except Exception as exc:
-                return self._finalize_internal_error(store, run, str(exc))
-            return int(run["exit_code"])
-        try:
-            store.verify_frozen_inputs()
-        except RunStoreError as exc:
-            run = store.load_run()
-            if run.get("termination_request"):
-                return self._run_s9(store, run)
-            run = self._persist_request(
-                store,
-                run,
-                "s4",
-                _reason("FROZEN_INPUT_DRIFT", str(exc)),
-                failed=False,
-            )
-            return self._run_s9(store, run)
-        if resume:
+                store.run.update({"status": "internal_error", "exit_code": 1, "reason": f"{type(exc).__name__}: {exc}"})
             try:
-                store.reconcile_revision_activations()
-                run = store.load_run()
-                controller = self.controllers.get("s5")
-                if run["stages"]["s6"].get("status") != "done" and controller is not None and hasattr(controller, "reconcile"):
-                    controller.reconcile(store)  # type: ignore[attr-defined]
-                s6_controller = self.controllers.get("s6")
-                if s6_controller is not None and hasattr(s6_controller, "reconcile"):
-                    s6_controller.reconcile(store)  # type: ignore[attr-defined]
-                run = self._reconcile_orphaned(store, run)
+                publish_report(store)
             except Exception as exc:
-                return self._finalize_internal_error(store, store.load_run(), str(exc))
-        if run.get("termination_request"):
-            return self._run_s9(store, run)
-        if self._planned_target_reached(run, "s3"):
-            return self._finalize_planned_stop(store, run)
-        for stage_name in ("s4", "s5", "s6"):
-            try:
-                store.reconcile_revision_activations()
-            except Exception as exc:
-                return self._finalize_internal_error(store, store.load_run(), str(exc))
-            run = store.load_run()
-            if run.get("termination_request"):
-                return self._run_s9(store, run)
-            stage = run["stages"][stage_name]
-            if stage["status"] == "done":
-                try:
-                    controller = self.controllers.get(stage_name)
-                    if stage_name == "s4" and controller is not None and hasattr(controller, "verify_completed"):
-                        controller.verify_completed(store)  # type: ignore[attr-defined]
-                    if stage_name == "s5" and controller is not None and hasattr(controller, "reconcile"):
-                        controller.reconcile(store)  # type: ignore[attr-defined]
-                    s6_has_started = (
-                        run["stages"]["s6"].get("status") != "pending"
-                        or store._confined("plan/plan_state.json").exists()
-                        or store._confined("plan/verification_pending.json").exists()
-                    )
-                    if stage_name == "s5" and not s6_has_started and controller is not None and hasattr(controller, "verify_completed"):
-                        controller.verify_completed(store)  # type: ignore[attr-defined]
-                    if stage_name == "s6" and controller is not None and hasattr(controller, "verify_completed"):
-                        controller.verify_completed(store)  # type: ignore[attr-defined]
-                    self._stage_done(store, stage, stage_name)
-                except RunStoreError as exc:
-                    return self._finalize_internal_error(store, run, str(exc))
-                except Exception as exc:
-                    return self._finalize_internal_error(store, run, str(exc))
-            else:
-                try:
-                    self._sync_budget(store, enforce=True)
-                except BudgetExhausted:
-                    run = store.load_run()
-                    run = self._persist_request(store, run, stage_name, _reason("BUDGET_EXHAUSTED", f"Global budget exhausted before {stage_name}."), failed=False)
-                    return self._run_s9(store, run)
-                controller = self.controllers.get(stage_name)
-                if controller is None:
-                    return self._finalize_internal_error(store, run, f"no controller registered for {stage_name}")
-                self._active_stage = stage_name
-                try:
-                    running = self._transition_running(store, run, stage_name)
-                    result = self._normalise_result(controller.run(StageContext(store, stage_name, running, self)))
-                    self._fault(f"{stage_name}_output_published")
-                    if result.usage is not None:
-                        self.record_external_usage(store, result.usage)
-                    if result.pause is not None:
-                        self._pause_stage(store, store.load_run(), stage_name, result.pause)
-                        return 0
-                    if stage_name == "s4" and hasattr(controller, "verify_result"):
-                        controller.verify_result(store, result)  # type: ignore[attr-defined]
-                    run = self._commit_stage(store, store.load_run(), stage_name, result)
-                    if stage_name == "s4" and hasattr(controller, "verify_completed"):
-                        controller.verify_completed(store)  # type: ignore[attr-defined]
-                    if stage_name == "s5" and hasattr(controller, "after_commit"):
-                        controller.after_commit(store, result)  # type: ignore[attr-defined]
-                except ControlledStageFailure as exc:
-                    run = self._persist_request(store, store.load_run(), stage_name, exc.reason, failed=True)
-                    return self._run_s9(store, run)
-                except BudgetExhausted:
-                    run = self._persist_request(store, store.load_run(), stage_name, _reason("BUDGET_EXHAUSTED", f"Global budget exhausted during {stage_name}."), failed=True)
-                    return self._run_s9(store, run)
-                except Exception as exc:
-                    return self._finalize_internal_error(store, store.load_run(), str(exc))
-                finally:
-                    self._active_stage = None
-            self._sync_budget(store, enforce=False)
-            run = store.load_run()
-            if self._planned_target_reached(run, stage_name):
-                return self._finalize_planned_stop(store, run)
-        # M1-1 owns S4-S6 only. A caller that did not seal an explicit M1 stop is left non-terminal.
-        return 0
-
-    def run_spec(self, store: RunStore) -> int:
-        with store.controller_lock():
-            return self._run_locked(store, resume=False)
-
-    def _reconcile_orphaned(self, store: RunStore, run: dict[str, Any]) -> dict[str, Any]:
-        changed = False
-        updated = copy.deepcopy(run)
-        for stage_name, stage in updated["stages"].items():
-            if stage["status"] == "running":
-                stage.update({"status": "failed", "ended_at": self._timestamp(), "error": "process crashed mid-stage"})
-                changed = True
-        if changed:
-            store.replace_run(updated)
-        return updated
+                store.run.update({"status": "internal_error", "exit_code": 1, "reason": f"report publication failed: {exc}"})
+            store.save()
+            return int(store.run["exit_code"])
 
     def resume(self, store: RunStore) -> int:
-        with store.controller_lock():
-            return self._run_locked(store, resume=True)
+        return self.run(store, resume=True)

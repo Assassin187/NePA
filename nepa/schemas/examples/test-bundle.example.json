@@ -1,9 +1,0 @@
-{
-  "schema_version": "3.0",
-  "bundle": {
-    "id": "minimal",
-    "version": "1.0.0",
-    "default_build_variant_ids": ["san"]
-  },
-  "tests": []
-}

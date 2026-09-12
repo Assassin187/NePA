@@ -1,83 +1,31 @@
-providers:
-  anthropic:
-    kind: anthropic
-    base_url: https://www.sotamodel.net/v1/chat/completions
-    api_key_env: NEPA_CLAUDE_API_KEY
-  deepseek:
-    kind: openai_compat
-    base_url: https://api.deepseek.com
-    api_key_env: NEPA_DS_API_KEY
-  qwen:
-    kind: openai_compat
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api_key_env: NEPA_QWEN_API_KEY
-
-calibration_models:
-  architecture_primary: {provider: anthropic, model: claude-opus-5, temperature: 0.0, max_tokens: 65536}
-
-tiers:
-  T1: {provider: deepseek, model: deepseek-v4-pro, temperature: 0.0, max_tokens: 16000}
-  T2: {provider: deepseek, model: deepseek-v4-flash, temperature: 0.1, max_tokens: 16000}
-  T3: {provider: deepseek, model: deepseek-v4-flash, temperature: 0.0, max_tokens: 4000}
-
-roles:
-  doc_segmenter: {tier: T3}
-  segment_classifier: {tier: T3}
-  spec_extractor: {tier: T1}
-  spec_merger: {tier: T1}
-  spec_critic: {tier: T1, provider: deepseek, model: deepseek-v4-flash}
-  architecture_planner: {tier: T1, max_tokens: 65536}
-  task_planner: {tier: T1}
-  plan_critic: {tier: T1, provider: deepseek, model: deepseek-v4-flash}
-  flat_plan_baseline: {tier: T1}
-  coder: {tier: T2}
-  diagnoser: {tier: T2, escalate_to: T1}
-  fixer: {tier: T2, escalate_to: T1}
-  reporter: {tier: T3}
-
+schema_version: "1.0"
+coder:
+  provider: deepseek
+  model: deepseek-v4-pro
+  fast_model: deepseek-flash
+  json_output: true
+  temperature: 0
+  max_tokens: 16000
+  context_max_bytes: 180000
+# Official USD/1M peak cache-miss rates, verified 2026-09-12:
+# https://api-docs.deepseek.com/quick_start/pricing/
+# deepseek-flash serves V4.1 Flash. Accounting is a conservative estimate:
+# cache-hit discounts and half-price off-peak periods are not deducted.
 pricing:
-  models:
-    deepseek/deepseek-v4-pro: {input_usd_per_million_tokens: 1.32, output_usd_per_million_tokens: 3.96}
-    deepseek/deepseek-v4-flash: {input_usd_per_million_tokens: 0.30, output_usd_per_million_tokens: 1.20}
-
+  deepseek/deepseek-flash:
+    input_usd_per_million_tokens: 0.30
+    output_usd_per_million_tokens: 1.20
 budgets:
+  max_cost_usd: 100
+  campaign_max_cost_usd: 300
   wall_clock_hours: 4
-  max_cost_usd: 20
-  plan_architecture_repairs: 1
-  plan_task_shard_repairs: 1
-  plan_critic_repairs: 2
-  plan_global_replans: 1
-  coder_context_max_tokens: 24000
-  task_fix_attempts: 3
-  s6_total_attempts_cap: 8
-  s6_lease_limit: 1
-  revision_f2_limit: 0
-  revision_f3_limit: 0
-  repair_rounds: 3
-
-planning:
-  strategy: layered
-  max_task_files: 4
-  context_safety_margin_ratio: 0.15
-
-run:
-  until: null
-
-stages:
-  l0: true
-  l1: true
-  l2: true
-  l3: false
-
-assets:
-  target_profile: gold_file/target.json
-  test_bundle: gold_file/test_bundle.json
-
+  decisions_per_session: 40
+  sessions_per_task: 3
+  followups: 3
+  final_repairs: 3
 sandbox:
-  image: nepa-sandbox:latest
+  image: nepa-sandbox:refactor
   cpu: 2
   mem_gb: 4
-
-smoke:
-  dwell_seconds: 2
-  term_grace_seconds: 5
+  command_timeout_s: 120
+  build_timeout_s: 180

@@ -1,9 +1,55 @@
 {
+  "schema_version": "1.0",
   "roles": [
     "server"
   ],
   "language": {
     "name": "C",
     "version": "C99"
-  }
+  },
+  "clean": [
+    "make",
+    "clean"
+  ],
+  "builds": [
+    {
+      "id": "release",
+      "argv": [
+        "make",
+        "release"
+      ],
+      "artifact": "build/release/protocol-server",
+      "required_flags": [
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Werror"
+      ]
+    },
+    {
+      "id": "san",
+      "argv": [
+        "make",
+        "san"
+      ],
+      "artifact": "build/san/protocol-server",
+      "required_flags": [
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fsanitize=address,undefined",
+        "-fno-pie",
+        "-no-pie"
+      ]
+    }
+  ],
+  "run": [
+    "{artifact}",
+    "--host",
+    "{host}",
+    "--port",
+    "{port}"
+  ],
+  "description": "Self-contained C99 server; generated Makefile must build sources without external protocol implementations. Support the specified --host/--port CLI; clean SIGTERM exit 0. Keep release/san outputs separate."
 }

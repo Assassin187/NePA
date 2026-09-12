@@ -221,7 +221,7 @@ class OpenAICompatibleProvider:
             "model": model,
             "messages": [
                 {"role": "system", "content": request.system},
-                {"role": "user", "content": request.user},
+                *(request.messages if request.messages is not None else [{"role": "user", "content": request.user}]),
             ],
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
@@ -235,6 +235,8 @@ class OpenAICompatibleProvider:
                 "type": "json_schema",
                 "json_schema": {"name": "nepa_response", "schema": request.json_schema, "strict": True},
             }
+        elif request.json_output:
+            payload["response_format"] = {"type": "json_object"}
         return payload
 
     def complete(self, request: LLMRequest, *, model: str, native_schema: bool = False) -> LLMResponse:

@@ -1,0 +1,1832 @@
+{
+  "baseline": "bba527d5f520f2de63a4fc11f74f57b9ba0ba890",
+  "scope": "Isolated refactor worktree only; original runs/research untouched. Historical experiments require baseline checkout.",
+  "note": "Six stale-provenance baseline failures are superseded with their S5/S6/lease contracts, not represented as six repaired production defects.",
+  "deleted": [
+    {
+      "path": "nepa/agents/base.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/architecture_planner.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/architecture_planner_initial.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/architecture_planner_repair.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/diagnoser.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/fixer.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/flat_plan_baseline.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/plan_critic.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/prompts/task_planner.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/roles.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/agents/s6.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/assets/layout_conventions/c99-server-v1.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/calibration/__init__.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/calibration/s4_architecture.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/calibration/s4_prompt_development.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/llm/cache.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/metrics.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/active-plan.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/architecture-draft.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/architecture-patch-application.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/architecture-patch.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/architecture-validation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/artifact-manifest.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/binding-receipt.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/build-result.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-attempt-declaration-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-attempt-declaration.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-attempt-outcome.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-assessment.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-attempt-declaration.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-attempt-outcome.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-handoff.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-neutrality.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-outcome.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-owner-approval.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-protocol.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-revision.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-selection.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-snapshot.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-baseline-version.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-batch.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-assessment.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-extension.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-handoff-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-handoff.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-outcome.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-protocol-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-protocol.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-selection-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-development-selection.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-lineage.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-revision-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-revision.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-snapshot-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-snapshot.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-version-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-prompt-version.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-assessment.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-attempt-declaration.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-attempt-outcome.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-authorization.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-handoff.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-predecessor-attestation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-prompt-snapshot.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-protocol.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-provenance.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-quality-audit.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-repair-diff.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-report.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-revision.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-recovery-terminal.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/calibration-report.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/coding-response.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/contract-map.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/delivery-blueprint.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/epoch-receipt.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/active-plan.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/architecture-draft.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/architecture-patch-application.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/architecture-patch.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/architecture-validation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/artifact-manifest.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/binding-receipt.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/build-result.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-attempt-declaration-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-attempt-declaration.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-attempt-outcome.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-assessment.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-attempt-declaration.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-attempt-outcome.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-handoff.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-neutrality.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-outcome.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-owner-approval.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-protocol.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-revision.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-selection.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-snapshot.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-baseline-version.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-batch.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-assessment.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-extension.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-handoff-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-handoff.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-outcome.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-protocol-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-protocol.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-selection-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-development-selection.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-lineage.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-revision-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-revision.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-snapshot-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-snapshot.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-version-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-prompt-version.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-assessment.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-attempt-declaration.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-attempt-outcome.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-authorization.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-handoff.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-predecessor-attestation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-prompt-snapshot.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-protocol.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-provenance.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-quality-audit.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-repair-diff.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-report.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-revision.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-recovery-terminal.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/calibration-report.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/coding-response.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/contract-map.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/delivery-blueprint.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/epoch-receipt.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/file-ledger.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/flat-plan-draft.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/joint-evidence.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/lease-authorization.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/link-report.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/merge-decisions.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/migration-report.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/plan-activation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/plan-critic-result.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/plan-draft-ir.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/plan-event.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/plan-state.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/repair-log.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-candidate.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-gate-result.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-ledger.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-patch.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-rehearsal.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/revision-trigger-evaluation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s4-checkpoint.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s4-commitment.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s4-state.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s5-pending-state.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s6-attempt.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s6-receipt.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/s6-validation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/segments.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/smoke-result.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/spec-review.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/state-history.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/task-evidence.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/task-shard.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/test-bundle.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/test-summary.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/trial-request-ref.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/trial-response-ref.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/trial-validation.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/examples/verification-pending.example.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/file-ledger.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/flat-plan-draft.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/joint-evidence.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/lease-authorization.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/link-report.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/merge-decisions.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/migration-report.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/plan-activation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/plan-critic-result.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/plan-draft-ir.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/plan-event.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/plan-state.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/repair-log.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-candidate.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-gate-result.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-ledger.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-patch.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-rehearsal.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/revision-trigger-evaluation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s4-checkpoint.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s4-commitment.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s4-state.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s5-pending-state.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s6-attempt.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s6-receipt.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/s6-validation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/segments.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/smoke-result.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/spec-review.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/state-history.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/task-evidence.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/task-shard.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/test-bundle.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/test-summary.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/trial-request-ref.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/trial-response-ref.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/trial-validation.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/schemas/verification-pending.schema.json",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/architecture.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/delivery.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/materialization.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/plan_revision.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/plan_state.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/speclib/revision_mechanism.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/stages/__init__.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/stages/s4_planning.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/stages/s5_materialization.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/stages/s6_execution.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/stages/s9_report.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/__init__.py",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/codec.h",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/entry_source.c",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/layout_build_file",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/layout_documentation.md",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/layout_header.h",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/mechanical_source.c",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/task_source_stub.c",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "nepa/templates/types.h",
+      "reason": "No consumer in the new production assembly; frozen architecture/calibration/lease/revision/cache contract retired",
+      "replacement": "nepa/{speclib/plan.py,agents/session.py,run_store.py,orchestrator.py,tools/verification.py}"
+    },
+    {
+      "path": "tests/conftest.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/metrics/fixed-cases.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/non_mqtt_application/architecture-draft.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/non_mqtt_application/target.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/non_mqtt_application/test_bundle.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/revision/mqtt/revision-mechanism-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/revision/non_mqtt/revision-mechanism-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/README.md",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/active_plan.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/blueprint.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/constraints.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/epoch_inputs.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/file_ledger.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/metadata.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/plan.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/revision_ledger.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/spec.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/target.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/mqtt/test_bundle.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/active_plan.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/blueprint.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/constraints.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/epoch_inputs.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/file_ledger.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/metadata.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/plan.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/revision_ledger.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/spec.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/target.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s5/non_mqtt/test_bundle.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/README.md",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/lease/README.md",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/lease/mqtt/lease-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/lease/non_mqtt/lease-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/migration/mqtt/migration-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/migration/non_mqtt/migration-fixtures.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/mqtt/provider-sequence.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/fixtures/s6/non_mqtt/provider-sequence.json",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_agent_invoker.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_agent_protocol_neutrality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_agent_rendering.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_agent_roles.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_calibration.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_patch.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_patch_locality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_repair_locality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_schema.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_architecture_validation.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_budget.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_calibration_artifacts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_calibration_lineage.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_calibration_reporting.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_cli_contract.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_config.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_delivery_blueprint.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_delivery_constraints.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_budget.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_cache.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_client.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_pricing.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_probe.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_retry.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_structured.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_llm_telemetry.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_m1_13_root_cause_study.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_metrics_contract.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_orchestrator.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_activation.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_coverage.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_linker.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_lint.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_revision.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_revision_state.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_plan_state.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_planning_index.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_planning_inputs.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_planning_protocol_neutrality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_artifacts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_attempts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_config.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_extension.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_neutrality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_reporting.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_revisions.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_schema.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_scope.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_selection.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_development_snapshot.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_artifacts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_attempts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_authorization.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_config.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_lineage.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_neutrality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_quality.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_reporting.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_revisions.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_schema.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_scope.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_selection.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_prompt_recovery_snapshot.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_revision_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_revision_mechanism.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_run_initialization.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_run_store.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_runtime_resume.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_agent_contracts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_candidate_completion.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_checkpoint_resume.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_commitment.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_contracts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_controller.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_failures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s4_publication.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s5_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s5_materialization.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s5_multi_epoch.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s5_tools.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_artifacts.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_execution.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_lease_contract.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_lease_execution.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s6_lease_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_s9_partial_report.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_termination.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/test_test_bundle_lint.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/tools/generate_revision_mechanism_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/tools/generate_s5_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/tools/generate_s6_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/tools/generate_s6_lease_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    },
+    {
+      "path": "tests/tools/generate_s6_migration_fixtures.py",
+      "reason": "Old-stage/fixture/API contract retired; necessary behavior is covered by new pipeline, storage, action, input and provider tests",
+      "replacement": "tests/test_{plan_compiler,agent_session,checkpoint_resume,execution_pipeline,runtime_contract,workspace_tools,verification_runner}.py"
+    }
+  ]
+}

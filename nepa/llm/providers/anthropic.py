@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Any
 
 import httpx
 
 from ...config import ProviderConfig
 from ..client import LLMConfigurationError, LLMRequest, LLMResponse
-from .openai_compat import DEFAULT_HTTP_TIMEOUT, OpenAICompatibleProvider, _complete_chat_stream
+from .openai_compat import DEFAULT_HTTP_TIMEOUT, _complete_chat_stream
 
 
 class AnthropicProvider:

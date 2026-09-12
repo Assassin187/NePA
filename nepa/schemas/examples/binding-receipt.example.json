@@ -1,7 +1,0 @@
-{
-  "schema_version": "1.0",
-  "plan_ref": {"path": "plan/versions/plan-1.0.0.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-  "epoch_receipt_ref": {"path": "plan/epochs/E0/receipt.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-  "manifest_ref": {"path": "plan/bindings/1.0.0/artifact_manifest.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-  "contract_map_ref": {"path": "plan/bindings/1.0.0/contract_map.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
-}

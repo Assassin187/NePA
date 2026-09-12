@@ -34,26 +34,31 @@ class SandboxExecutor:
         self.mem_gb = mem_gb
         self.max_output_bytes = max_output_bytes
 
-    def command_vector(self, cmd: list[str], cwd: str, *, net: Literal["none", "loopback", "internal"] = "none") -> list[str]:
+    def command_vector(self, cmd: list[str], cwd: str, *, net: Literal["none", "loopback", "internal"] = "none", readonly: dict[str, Path] | None = None) -> list[str]:
         if net != "none":
-            raise ValueError("S5 permits only network=none")
+            raise ValueError("only network=none is permitted")
         if not isinstance(cmd, list) or not cmd or any(not isinstance(part, str) or not part for part in cmd):
             raise ValueError("sandbox command must be a non-empty argv vector")
         workspace = Path(cwd).resolve()
         if not workspace.is_dir():
             raise ValueError("sandbox cwd must be an existing workspace directory")
+        mounts = []
+        for destination, source in (readonly or {}).items():
+            if destination == "/workspace" or not destination.startswith("/"):
+                raise ValueError("invalid read-only mount")
+            mounts.extend(["-v", f"{source.resolve()}:{destination}:ro"])
         return [
             "docker", "run", "--rm", "--network", "none", "--init",
             "--cpus", str(self.cpu), "--memory", f"{self.mem_gb}g",
             "--user", f"{os.getuid()}:{os.getgid()}",
-            "-v", f"{workspace}:/workspace:rw", "-w", "/workspace", self.image, *cmd,
+            "-v", f"{workspace}:/workspace:rw", *mounts, "-w", "/workspace", self.image, *cmd,
         ]
 
-    def exec(self, cmd: list[str], cwd: str, timeout_s: int, net: Literal["none", "loopback", "internal"] = "none") -> ExecResult:
+    def exec(self, cmd: list[str], cwd: str, timeout_s: int, net: Literal["none", "loopback", "internal"] = "none", *, readonly: dict[str, Path] | None = None) -> ExecResult:
         if timeout_s <= 0:
             raise ValueError("sandbox timeout must be positive")
-        base_command = self.command_vector(cmd, cwd, net=net)
-        descriptor, cid_name = tempfile.mkstemp(prefix="nepa-s5-cid-")
+        base_command = self.command_vector(cmd, cwd, net=net, readonly=readonly)
+        descriptor, cid_name = tempfile.mkstemp(prefix="nepa-cid-")
         os.close(descriptor)
         cid_path = Path(cid_name)
         cid_path.unlink()
@@ -86,7 +91,7 @@ class SandboxExecutor:
             try:
                 returncode = process.wait(timeout=timeout_s)
                 timed_out = False
-            except subprocess.TimeoutExpired:
+            except BaseException as interruption:
                 process.kill()
                 process.wait()
                 timed_out = True
@@ -96,6 +101,10 @@ class SandboxExecutor:
                     cleanup = subprocess.run(["docker", "rm", "-f", cid], capture_output=True, check=False)
                     if cleanup.returncode != 0:
                         raise RuntimeError("timed-out sandbox container could not be removed")
+                if not isinstance(interruption, subprocess.TimeoutExpired):
+                    for reader in readers:
+                        reader.join()
+                    raise
             for reader in readers:
                 reader.join()
             observation = "timeout-cleaned" if timed_out else "completed"
