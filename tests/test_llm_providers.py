@@ -131,7 +131,7 @@ def test_anthropic_exact_url_and_no_messages_path(monkeypatch):
     config = load_config()
     secret = "anthropic-secret"
     monkeypatch.setenv(config.providers["anthropic"].api_key_env, secret)
-    AnthropicProvider(
+    response = AnthropicProvider(
         "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
     ).complete(_request(), model="claude-opus-5")
 
@@ -142,6 +142,28 @@ def test_anthropic_exact_url_and_no_messages_path(monkeypatch):
     assert seen["has_x_api_key"] is False
     assert seen["payload"]["stream"] is True
     assert seen["payload"]["stream_options"] == {"include_usage": True}
+    assert response.model == "claude-returned"
+    assert response.provider_metadata["returned_model_identity"] == "claude-returned"
+    assert response.provider_metadata["returned_model_identity_observed"] is True
+
+
+def test_anthropic_missing_returned_model_is_recorded_as_absent(monkeypatch):
+    config = load_config()
+    monkeypatch.setenv(config.providers["anthropic"].api_key_env, "fixture-secret")
+
+    def handler(request):
+        body = _event({"choices": [{"delta": {"content": "answer"}, "finish_reason": "stop"}]})
+        body += _event({"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 3}})
+        body += "data: [DONE]\n\n"
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    response = AnthropicProvider(
+        "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
+    ).complete(_request(), model="claude-opus-5")
+
+    assert response.model == "claude-opus-5"
+    assert response.provider_metadata["returned_model_identity"] is None
+    assert response.provider_metadata["returned_model_identity_observed"] is False
 
 
 def test_anthropic_alternate_url_is_used_exactly(monkeypatch):

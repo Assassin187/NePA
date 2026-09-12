@@ -7,11 +7,23 @@ from nepa.llm.client import LLMClient, LLMConfigurationError, LLMRequest, LLMRes
 from nepa.llm.telemetry import calculate_cost
 
 
-def test_empty_pricing_table_is_persisted_in_snapshot():
+def test_default_deepseek_pricing_is_persisted_in_snapshot():
     config = load_config(Path("configs/default.yaml"))
 
-    assert config.pricing.models == {}
-    assert public_config_snapshot(config)["pricing"] == {"models": {}}
+    assert config.pricing.models["deepseek/deepseek-v4-pro"].input_usd_per_million_tokens == 1.32
+    assert config.pricing.models["deepseek/deepseek-v4-pro"].output_usd_per_million_tokens == 3.96
+    assert config.pricing.models["deepseek/deepseek-v4-flash"].input_usd_per_million_tokens == 0.30
+    assert config.pricing.models["deepseek/deepseek-v4-flash"].output_usd_per_million_tokens == 1.20
+    assert public_config_snapshot(config)["pricing"]["models"] == {
+        "deepseek/deepseek-v4-pro": {
+            "input_usd_per_million_tokens": 1.32,
+            "output_usd_per_million_tokens": 3.96,
+        },
+        "deepseek/deepseek-v4-flash": {
+            "input_usd_per_million_tokens": 0.30,
+            "output_usd_per_million_tokens": 1.20,
+        },
+    }
 
 
 def test_pricing_accepts_non_negative_fixture_rates_and_is_snapshot_stable():

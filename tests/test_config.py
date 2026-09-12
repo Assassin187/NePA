@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from nepa.agents.base import resolve_route
 from nepa.config import (
     ConfigError,
     ConfigSnapshotDrift,
@@ -15,8 +16,18 @@ from nepa.config import (
 
 def test_config_models_are_closed_and_default_yaml_is_loadable():
     config = load_config(Path("configs/default.yaml"))
+    fallback_config = load_config()
 
     assert config.providers["anthropic"].api_key_env == "NEPA_CLAUDE_API_KEY"
+    assert config.tiers["T1"].provider == "deepseek"
+    assert config.tiers["T1"].model == "deepseek-v4-pro"
+    assert config.tiers["T2"].model == "deepseek-v4-flash"
+    assert config.tiers["T3"].model == "deepseek-v4-flash"
+    assert config.tiers["T1"].max_tokens == 16000
+    assert resolve_route(config, "architecture_planner").max_tokens == 65536
+    assert resolve_route(config, "task_planner").max_tokens == 16000
+    assert fallback_config.roles["architecture_planner"] == config.roles["architecture_planner"]
+    assert resolve_route(fallback_config, "architecture_planner").max_tokens == 65536
     assert config.budgets.max_cost_usd == 20
     assert public_config_snapshot(config)["run"]["until"] is None
     assert config.smoke.dwell_seconds == 2

@@ -189,12 +189,23 @@ _DEFAULTS: dict[str, Any] = {
         "architecture_primary": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 65536},
     },
     "tiers": {
-        "T1": {"provider": "anthropic", "model": "claude-opus-5", "temperature": 0.0, "max_tokens": 16000},
+        "T1": {"provider": "deepseek", "model": "deepseek-v4-pro", "temperature": 0.0, "max_tokens": 16000},
         "T2": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.1, "max_tokens": 16000},
-        "T3": {"provider": "qwen", "model": "qwen3.7-max-2026-06-08", "temperature": 0.0, "max_tokens": 4000},
+        "T3": {"provider": "deepseek", "model": "deepseek-v4-flash", "temperature": 0.0, "max_tokens": 4000},
     },
     "roles": {},
-    "pricing": {"models": {}},
+    "pricing": {
+        "models": {
+            "deepseek/deepseek-v4-pro": {
+                "input_usd_per_million_tokens": 1.32,
+                "output_usd_per_million_tokens": 3.96,
+            },
+            "deepseek/deepseek-v4-flash": {
+                "input_usd_per_million_tokens": 0.30,
+                "output_usd_per_million_tokens": 1.20,
+            },
+        }
+    },
     "budgets": {
         "wall_clock_hours": 4,
         "max_cost_usd": 20,
@@ -224,7 +235,7 @@ _DEFAULT_ROLES = {
     "spec_extractor": {"tier": "T1"},
     "spec_merger": {"tier": "T1"},
     "spec_critic": {"tier": "T1", "provider": "deepseek", "model": "deepseek-v4-flash"},
-    "architecture_planner": {"tier": "T1"},
+    "architecture_planner": {"tier": "T1", "max_tokens": 65536},
     "task_planner": {"tier": "T1"},
     "plan_critic": {"tier": "T1", "provider": "deepseek", "model": "deepseek-v4-flash"},
     "flat_plan_baseline": {"tier": "T1"},

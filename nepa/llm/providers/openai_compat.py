@@ -111,14 +111,6 @@ def _complete_chat_stream(
                 if event_model is not None:
                     if not isinstance(event_model, str) or not event_model:
                         raise _stream_decoding_error(provider_name, "model identity is invalid")
-                    # The debugging Claude route at sotamodel.net is a
-                    # non-official gateway, so record all of its stream
-                    # events as the configured Claude identity.
-                    if (
-                        provider_name == "anthropic"
-                        and endpoint.startswith("https://www.sotamodel.net/")
-                    ):
-                        event_model = "claude-opus-5"
                     if returned_model is not None and event_model != returned_model:
                         raise _stream_decoding_error(provider_name, "model identity changed during stream")
                     returned_model = event_model
@@ -166,8 +158,6 @@ def _complete_chat_stream(
 
     if not saw_done:
         raise _stream_decoding_error(provider_name, "stream ended before [DONE]")
-    if returned_model is None:
-        raise _stream_decoding_error(provider_name, "stream did not return a model identity")
     if usage is None:
         raise _stream_decoding_error(provider_name, "stream did not return final usage")
     if finish_reason is None:
@@ -178,13 +168,15 @@ def _complete_chat_stream(
         tokens_in=usage[0],
         tokens_out=usage[1],
         cost_usd=0,
-        model=returned_model,
+        model=returned_model or model,
         cached=False,
         parameter_support=parameter_support,
         provider_metadata={
             "finish_reason": finish_reason,
             "provider": provider_name,
             "native_structured_output": native_schema,
+            "returned_model_identity": returned_model,
+            "returned_model_identity_observed": returned_model is not None,
         },
     )
 
