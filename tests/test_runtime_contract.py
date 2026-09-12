@@ -156,3 +156,19 @@ def test_failed_final_task_cannot_be_bypassed_by_later_check_success(tmp_path, m
     monkeypatch.setattr("nepa.orchestrator.subprocess.run", lambda *a, **kw: SimpleNamespace(returncode=0, stdout="image"))
     assert orchestrator.run(store) != 0
     assert store.run["status"] != "success"
+
+def test_default_pytest_discovery_does_not_import_generated_project_scripts(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+    shutil.copyfile(ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/test_owned.py").write_text("def test_owned(): assert True\n")
+    generated = tmp_path / "runs/example/delivery/tools"
+    generated.mkdir(parents=True)
+    (generated / "test_generated.py").write_text("raise RuntimeError('generated scripts belong in the sandbox')\n")
+    result = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
+                            cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "test_owned.py::test_owned" in result.stdout
+    assert "test_generated" not in result.stdout

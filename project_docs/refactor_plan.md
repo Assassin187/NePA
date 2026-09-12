@@ -330,3 +330,69 @@ image hashes, then launch two fresh projects on one frozen optimized candidate.
 Record distinct baseline/current versions. This implements the user's requested
 baseline-then-optimize-then-repeat sequence, not three unchanged-candidate samples.
 No repetitions had started before the time analysis and offline validation above.
+
+### R7 final acceptance: completed under the amended user workflow
+
+First development continuation passed, followed by the requested time-cost audit
+and mechanism optimization, then two fresh parallel runs on one frozen candidate.
+Batch: runs/e2e/_acceptance/7266ae1ab1d642e9be3424b141c05859/batch.json, status passed.
+Paid harness:1 passed in4614.88s; no first-run source or response reuse.
+
+| Run | Candidate | Tasks / declarations | CLI / independent builds | Interactions / sanitizer | Wall minutes | USD |
+|---|---|---|---|---|---:|---:|
+| 20260912T112242Z-56f67d18 | Recorded development continuation | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 147.36 including pause | 21.7863 |
+| 20260912T135449Z-4c036768 | 0d93e4c | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 76.76 | 10.3946 |
+| 20260912T135449Z-22021a32 | 0d93e4c | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 75.38 | 6.9263 |
+
+All three independently copied exports passed dynamic-port/client-ID CONNECT,
+PING, unsupported-level CONNACK01 followed by close, and a later valid connection;
+release and ASan/UBSan builds retained real binaries. Server/client exits were0,
+not normalized errors. Complete source/Makefile/README, run/report/evidence and
+delivery hashes are present; all110 requirements retain their primary claims.
+Claim coverage is not proof that every requirement is semantically correct.
+
+Deliveries are under each run's delivery/ directory. Binary sizes (release/san):
+baseline50392/326848 bytes; optimized4c03676846816/259296;
+optimized22021a3227648/148752. Generated C-file counts14/15/21 respectively;
+distinct empty-root checkpoint repositories and actual calls were verified.
+
+Frozen optimized runtime SHA256:
+4ad68cc3e2b6fbbdb41be67d8e3912e324e53c48306ff822e74c3e45b7f68d62.
+Configuration:a4ad737de8835a099129e7017fa5f53703fd2b7e144a5681a8f178dbc2f181b4.
+Sandbox:sha256:ecd9faac985a5e00a5be7d3e08edd0b74ffaedceb9db097d32aee44ee626d9f8.
+Exact commit, input/acceptance and harness hashes are in batch.json. Full call/action
+evidence remains in each run, including requested/returned model identities and
+conservatively accounted unknown calls. No paid response cache was used.
+
+Historical cumulative campaignUSD88.12981374; no budget resets, remote push, main
+merge or external deployment. First-run snapshot/config-change records and failed
+experiments remain preserved. Original user worktree remains untouched.
+
+Compared with the first baseline excluding its18.58-minute pause, fresh runs took
+40.4% and41.5% less wall time. See session_latency_analysis.md for measured categories,
+remaining format errors and comparison limitations. Packaging was rebuilt/reinstalled
+outside the checkout; installed JSON wire mode and all three input lints passed.
+
+Acceptance statement: one development baseline and two optimized-candidate fresh
+runs passed the defined build/minimum-interaction checks. This satisfies the latest
+user-directed sequence, not the superseded requirement for three unchanged-candidate
+runs. Other protocol behaviors, all110 requirements' correctness, other protocols
+and languages are not comprehensively verified. No further paid experiments needed
+for this amended acceptance; do not expand the task solely to claim broader coverage.
+
+Final post-live regression exposed a repository test-discovery boundary defect:
+pytest without testpaths recursively imported generated delivery/tools/test_*.py,
+causing21 collection errors (including trying to treat pytest's -q as a server
+executable). All tracked NePA test modules are under tests/; these generated files
+are independent project diagnostics, not NePA pytest tests. Set testpaths=["tests"]
+and add an actual subprocess collection regression with a generated script that
+must not be imported. No tracked test, generated evidence or assertion was removed;
+generated project checks remain in the real sandbox acceptance path. This is a
+test-discovery/configuration correction only: production runtime/config/prompts and
+the accepted deliverables remain byte-identical to the paid candidate.
+Final full default non-live run after that correction:139 passed / one paid test
+deselected in39.62s; Ruff passed, mypy passed all30 production modules, diff check
+passed. Run/report schemas, budgets and delivery hashes were rechecked consistent
+for all three successes; optimized production runtime hash still matches0d93e4c.
+There are no active experiments or sandbox containers. Original research and
+lessons hashes remain401f640e... and991f7096..., with the original user diff intact.

@@ -35,6 +35,7 @@ include = ["nepa*"]
 nepa = ["agents/prompts/*.md", "schemas/*.json", "schemas/examples/*.json"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
   "sandbox_integration: actual network-disabled container checks",
   "live_e2e: paid real API generation, opt-in only",

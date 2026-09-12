@@ -7,6 +7,13 @@ servers, with MQTT as the first evaluation input, not a generator special case.
 See project_docs/system_design.md for the approved contract and
 project_docs/refactor_plan.md for actual implementation/acceptance status.
 
+Validated2026-09-12: one real development baseline, then two fresh optimized-candidate
+runs passed the defined builds and minimum interactions. The repeated runs took
+76.8/75.4 minutes versus128.8 baseline minutes excluding its recharge pause.
+This is not full MQTT conformance or three unchanged-candidate runs. Detailed
+evidence and limitations: project_docs/refactor_plan.md and
+project_docs/session_latency_analysis.md.
+
 ## Development
 
 ```bash

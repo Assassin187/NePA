@@ -106,3 +106,45 @@ largest remaining measured defect can be evaluated without confounded changes.
 The next fresh run must still satisfy all gates; compare its invalid-action rate,
 API and wall time, task-session escalation, cost and independent acceptance. A
 reduction in formatting waste is a hypothesis until real run evidence confirms it.
+
+## Completed optimized repetitions
+
+Candidate0d93e4cc8a54e602cefbad383a4ea4b2091d9208; batch
+runs/e2e/_acceptance/7266ae1ab1d642e9be3424b141c05859/batch.json passed.
+Both fresh projects completed23/23 tasks and110 primary declarations, real CLI0,
+independent clean release/san builds and all mandatory interactions; both variants'
+server/client exits0, no sanitizer findings. The baseline was independently rechecked
+before launching these two, not reused as their source or response cache.
+
+| Run | Wall minutes | API minutes | Calls/responses | Invalid actions | Invalid API minutes | Accounted USD |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline56f67d18 | 147.36 (128.78 excluding pause) | 125.35 | 821/820 | 205 | 31.28 | 21.7863 |
+| Optimized4c036768 | 76.76 | 67.54 | 785/784 | 185 | 12.09 | 10.3946 |
+| Optimized22021a32 | 75.38 | 66.06 | 723/723 | 180 | 18.28 | 6.9263 |
+
+Relative to the baseline excluding the recharge/development pause, observed wall
+time decreased40.4% and41.5%. Do not attribute the entire gain to JSON mode: unlike
+the mixed baseline, both new runs used Flash from the initial ordinary tasks, and
+generated different projects/diagnostics. This is end-to-end observation, not a
+controlled per-mechanism A/B experiment or a universal success-rate guarantee.
+
+Flash schema-invalid rates were183/686=26.7% and179/668=26.8%, versus149/347=42.9%
+in the baseline; Pro rates2/98 and1/55, versus56/473. JSON-object mode was verified
+in actual request evidence, but returned text still sometimes contained malformed
+JSON, trailing DSML or whitespace. The setting therefore does not guarantee valid
+actions in observed service behavior; strict host validation remains essential.
+Never report this as zero errors or execute malformed responses permissively.
+
+Measured command+finish times increased to493.795s and516.991s (from155.991s), as
+the independently generated agents performed different diagnostics/tests. No build
+or check was removed for speed. No output/context/decision/reasoning limit was cut.
+There were no manual edits of generated projects between or during these runs.
+The first optimized run's unresolved call reservation remains accounted, just as
+the baseline402 reservation does. Total historical campaignUSD88.12981374 / USD300.
+Specifically, optimized call102 had a10.013s ConnectTimeout; itsUSD0.03310470
+reservation remains, the bounded client retried and the run completed normally.
+
+Conclusion: the requested baseline-then-optimize-then-two-repetitions workflow passed
+the configured build/minimum-interaction contract. Only the two optimized runs share
+the final candidate; this is not three unchanged-candidate successes, full MQTT
+conformance, proof of every requirement, or validation of arbitrary protocols.
