@@ -34,7 +34,8 @@ def test_parallel_reservations_cannot_overrun_shared_campaign(tmp_path):
 
 
 @pytest.mark.parametrize("failed_index", [None, 1, 2])
-def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeypatch, failed_index):
+@pytest.mark.parametrize("resumed_first", [False, True])
+def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeypatch, failed_index, resumed_first):
     spec = importlib.util.spec_from_file_location("live_scheduler_under_test", ROOT / "tests/test_live_e2e.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -44,6 +45,11 @@ def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeyp
     monkeypatch.setattr(module, "load_config", lambda _: load_config())
     monkeypatch.setattr(module, "fingerprint", lambda _: {"test_only": True})
     monkeypatch.setattr(module, "git", lambda *args: "")
+    if resumed_first:
+        from types import SimpleNamespace
+        state = {"status": "failed" if failed_index == 1 else "success",
+                 "exit_code": 2 if failed_index == 1 else 0, "history": []}
+        monkeypatch.setattr(module.RunStore, "open", lambda *args: SimpleNamespace(root=tmp_path, run=state))
     barrier = threading.Barrier(2)
     first_verified = threading.Event()
     started = []
@@ -59,8 +65,11 @@ def test_scheduler_gates_repetitions_on_first_complete_success(tmp_path, monkeyp
             first_verified.set()
     monkeypatch.setattr(module, "launch", launch)
     monkeypatch.setattr(module, "verify_row", verify)
-    result = module.run_batch()
-    assert sorted(started) == ([1] if failed_index == 1 else [1, 2, 3])
+    result = module.run_batch("test-only-resumed-first" if resumed_first else None)
+    expected = ([1] if failed_index == 1 else [1, 2, 3])
+    if resumed_first:
+        expected.remove(1)
+    assert sorted(started) == expected
     assert len(result["runs"]) == (1 if failed_index == 1 else 3)
     assert result["status"] == ("passed" if failed_index is None else "failed")
     assert sum(row["passed"] for row in result["runs"]) == (0 if failed_index == 1 else 2 if failed_index == 2 else 3)

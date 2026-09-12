@@ -297,3 +297,9 @@ then new ordinary task sessions use Flash. No generated source is manually edite
 Read-only authenticated GET /models returned HTTP200 and exactly deepseek-flash /
 deepseek-v4-pro; no generation charge was initiated by this check. Regression suite:
 130 passed, one paid test deselected,34.45s; Ruff and mypy all30 modules passed.
+Resume launched from387955c, retaining the original run identity and time limit.
+The opt-in harness now accepts NEPA_LIVE_FIRST_RUN for the explicitly requested
+development continuation: it must already be successful and pass the same current
+input/config/runtime/image, empty-root, call, export, clean-build and oracle checks
+before launching two fresh projects. Reports distinguish that mixed-version first
+run from the two stability samples. A failed first run never triggers repetitions.

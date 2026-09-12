@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from nepa.config import load_config, public_config_snapshot
-from nepa.run_store import atomic_json, runtime_fingerprint, tree_hashes
+from nepa.run_store import RunStore, atomic_json, runtime_fingerprint, tree_hashes
 from nepa.speclib.lint import digest
 from nepa.tools.build import BuildRunner
 from nepa.tools.sandbox import SandboxExecutor
@@ -61,6 +61,10 @@ def verify_row(row, config, frozen, batch):
     assert state["runtime"]["package_sha256"] == frozen["runtime"]
     assert state["config_sha256"] == frozen["config"]
     assert state["sandbox_image"] == frozen["image"]
+    for source, snapshot in (("specIR.json", "spec.json"), ("target.json", "target.json"),
+                             ("acceptance.json", "acceptance.json"),
+                             ("acceptance/mqtt_smoke.py", "checks/mqtt_smoke.py")):
+        assert hashlib.sha256((run_dir / "inputs" / snapshot).read_bytes()).hexdigest() == frozen["inputs"][source]
     assert len(state["tasks"]) >= 23 and all(t["status"] == "passed" for t in state["tasks"].values())
     assert len(report["requirements"]) == 110
     assert report["cache_hits"] == 0 and state["budget"]["calls"] > 0
@@ -86,7 +90,7 @@ def verify_row(row, config, frozen, batch):
     assert builds["passed"] and checks["passed"], row
 
 
-def run_batch():
+def run_batch(first_run_id=None):
     assert os.environ.get("NEPA_LIVE_E2E") == "1", "paid API requires explicit opt-in"
     config = load_config(ROOT / "configs/default.yaml")
     assert os.environ.get(config.providers[config.coder.provider].api_key_env or ""), "configured credential missing"
@@ -98,6 +102,7 @@ def run_batch():
     batch.mkdir(parents=True)
     record = {"status": "running", "frozen": frozen, "harness_sha256": harness_sha,
               "scheduling": "one-success-then-two-parallel-repetitions", "phase": "first_generation",
+              "first_run_continuation": first_run_id,
               "runs": [], "scope": "configured minimum scenarios, not full conformance"}
     atomic_json(batch / "batch.json", record)
     print(f"Starting first real end-to-end generation; batch={batch}", flush=True)
@@ -105,7 +110,17 @@ def run_batch():
         row = {"index": index}
         try:
             assert fingerprint(config) == frozen and not git("status", "--porcelain")
-            row = launch(index, runs_root)
+            if index == 1 and first_run_id:
+                store = RunStore.open(runs_root, first_run_id)
+                assert store.run["status"] == "success" and store.run["exit_code"] == 0
+                # User-authorized development continuation is explicitly marked;
+                # all delivery checks below still run. Never alter its run state.
+                row = {"index": index, "returncode": store.run["exit_code"],
+                       "stdout": json.dumps({"run_dir": str(store.root)}), "stderr": "",
+                       "configuration_changes": [entry for entry in store.run["history"]
+                                                 if entry["kind"] == "configuration_change"]}
+            else:
+                row = launch(index, runs_root)
             verify_row(row, config, frozen, batch)
             assert fingerprint(config) == frozen
             assert hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == harness_sha
@@ -133,6 +148,8 @@ def run_batch():
     record["phase"] = "complete"
     record["statement"] = ("Three real generations passed configured build/minimum interactions; other behavior is not fully verified."
                            if record["status"] == "passed" else "One or more real runs failed; batch does not satisfy acceptance.")
+    if first_run_id:
+        record["statement"] += " First run is an explicitly resumed development run, not a fixed-candidate stability sample; repetitions are fresh projects."
     atomic_json(batch / "batch.json", record)
     return record
 
@@ -140,4 +157,4 @@ def run_batch():
 def test_three_independent_real_generations():
     if os.environ.get("NEPA_LIVE_E2E") != "1":
         pytest.skip("paid real-API acceptance requires NEPA_LIVE_E2E=1")
-    assert run_batch()["status"] == "passed"
+    assert run_batch(os.environ.get("NEPA_LIVE_FIRST_RUN"))["status"] == "passed"
