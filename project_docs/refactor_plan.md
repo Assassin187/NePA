@@ -151,5 +151,52 @@ Search now supports regex because actual agent actions used regex alternation an
 the literal implementation silently returned no matches. Oracle, task ownership,
 model, budgets and final acceptance remain unchanged. Next batch starts at zero.
 
+Candidate 48c09e7 / batch e2df059be0a249f482a13987a5df128e failed naturally at the
+per-run reservation budget (CLI 3), without manual interruption: run
+20260912T062127Z-d81914f3, 539 calls, USD19.77608556, 7661.68 seconds, 16/23
+tasks accepted and 48/110 claims. No delivery; runs two and three did not start.
+Campaign accounting including previous debug runs: USD22.56590952. Retain everything.
+The generated project had successful agent-invoked smoke checks, but these are not
+the final independent export gate and do not establish complete acceptance.
+
+Cost diagnosis: 13,720,245 input and 420,546 output tokens; about 91.6% of cost is
+input. There were 45 non-action responses. Several full finish responses omitted
+the final outer closing brace; generic JSON extraction then returned their inner
+arguments object, obscuring the syntax error behind a large generic schema error.
+The final task repeatedly submitted partial claims instead of repairing its report.
+Evidence also shows source reads using 80/90-character windows as if they were lines,
+and an evidence-root listing that incorrectly searched the project directory.
+
+Corrections within the existing design: reduce configurable actual-wire context
+limit from 180000 to 60000 bytes (all task facts retained, older transcript trimmed);
+require complete JSON actions in sessions with precise syntax location; validate
+the selected action schema branch for useful missing-argument diagnostics; enumerate
+missing/extra/duplicate claim IDs; show a complete finish envelope and explicit
+character/line reading guidance. Fix read-only evidence-root resolution. No model,
+task count, claim requirements, cost ceilings or oracle changed. Regression tests
+cover malformed outer JSON, schema diagnostics, claim diagnostics and evidence root.
+No edits to the authoritative design are required for these implementation/config
+corrections. The next frozen batch starts from three entirely new projects.
+
+Subsequent explicit user authorization on 2026-09-12 raises the per-run cost ceiling
+from USD20 to USD100. Update the authoritative budget clause and configuration to
+match this instruction. Campaign ceiling remains USD100, prior USD22.56590952 stays
+counted, and the four-hour deadline remains. Available campaign funds are therefore
+USD77.43409048, not a new USD100 allocation. Old snapshots and failed runs remain
+unchanged. The prompt/context improvements above continue alongside this change.
+
+The next user instruction explicitly raises the cumulative experiment ceiling to
+USD300 as well. This supersedes the preceding USD100 campaign limit: current limits
+are USD100/run, USD300/campaign, four hours/run. Historical USD22.56590952 remains
+accounted, leaving USD277.43409048. Configuration validation and the authoritative
+design now reflect both authorized increases; no historical record is rewritten.
+
+Validation after the final budget changes: full non-live suite 110 passed / one
+paid test deselected in 34.07 seconds; Ruff and mypy (all 29 production modules)
+passed; wheel/sdist rebuilt. Added long-history tests exercise actual 60000-byte
+request trimming while retaining complete current task facts. A test process that
+had imported the earlier USD100 campaign validator was restarted after the live
+user-authorized config update; only the fresh full run above is the final result.
+
 Not complete. No post-refactor live success yet. Final conclusion must describe
 three minimum-check successes, not all requirements or arbitrary protocols proven.

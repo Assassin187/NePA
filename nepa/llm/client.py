@@ -170,5 +170,12 @@ def extract_first_json_value(text: str) -> Any:
 
 
 def structured_validation_errors(value: Any, schema: dict[str, Any]) -> list[dict[str, Any]]:
+    # A known action has one relevant branch. Report its actual missing/invalid
+    # arguments instead of dumping the whole response in a generic oneOf error.
+    if isinstance(value, dict):
+        for branch in schema.get("oneOf", []):
+            if branch.get("properties", {}).get("tool", {}).get("const") == value.get("tool"):
+                schema = branch
+                break
     return [{"path": list(error.absolute_path), "message": error.message}
             for error in Draft202012Validator(schema).iter_errors(value)]

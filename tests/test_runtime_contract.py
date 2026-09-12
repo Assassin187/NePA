@@ -6,6 +6,8 @@ from nepa.llm.client import LLMClient, LLMRequest, ProviderError, extract_first_
 from nepa.llm.telemetry import calculate_cost
 from nepa.run_store import RunStore
 from nepa.report import publish_report
+from nepa.llm.client import structured_validation_errors
+from nepa.schemas import load_schema
 
 ROOT = Path(__file__).parents[1]
 
@@ -23,9 +25,23 @@ def test_config_override_and_secret_free_snapshot(monkeypatch):
     with pytest.raises(ConfigError):
         load_config(overrides={"calibration_models": {}})
 
+def test_authorized_cost_ceilings_do_not_change_time_budget():
+    config = load_config(ROOT / "configs/default.yaml")
+    assert config.budgets.max_cost_usd == 100
+    assert config.budgets.campaign_max_cost_usd == 300
+    assert config.budgets.wall_clock_hours == 4
+    for key, limit in (("max_cost_usd", 100), ("campaign_max_cost_usd", 300)):
+        with pytest.raises(ConfigError):
+            load_config(overrides={"budgets": {key: limit + 1}})
+
 @pytest.mark.parametrize("text", ['{"a":1}', '\x60\x60\x60json\n{"a":1}\n\x60\x60\x60', 'answer: {"a":1}'])
 def test_json_envelope_parsing(text):
     assert extract_first_json_value(text) == {"a": 1}
+
+def test_action_error_identifies_missing_argument_not_generic_schema_dump():
+    errors = structured_validation_errors({"tool": "finish", "arguments": {"summary": "ready"}},
+                                          load_schema("agent-action.schema.json"))
+    assert errors == [{"path": ["arguments"], "message": "'claims' is a required property"}]
 
 def test_pricing_known_and_negative():
     config = load_config()

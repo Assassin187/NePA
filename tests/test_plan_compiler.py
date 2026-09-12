@@ -73,6 +73,13 @@ def test_claims_cannot_omit_or_defer_requirements(tmp_path):
     (tmp_path / "a.c").write_text("int x;")
     validate_claims(task, [{"id": "r", "status": "implemented", "reason": "x", "code_refs": ["a.c:1"]}], tmp_path)
 
+def test_claim_error_identifies_missing_unexpected_and_duplicate_ids(tmp_path):
+    with pytest.raises(ValueError) as error:
+        validate_claims({"requirement_ids": ["r1", "r2"]}, [{"id": "r1"}, {"id": "other"}, {"id": "r1"}], tmp_path)
+    assert "missing=['r2']" in str(error.value)
+    assert "unexpected=['other']" in str(error.value)
+    assert "duplicates=['r1']" in str(error.value)
+
 def test_target_output_collision_rejected():
     spec, target = inputs()
     target["builds"][1]["artifact"] = target["builds"][0]["artifact"]

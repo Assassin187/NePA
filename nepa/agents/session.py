@@ -62,13 +62,22 @@ class CodingSession:
                     current = request()
                 response = self.client.complete(current, store=store, task_id=task["id"])
                 messages.append({"role": "assistant", "content": response.text})
-                action = response.parsed
-                errors = structured_validation_errors(action, self.schema)
+                # An incomplete outer action must not become a valid inner JSON
+                # object via the provider-neutral prose/JSON extraction helper.
+                try:
+                    action = json.loads(response.text)
+                    errors = structured_validation_errors(action, self.schema)
+                except json.JSONDecodeError as exc:
+                    action = None
+                    errors = [{"path": [], "message": f"Invalid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}. Return the complete outer action object, including all closing braces."}]
                 if errors:
                     messages.append({"role": "user", "content": json.dumps(
                         {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason"),
                          "instruction": "No tool executed. Return JSON, never XML/tool_calls/invoke tags. Correct the intended action.",
-                         "example": {"tool": "write_file", "arguments": {"path": "src/example.c", "content": "/* your actual code */"}}})})
+                         "required_primary_ids": task["requirement_ids"],
+                         "finish_format": '{"tool":"finish","arguments":{"summary":"explanation","claims":[...]}}',
+                         "claim_format": {"id": "one of required_primary_ids", "status": "implemented",
+                                          "reason": "actual implementation explanation", "code_refs": ["actual/file.c:line"]}})})
                     continue
                 action = cast(dict[str, Any], action)
                 identifier = store.start_action(task["id"], action)

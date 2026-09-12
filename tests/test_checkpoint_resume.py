@@ -47,7 +47,7 @@ def test_campaign_counts_other_runs(store):
         store.reserve_call("bootstrap", 101, {})
     other = store.root.parent / "other"
     other.mkdir()
-    (other / "run.json").write_text(json.dumps({"schema_version": "5.0", "budget": {"cost_usd": 99.99}}))
+    (other / "run.json").write_text(json.dumps({"schema_version": "5.0", "budget": {"cost_usd": store.config.budgets.campaign_max_cost_usd - .01}}))
     with pytest.raises(BudgetExhausted):
         store.reserve_call("bootstrap", .02, {})
 

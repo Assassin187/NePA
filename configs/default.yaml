@@ -4,10 +4,10 @@ coder:
   model: deepseek-v4-pro
   temperature: 0
   max_tokens: 16000
-  context_max_bytes: 180000
+  context_max_bytes: 60000
 budgets:
-  max_cost_usd: 20
-  campaign_max_cost_usd: 100
+  max_cost_usd: 100
+  campaign_max_cost_usd: 300
   wall_clock_hours: 4
   decisions_per_session: 40
   sessions_per_task: 3

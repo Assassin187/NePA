@@ -18,9 +18,12 @@ never establish full protocol conformance.
 Formal acceptance: three consecutive independent empty-project runs with identical
 NePA commit, prompts, input/configuration and image, real API calls, no response
 cache, imported solution or manual generated-code edits. Changing these inputs
-restarts the batch. Retain debug/failed runs. Approved campaign budget: USD100
-including debug and failures; each run USD20 and four hours from creation, never
+restarts the batch. Retain debug/failed runs. Approved campaign budget: USD300
+including debug and failures; each run USD100 and four hours from creation, never
 reset on resume. Unknown usage keeps its pre-call reservation.
+The user raised the per-run ceiling from USD20 to USD100 on 2026-09-12;
+then raised the cumulative campaign ceiling to USD300. Both include prior costs;
+this is not a reset or an additional USD300 allocation.
 The Linux CLI installs a run deadline alarm, including provider/tool calls; deadline
 interruption retains unknown-call reservations and cleans active tool containers.
 

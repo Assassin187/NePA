@@ -30,6 +30,10 @@ Use that text directly, not another read of the same requirement. Type definitio
 in task.context.types are likewise complete. Inspect existing source once, implement
 the current slice, and compile; do not spend the session only gathering facts.
 search uses regular expressions, not a literal multi-pattern string.
+For source files, normally omit offset/limit to read up to 16000 characters at once.
+Do not use line numbers as character offsets or read 80 characters to inspect 80
+lines. To inspect a line range from search, use run_command with sed -n '40,100p'
+and the actual file path. Do not repeatedly list build artifacts or unchanged files.
 Do not guess current file contents when making an exact replacement.
 
 Use ordinary C99 and the runtime environment in Target. Respect all build output paths,
@@ -46,6 +50,11 @@ tasks with no primary requirements). Claims are implemented/already_present with
 code_refs like src/file.c:42 and reason, or not_applicable with original source_refs
 and target-scope reason. Missing tests are not a reason for not_applicable. Unsupported,
 deferred and not implemented are failures, not valid completion claims.
+The complete finish envelope is {"tool":"finish","arguments":{"summary":"what changed","claims":[]}}.
+For requirement tasks replace [] with ALL primary claims, including code_refs and
+reason for each. Close both the arguments object and the outer action object.
+When finish has a JSON syntax or claim error, correct that response directly; do
+not rerun unchanged builds or reimplement code to fix a reporting error.
 
 If host validation fails, inspect its real logs and repair the project. Older tool
 output is retained in evidence references even when removed from the context window.

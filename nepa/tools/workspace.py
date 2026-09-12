@@ -22,10 +22,12 @@ class WorkspaceTools:
             root, name = self.inputs, name.removeprefix("inputs/")
             if name == "inputs":
                 name = "."
-        elif name.startswith("evidence/"):
+        elif name == "evidence" or name.startswith("evidence/"):
             if write:
                 raise ValueError("evidence is read-only")
             root, name = self.evidence, name.removeprefix("evidence/")
+            if name == "evidence":
+                name = "."
         else:
             root = self.project
             name = name.removeprefix("project/")

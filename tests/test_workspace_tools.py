@@ -36,6 +36,12 @@ def test_input_pointer_and_pagination(tools):
     assert result["content"] == '"abcd'
     assert result["next_offset"] == 5
 
+def test_evidence_root_lists_real_evidence_and_remains_readonly(tools):
+    (tools.evidence / "action.json").write_text('{}')
+    assert tools.execute("list_files", {"path": "evidence"})["files"][0]["path"] == "evidence/action.json"
+    with pytest.raises(ValueError, match="read-only"):
+        tools.execute("write_file", {"path": "evidence", "content": "no"})
+
 @pytest.mark.sandbox_integration
 def test_oracle_is_readable_but_not_writable(tools):
     checks = tools.inputs / "checks"

@@ -61,7 +61,10 @@ def validate_claims(task: dict[str, Any], claims: list[dict[str, Any]], workspac
     expected = task["requirement_ids"]
     actual = [c.get("id") for c in claims]
     if len(actual) != len(set(actual)) or set(actual) != set(expected):
-        raise ValueError("finish must report exactly the primary requirements, without duplicates")
+        raise ValueError("finish must report exactly the primary requirements; "
+                         f"missing={[key for key in expected if key not in actual]}, "
+                         f"unexpected={[key for key in actual if key not in expected]}, "
+                         f"duplicates={sorted({key for key in actual if actual.count(key) > 1}, key=str)}")
     for claim in claims:
         if claim.get("status") not in {"implemented", "already_present", "not_applicable"}:
             raise ValueError("unsupported/deferred requirements cannot pass")

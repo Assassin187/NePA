@@ -34,12 +34,12 @@ class CoderConfig(_Model):
     model: str = "deepseek-v4-pro"
     temperature: float = 0
     max_tokens: int = Field(default=16000, gt=0)
-    context_max_bytes: int = Field(default=180000, gt=0)
+    context_max_bytes: int = Field(default=60000, gt=0)
 
 
 class BudgetConfig(_Model):
-    max_cost_usd: float = Field(default=20, gt=0, le=20)
-    campaign_max_cost_usd: float = Field(default=100, gt=0, le=100)
+    max_cost_usd: float = Field(default=100, gt=0, le=100)
+    campaign_max_cost_usd: float = Field(default=300, gt=0, le=300)
     wall_clock_hours: float = Field(default=4, gt=0, le=4)
     decisions_per_session: int = Field(default=40, gt=0, le=40)
     sessions_per_task: int = Field(default=3, gt=0, le=3)
