@@ -253,3 +253,10 @@ def test_deadline_interruption_preserves_partial_observation(tmp_path):
     saved = (store.root / 'evidence/calls/000001.fault-response.json').read_text()
     assert 'partial action' in saved
     assert store.run['budget']['calls'] == len(store.run['pending_calls']) == 1
+
+
+def test_native_wire_stable_after_persisted_request_key_sorting():
+    client = LLMClient(qwen_config())
+    original = request()
+    restored = LLMRequest.model_validate(json.loads(json.dumps(original.model_dump(mode='json'), sort_keys=True)))
+    assert client.prepare(original).body == client.prepare(restored).body

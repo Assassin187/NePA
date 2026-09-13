@@ -64,7 +64,7 @@ def fixture_hashes():
 def system_prompt(mode):
     instruction = ('Use exactly ONE native function call per decision with the supplied tool schemas.'
                    if mode == 'tool_calls' else
-                   'Return exactly ONE complete JSON action, without Markdown or prose.\nAction schema:\n' +
+                   'Return exactly ONE complete JSON action containing only tool and arguments; do not copy schema metadata such as $schema. Example: {"tool":"read_file","arguments":{"path":"main.c"}}. No Markdown or prose.\nAction schema:\n' +
                    json.dumps(load_schema('agent-action.schema.json'), separators=(',', ':')))
     return (FIXTURES / 'system.md').read_text().replace('{{action_instructions}}', instruction)
 

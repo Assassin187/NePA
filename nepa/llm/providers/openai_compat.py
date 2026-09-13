@@ -366,7 +366,7 @@ class OpenAICompatibleProvider:
             payload["parallel_tool_calls"] = controls.parallel_tool_calls
         if request.stop is not None:
             payload["stop"] = request.stop
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         # One token per UTF-8 byte plus a fixed chat framing allowance. Include
         # every message/tool definition and per-message framing in the bound.
         input_bound = len(body) + 64 + 16 * len(payload["messages"])
