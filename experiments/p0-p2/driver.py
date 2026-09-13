@@ -389,7 +389,10 @@ def run_private_repair(store, *, providers=None):
         '{{action_instructions}}', 'Use exactly ONE native function call per decision with the supplied tool schemas.')
     spec, target, acceptance = store.inputs()
     task = copy.deepcopy(next(t for t in store.plan()['tasks'] if t['id'] == 'requirements:001'))
-    task.update(goal='Repair the complete binary echo requirement using only current public source and the published diagnostic.',
+    task.update(goal=('Repair the complete binary echo requirement using only current public source and the published diagnostic. '
+                      'This study allows 12 decisions total. Reserve the final decision for finish with the requirement claim. '
+                      'The host builds both variants on finish and then independently retests the repair; '
+                      'avoid redundant manual builds or exploratory tests once the source repair is complete.'),
                 context={'requirements': spec['requirements'], 'scope': 'host-seeded controlled private-feedback repair'})
     for path in sorted((PRIVATE_REPAIR / 'project').rglob('*')):
         if path.is_file():
