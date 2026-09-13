@@ -69,6 +69,10 @@ safe output remains readable and paginated through evidence references after con
 For a length or missing-output failure, trace the entire receive, decode, dispatch,
 encode and send path against the supplied requirements. Check capacities and lengths
 at each step; do not assume that fixing the input buffer fixes the output path.
+For protocol acceptance failures, use the host diagnostic returned by `finish` as
+the authoritative reproduction. Do not substitute unavailable tools such as `nc`
+or invent a shell wrapper; use the project's documented build and runtime commands.
+Keep the existing passing behavior while repairing the named failing checks.
 After the repair, request finish to obtain fresh complete host validation; avoid
 running clean, release and san separately immediately before the same host builds.
 Do not repeat an unchanged failing response. request_followup schedules a bounded
