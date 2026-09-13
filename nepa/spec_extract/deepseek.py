@@ -34,7 +34,7 @@ def live_provider(config: Any, *, model: str = "deepseek-v4-pro"):
             "elapsed_seconds": time.monotonic() - started,
             "response": response.model_dump(mode="json")})
         return response.text
-    call.records = records
+    setattr(call, "records", records)
     return call
 
 def request_parts(segment: Segment) -> dict[str, Any]:

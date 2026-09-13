@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nepa.local/schema/spec-ir-v4.json",
+  "type": "object",
+  "required": ["schema_version", "protocol", "types", "messages", "requirements", "evidence", "gaps", "approval"],
+  "properties": {
+    "schema_version": {"const": "4.0"},
+    "protocol": {"type": "object"},
+    "types": {"type": "array"},
+    "messages": {"type": "array"},
+    "requirements": {"type": "array"},
+    "relations": {"type": "array"},
+    "evidence": {"type": "object"},
+    "gaps": {"type": "array"},
+    "conflicts": {"type": "array"},
+    "source_snapshot": {"type": "object"},
+    "approval": {"type": "object", "required": ["status"], "properties": {"status": {"enum": ["draft", "approved"]}}}
+  },
+  "additionalProperties": true
+}

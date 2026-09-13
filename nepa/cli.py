@@ -7,10 +7,93 @@ from .application import build_orchestrator
 from .config import ConfigError, load_config
 from .run_store import RunStore, RunStoreError
 from .speclib.lint import lint_acceptance, lint_spec, lint_target, read_json, _schema_errors
+from .spec_extract.pipeline import extract_document
+from .spec_extract.projection import project_to_v3, ProjectionError, validate_v4
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 lint_app = typer.Typer(no_args_is_help=True)
 app.add_typer(lint_app, name="lint")
+
+def _write_immutable(path: str, value: object) -> None:
+    from pathlib import Path
+    target = Path(path)
+    data = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
+    if target.exists() and target.read_bytes() != data:
+        raise RunStoreError(f"immutable artifact already exists with different content: {path}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        target.write_bytes(data)
+
+@app.command("spec-review")
+def spec_review_command(spec: str = typer.Option(..., "--spec"), output_path: str = typer.Option(..., "--output")) -> None:
+    """Create a review record for a draft v4 specification."""
+    value = read_json(spec)
+    if str(value.get("schema_version")) not in {"4", "4.0"}:
+        raise RunStoreError("spec-review requires Spec IR v4 draft")
+    errors = validate_v4(value)
+    if errors:
+        raise RunStoreError("invalid Spec IR v4: " + "; ".join(errors))
+    record = {"status": "reviewed", "spec": str(__import__('pathlib').Path(spec).resolve()),
+              "spec_sha256": __import__('hashlib').sha256(__import__('pathlib').Path(spec).read_bytes()).hexdigest(),
+              "gaps": value.get("gaps", []), "conflicts": value.get("conflicts", [])}
+    _write_immutable(output_path, record)
+    output(record)
+
+@app.command("spec-approve")
+def spec_approve_command(spec: str = typer.Option(..., "--spec"), review: str = typer.Option(..., "--review"), output_path: str = typer.Option(..., "--output")) -> None:
+    value = read_json(spec); rev = read_json(review)
+    spec_hash = __import__('hashlib').sha256(__import__('pathlib').Path(spec).read_bytes()).hexdigest()
+    if str(value.get("schema_version")) not in {"4", "4.0"} or rev.get("status") != "reviewed" or rev.get("spec_sha256") != spec_hash:
+        raise RunStoreError("approval requires reviewed Spec IR v4")
+    open_gaps = [g for g in value.get("gaps", []) if g.get("status", "open") == "open" and g.get("category") != "out_of_scope"]
+    if open_gaps:
+        raise RunStoreError(f"cannot approve with open gaps: {len(open_gaps)}")
+    value["approval"] = {"status": "approved", "review": str(__import__('pathlib').Path(review).resolve()), "spec_sha256": spec_hash}
+    _write_immutable(output_path, value)
+    output({"status": "approved", "output": output_path})
+
+@app.command("spec-project")
+def spec_project_command(spec: str = typer.Option(..., "--spec"), output_path: str = typer.Option(..., "--output")) -> None:
+    value = read_json(spec)
+    if value.get("approval", {}).get("status") != "approved":
+        raise RunStoreError("spec-project requires approved v4 specification")
+    projected, report = project_to_v3(value)
+    _write_immutable(output_path, projected)
+    _write_immutable(output_path + ".projection.json", report)
+    output({"status": "projected", "output": output_path, "report": report})
+
+@app.command("spec-extract")
+def spec_extract_command(
+    rfc: str = typer.Option(..., "--rfc"),
+    output_path: str = typer.Option(..., "--output"),
+    evidence_path: str | None = typer.Option(None, "--evidence"),
+    gap_path: str | None = typer.Option(None, "--gaps"),
+    doc_id: str | None = typer.Option(None, "--doc-id"),
+    protocol: str | None = typer.Option(None, "--protocol"),
+    version: str | None = typer.Option(None, "--version"),
+    scope: str | None = typer.Option(None, "--scope"),
+    live: bool = typer.Option(False, "--live"),
+    config_path: str | None = typer.Option(None, "--config"),
+) -> None:
+    sections = None
+    if scope:
+        import yaml
+        scope_data = yaml.safe_load(open(scope, encoding="utf-8"))
+        sections = scope_data.get("sections", [])
+    provider = None
+    if live:
+        from .spec_extract.deepseek import live_provider
+        provider = live_provider(load_config(config_path))
+    if not evidence_path or not gap_path or not sections:
+        raise RunStoreError("RFC extraction requires --scope, --evidence and --gaps")
+    spec = extract_document(rfc, doc_id=doc_id, protocol_name=protocol, protocol_version=version,
+                            output=output_path, evidence=evidence_path, gap_file=gap_path,
+                            sections=sections, llm_provider=provider, ir_version="4.0")
+    report = {"valid": spec.get("schema_version") == "4.0" and not spec.get("gaps")}
+    output({"valid": report["valid"], "spec": output_path, "evidence": evidence_path, "gaps": gap_path,
+            "requirements": len(spec["requirements"]), "errors": report.get("errors", [])})
+    if not report["valid"]:
+        raise typer.Exit(20)
 
 
 def output(value: object) -> None:
@@ -31,7 +114,11 @@ def run_command(
     acceptance: str = typer.Option(..., "--acceptance"), config_path: str | None = typer.Option(None, "--config"),
     runs_root: str = typer.Option("runs/e2e", "--runs-root"),
 ) -> None:
-    store = RunStore.initialize(runs_root, spec, target, acceptance, load_config(config_path))
+    config = load_config(config_path)
+    spec_value = read_json(spec)
+    if str(spec_value.get("schema_version")) != "3.0":
+        raise RunStoreError("run requires Spec IR v3 (use spec-project for approved RFC v4)")
+    store = RunStore.initialize(runs_root, spec, target, acceptance, config)
     code = build_orchestrator(store).run(store)
     output(status_value(store))
     raise typer.Exit(code)

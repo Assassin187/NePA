@@ -20,33 +20,20 @@ def extract_document(path: str | Path, *, doc_id: str | None = None, protocol_na
         selected = tuple(s for s in document.segments if in_scope(s.section, sections))
         document = type(document)(document.doc_id, document.path, document.sha256, document.format, document.text, selected)
     claims = discover(document.segments)
-    errors: list[str] = []
+    errors: list[dict[str, Any]] = []
     if claim_provider:
         for item in claim_provider(document):
             claims.append(item if isinstance(item, Claim) else Claim(**item))
     if llm_provider:
-        # PDF extraction repeats headers, figures and examples. Keep deterministic
-        # discovery over all selected segments, but send only a bounded set of
-        # evidence-bearing segments per subsection to the model.
-        selected_for_llm = []
-    counts: dict[str, int] = {}
-        for segment in document.segments:
-            key = segment.section.split()[0]
-            if counts.get(key, 0) >= 4 or segment.kind == "example":
-                continue
-            selected_for_llm.append(segment); counts[key] = counts.get(key, 0) + 1
-    groups: list[Any] = []
-        for segment in selected_for_llm:
-            key = segment.section.split()[0]
-            group = next((g for g in groups if g[0].section.split()[0] == key and len(g) < 4), None)
-            if group is None:
-                groups.append([segment])
-            else:
-                group.append(segment)
+        # Every included segment is assigned to exactly one bounded request;
+        # examples are recorded as deterministic-only rather than silently lost.
+        groups: list[list[Any]] = []
+        for start in range(0, len(document.segments), 4):
+            groups.append(list(document.segments[start:start + 4]))
         for group in groups:
-            segment = group[0] if len(group) == 1 else tuple(group)
+            request_segment: Any = group[0] if len(group) == 1 else tuple(group)
             try:
-                accepted, rejected = parse_claim_batch(llm_provider(segment), type(document)(document.doc_id, document.path, document.sha256, document.format, document.text, tuple(group)))
+                accepted, rejected = parse_claim_batch(llm_provider(request_segment), type(document)(document.doc_id, document.path, document.sha256, document.format, document.text, tuple(group)))
                 claims.extend(accepted)
                 errors.extend({"segment_id": ",".join(x.segment_id for x in group), **error} for error in rejected)
             except (ValueError, TypeError, json.JSONDecodeError) as exc:

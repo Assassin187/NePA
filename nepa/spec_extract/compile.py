@@ -81,11 +81,11 @@ def compile_with_evidence(document: Document, claims: list[Claim], *, protocol_n
             gap(c, "Type cannot be represented by frozen IR encoding", "unsupported_by_frozen_ir")
             continue
         if c.kind == "field":
-            key = ("field", value.get("message_id"), value.get("field", {}).get("name"))
+            node_key: Any = ("field", value.get("message_id"), value.get("field", {}).get("name"))
         else:
-            key = (c.kind, value.get("id", c.kind))
-        if key in nodes:
-            previous, prev_value = nodes[key]
+            node_key = (c.kind, value.get("id", c.kind))
+        if node_key in nodes:
+            previous, prev_value = nodes[node_key]
             if value == prev_value:
                 mappings.append({"candidate_id": c.candidate_id, "duplicate_of": previous.candidate_id, "source_spans": c.source_spans})
             else:
@@ -101,10 +101,10 @@ def compile_with_evidence(document: Document, claims: list[Claim], *, protocol_n
                     richer = c if contains(value, prev_value) else previous
                     mappings.append({"candidate_id": c.candidate_id, "duplicate_of": richer.candidate_id, "source_spans": c.source_spans, "merge": "structural_superset"})
                     if richer is c:
-                        nodes[key] = (c, value)
+                        nodes[node_key] = (c, value)
                     continue
-                gap(previous, "Conflicting definitions for " + str(key))
-                gap(c, "Conflicting definitions for " + str(key))
+                gap(previous, "Conflicting definitions for " + str(node_key))
+                gap(c, "Conflicting definitions for " + str(node_key))
                 # Keep the higher-confidence, evidence-bearing candidate as a
                 # draft output; the conflict remains explicit in the gap ledger.
                 def specificity(item: Any) -> int:
@@ -114,9 +114,9 @@ def compile_with_evidence(document: Document, claims: list[Claim], *, protocol_n
                         return sum(specificity(v) for v in item)
                     return 0
                 if (c.confidence, specificity(value)) > (previous.confidence, specificity(prev_value)):
-                    nodes[key] = (c, value)
+                    nodes[node_key] = (c, value)
         else:
-            nodes[key] = (c, value)
+            nodes[node_key] = (c, value)
     protocol = nodes.pop(("protocol", "protocol"), None)
     if protocol:
         proto_claim, proto = protocol
@@ -126,9 +126,11 @@ def compile_with_evidence(document: Document, claims: list[Claim], *, protocol_n
         roles = sorted({r for c, v in nodes.values() if c.kind == "message" for r in v.get("senders", []) + v.get("receivers", [])})
         proto = {"name": protocol_name or document.doc_id, "version": protocol_version or "unknown", "roles": roles or ["unspecified"]}
         mappings.append({"target": "/protocol", "origin": "caller_metadata", "verified": False})
-    spec = {"schema_version": "3.0", "protocol": proto, "types": [], "messages": [], "requirements": []}
-    owners = {}
-    fields = []
+    spec: dict[str, Any] = {"schema_version": "3.0", "protocol": proto, "types": [], "messages": [], "requirements": []}
+    types_list: list[dict[str, Any]] = spec["types"]
+    messages_list: list[dict[str, Any]] = spec["messages"]
+    owners: dict[str, Claim] = {}
+    fields: list[tuple[Claim, dict[str, Any]]] = []
     for key, (c, value) in nodes.items():
         if c.kind == "field":
             fields.append((c, value))
@@ -145,13 +147,13 @@ def compile_with_evidence(document: Document, claims: list[Claim], *, protocol_n
             spec["transport"] = value
             target = "/transport"
         else:
-            collection = "types" if c.kind == "type" else "messages"
-            spec[collection].append(value)
+            collection: str = "types" if c.kind == "type" else "messages"
+            (types_list if collection == "types" else messages_list).append(value)
             target = f"/{collection}/{value.get('id')}"
         owners[target] = c
         mappings.append({"candidate_id": c.candidate_id, "target": target, "source_spans": c.source_spans})
     for c, value in fields:
-        message = next((m for m in spec["messages"] if m.get("id") == value.get("message_id")), None)
+        message = next((m for m in messages_list if m.get("id") == value.get("message_id")), None)
         if message is None or not isinstance(value.get("field"), dict):
             gap(c, "Field has no compiled parent message")
             continue
@@ -206,7 +208,28 @@ def compile_v4(document: Document, claims: list[Claim], *, protocol_name: str | 
     }
     out = copy.deepcopy(spec)
     out["schema_version"] = "4.0"
+    out["source_snapshot"] = {"doc_id": document.doc_id, "path": document.path,
+                               "raw_sha256": document.sha256, "normalized_sha256": hashlib.sha256(document.text.encode()).hexdigest(),
+                               "format": document.format, "parser_version": "text-sections-v2"}
     out["evidence"] = evidence
-    out["gaps"] = compile_gaps
+    # v4 preserves normative levels that v3 cannot represent (notably
+    # SHOULD NOT) as first-class requirements instead of losing them.
+    preserved_ids: set[str] = set()
+    for claim in claims:
+        if claim.kind != "unsupported_candidate" or not claim.value.get("level"):
+            continue
+        ref = claim.source_spans[0]
+        rid = _req_id(claim)
+        if rid in preserved_ids:
+            continue
+        requirement = {"id": rid, "text": claim.value.get("text", claim.quote),
+                       "level": claim.value["level"],
+                       "source_ref": {"doc_id": document.doc_id, "section": ref.get("section", ""),
+                                      "quote": claim.quote, "segment_id": ref.get("segment_id", "")}}
+        out["requirements"].append(requirement)
+        preserved_ids.add(rid)
+    out["gaps"] = [g for g in compile_gaps
+                    if not (g.get("category") == "unsupported_by_frozen_ir"
+                            and any(c.candidate_id == g.get("candidate_id") and c.value.get("level") == "SHOULD NOT" for c in claims))]
     out["approval"] = {"status": "draft"}
     return out

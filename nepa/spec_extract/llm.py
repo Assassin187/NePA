@@ -75,7 +75,7 @@ def parse_claims(payload: Any, document: Document) -> list[Claim]:
                 "start_line": seg.start_line + seg.text[:start].count("\n"),
                 "end_line": seg.start_line + seg.text[:end].count("\n"),
                 "start_char": start, "end_char": end, "quote": seg.text[start:end]})
-        if " ".join(quote.split()) not in " ".join("\n".join(s["quote"] for s in verified).split()):
+        if " ".join(quote.split()) not in " ".join("\n".join(str(s["quote"]) for s in verified).split()):
             raise ValueError("main quote is not supported by source spans")
         kind = item.get("kind")
         if kind not in {"requirement", "protocol", "transport", "type", "message", "field", "constraint", "relationship", "unsupported_candidate"}:
@@ -92,7 +92,7 @@ def parse_claims(payload: Any, document: Document) -> list[Claim]:
         confidence = item.get("confidence", 0.5)
         if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
             raise ValueError("invalid confidence")
-        result.append(Claim(cid, kind, value, verified, quote, confidence))
+        result.append(Claim(cid, str(kind), value, verified, quote, confidence))
     return result
 
 

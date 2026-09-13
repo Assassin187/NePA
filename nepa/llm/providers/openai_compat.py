@@ -353,6 +353,12 @@ class OpenAICompatibleProvider:
         if request.stop is not None and not capabilities.stop:
             raise LLMConfigurationError("model profile does not allow stop")
         payload = self._payload(request, model, native_schema)
+        # RFC extraction needs a bounded JSON answer. DeepSeek's V4 models
+        # enable reasoning by default; use the documented OpenAI-compatible
+        # switch for this dedicated extractor role so output is not exhausted
+        # by hidden reasoning tokens.
+        if request.role == "spec-extractor" and self.provider_name == "deepseek":
+            payload["thinking"] = {"type": "disabled"}
         if request.action_format == "json_object" and capabilities.json_requires_instruction:
             if "json" not in json.dumps(payload["messages"], ensure_ascii=False).lower():
                 raise LLMRequestError("JSON object mode requires a JSON instruction")

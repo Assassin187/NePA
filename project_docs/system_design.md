@@ -272,3 +272,16 @@ Report 5.0 保留每条主声明，并将 Acceptance 的 check ID／req_ids 关�
 自动抽取／测试生成、更多语言和广泛协议验证。历史校准不构成生产准入。范围内设计只有在记录原因、
 影响和替代测试后才能依据证据修改。未经单独授权，不得降低验收、增加预算、覆盖用户工作、推送、
 合并或部署。
+
+## 8. RFC → Spec IR 前端（批准架构）
+
+RFC 前端采用 evidence-bound Spec IR 4.0，并通过严格的 Spec IR 3.0 projection 供当前
+Spec→Code 模块使用。4.0 不直接替换 3.0；任何无法无损投影的规范力度、条件、关系、状态或
+冲突都必须阻止 projection，不能静默丢弃。首版输入为冻结的文本 RFC source snapshot：HTTP
+使用 TXT，MQTT 使用固定官方来源的文字版，PDF 不在首版范围内。source snapshot、scope、
+claim/evidence/gap、review 和 projection 都必须以 hash 绑定并可回放。
+
+RFC 抽取只生成 draft；人工 review/approve 后才产生不可变 4.0 快照。RunStore 仍只接受
+approved 的 3.0 projection。RFC gold 与 `gold_file/http`、`gold_file/mqtt` 中的 coder 夹具
+分目录、分测试和分 hash 保存，不能覆盖或挂载到现有 Spec→Code 验收。应用 profile 规则与
+RFC 事实分开记录和评估。

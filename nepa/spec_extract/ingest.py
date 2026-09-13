@@ -99,6 +99,8 @@ def load_document(path: str | Path, doc_id: str | None = None, scope: list[str] 
     p = Path(path)
     raw = p.read_bytes()
     fmt = "pdf" if p.suffix.lower() == ".pdf" else "txt"
+    if fmt == "pdf":
+        raise OSError("PDF RFC input is not supported in the text-only v1 extractor")
     text = _normalize(_pdf_text(p) if fmt == "pdf" else raw.decode("utf-8"), pdf=fmt == "pdf")
     identifier = doc_id or p.stem
     sha = hashlib.sha256(raw).hexdigest()
