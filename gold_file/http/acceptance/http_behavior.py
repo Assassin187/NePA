@@ -270,7 +270,7 @@ def exercise(case, host, port, oracle=None):
             value = Client(host, port, oracle=oracle)
             stack.callback(value.close)
             return value
-        c = client()
+        c = None if case in ('routes', 'host_errors', 'length_errors', 'malformed', 'transfer_encoding') else client()
         if case == 'get_head':
             c.sock.sendall(make_request())
             headers = c.expect(200, b'nepa\n')
@@ -291,6 +291,8 @@ def exercise(case, host, port, oracle=None):
                 value.sock.sendall(make_request(method, path))
                 headers = value.expect(status, b'', head=method == 'HEAD')
                 require(headers[b'content-length'] == b'0', 'route_length', expected_length=0, actual_length=int(headers[b'content-length']))
+                value.close()
+            c = client()
             for _ in range(oracle.rng.randint(2, 4)):
                 method = oracle.rng.choice(('GET', 'POST', 'HEAD'))
                 c.sock.sendall(make_request(method, '/missing' + oracle.token()))
@@ -375,6 +377,7 @@ def exercise(case, host, port, oracle=None):
             raise ValueError(f'unknown case: {case}')
         if case in ('host_errors', 'length_errors', 'malformed', 'transfer_encoding'):
             # Keep every fixed rejection vector, then vary independent healthy traffic.
+            c = client()
             for _ in range(oracle.rng.randint(2, 4)):
                 body = oracle.payload()
                 c.sock.sendall(make_request('POST', '/echo', body))

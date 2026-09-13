@@ -57,7 +57,8 @@ def tree_hashes(root: Path) -> dict[str, str]:
 def runtime_fingerprint() -> dict[str, Any]:
     package = Path(__file__).parent
     files = {name: sha for name, sha in tree_hashes(package).items()
-             if "__pycache__" not in Path(name).parts and not name.endswith(".pyc")}
+             if "__pycache__" not in Path(name).parts and not name.endswith(".pyc")
+             and not name.startswith('spec_extract/')}
     return {"package_sha256": digest(files), "files": files}
 
 

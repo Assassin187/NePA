@@ -224,6 +224,18 @@ def simulate(monkeypatch, protocol, case, seed):
     return events, network
 
 
+@pytest.mark.parametrize('case', ['routes', 'host_errors', 'length_errors', 'malformed', 'transfer_encoding'])
+def test_http_independent_vectors_do_not_require_concurrent_idle_clients(monkeypatch, case):
+    original = Network.connect
+
+    def connect(self, address, timeout):
+        assert all(peer.closed for peer in self.peers), 'unrelated open connection blocks serial server'
+        return original(self, address, timeout)
+
+    monkeypatch.setattr(Network, 'connect', connect)
+    simulate(monkeypatch, 'http', case, SEED)
+
+
 ALL_CASES = [(p, c['id']) for p in ('mqtt', 'http')
              for c in json.loads((ROOT / f'gold_file/{p}/acceptance.json').read_text())['checks']]
 

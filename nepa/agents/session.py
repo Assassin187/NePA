@@ -53,6 +53,18 @@ class CodingSession:
     @staticmethod
     def _feedback_view(public: dict[str, Any], ref: dict[str, str]) -> dict[str, Any]:
         view = json.dumps(public, ensure_ascii=False)
+        if len(view) > 20000 and 'verification' in public:
+            # Keep every failing check and sanitizer location from BOTH variants.
+            # Full passing details remain available through the published ref.
+            public = {**public, 'build': {'passed': public.get('build', {}).get('passed')},
+                      'verification': {**public['verification'], 'variants': [
+                          {**variant, 'detail': {**variant['detail'],
+                              'passed_check_ids': [row['id'] for row in variant['detail'].get('checks', []) if row.get('passed')],
+                              'checks': [row for row in variant['detail'].get('checks', []) if not row.get('passed')]}}
+                          for variant in public['verification'].get('variants', [])]},
+                      'complete_result_ref': ref}
+            return {'tool_result': public, 'evidence_ref': ref,
+                    'instruction': 'Repair the reported failures; request finish for fresh complete validation.'}
         return {"tool_result": public if "file_sha256" in public or len(view) <= 20000 else
                 {**{key: public[key] for key in ("returncode", "timed_out", "accepted", "passed", "error") if key in public},
                  "excerpt": view[:20000], "complete_result_ref": ref}, "evidence_ref": ref,

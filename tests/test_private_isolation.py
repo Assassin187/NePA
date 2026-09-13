@@ -21,6 +21,34 @@ BASELINES = {"mqtt": ROOT / "runs/mqtt-e2e/20260912T164202Z-e4b27709/delivery",
              "http": ROOT / "runs/http-e2e/20260912T164202Z-d0b839c4/delivery"}
 
 
+def test_relative_sanitizer_frames_keep_only_existing_public_sources(tmp_path):
+    from nepa.tools.verification import _source_locations
+    (tmp_path / 'src').mkdir()
+    (tmp_path / 'src/main.c').write_text('line1\nline2\n')
+    text = ('#0 0x123 in handle src/main.c:2\n'
+            '#1 0x124 in bad /private/src/main.c:1\n'
+            '#2 0x125 in bad ../src/main.c:1\n'
+            '#3 0x126 in bad src/main.c:99\n')
+    assert _source_locations(text, tmp_path) == [{'path': 'src/main.c', 'line': 2}]
+
+
+def test_large_feedback_keeps_late_variant_failures_and_locations():
+    from nepa.agents.session import CodingSession
+    ref = {'path': 'evidence/full.json', 'sha256': 'a' * 64}
+    variants = [{'variant': name, 'detail': {'checks': [
+        {'id': 'pass-' + str(i), 'passed': True, 'padding': 'x' * 500} for i in range(50)] +
+        [{'id': 'broken', 'passed': False, 'category': 'memory'}],
+        'source_locations': [{'path': 'src/main.c', 'line': 533}], 'sanitizer_error': name == 'san'}}
+        for name in ('release', 'san')]
+    value = {'accepted': False, 'build': {'passed': True}, 'verification': {'passed': False, 'variants': variants}}
+    view = CodingSession._feedback_view(value, ref)['tool_result']
+    assert view['complete_result_ref'] == ref
+    for row in view['verification']['variants']:
+        assert row['detail']['checks'] == [{'id': 'broken', 'passed': False, 'category': 'memory'}]
+        assert row['detail']['source_locations'][0]['line'] == 533
+    assert len(value['verification']['variants'][0]['detail']['checks']) == 51
+
+
 def test_private_snapshot_raw_bytes_and_published_evidence(tmp_path):
     source = ROOT / "gold_file/mqtt"
     store = RunStore.initialize(tmp_path, source / "specIR.json", source / "target.json", source / "acceptance.json", load_config())

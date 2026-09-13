@@ -45,7 +45,10 @@ def _source_locations(text: str, workspace: Path) -> list[dict[str, Any]]:
     # public C sources and their actual line ranges authorize a source location.
     root = workspace.resolve()
     locations = []
-    for name, number in re.findall(r"/workspace/([A-Za-z0-9_./-]+\.(?:c|h)):(\d+)", text):
+    for match in re.finditer(r"(?<![A-Za-z0-9_./-])(?:/workspace/)?([A-Za-z0-9_./-]+\.(?:c|h)):(\d+)", text):
+        name, number = match.groups()
+        if name.startswith('/'):
+            continue
         path = root / name
         if ".." in Path(name).parts or not path.resolve().is_relative_to(root) or not path.is_file():
             continue
