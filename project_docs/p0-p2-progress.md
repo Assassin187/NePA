@@ -66,3 +66,15 @@ candidate-5：能力与两模型共八个公开工具会话全部通过。真实
 candidate-6 前置门槛全部通过：能力四组合八样本；两模型各四个公开会话；真实私有修复 20260913T025938Z-67b7298d，5 次 Plus 调用、¥0.03329560，同一私有断言与种子 before 两变体 echo_mismatch，after 两变体 echo_exact。无手工修复、未改私有资产。候选摘要 91a5242e68d514e6804f7cab3229ae9135ca9e171f92898f62eb36cae63f882e 已冻结；空工程 MQTT 首轮 20260913T030005Z-ee4d7b51 已启动，完整链条失败即停，尚不宣称协议成功。
 
 MQTT 首轮监控审查：一次低成本监控回执误把 mqtt-first-initial.json 的空项目断言 status:true 当作生成成功，主任务依据实际运行目录 run.json 拒绝该结论并纠正。初始条件通过不等于 generation/report/export 成功，最终门槛仍由 driver.verify_generation 和独立复验执行；此次监控误读未修改任何状态或报告。
+
+MQTT 首轮阶段记录：bootstrap、shared-wire 和全部十个 message 任务已通过中间任务检查（12/23），进入 requirements:001。此处不是最终协议成功；完整私有交互与独立导出审计仍待运行完成后判定。wheel 中 45 个运行时文件已逐项匹配冻结候选，未含私有资产，证据 runs/qwen-p0-p2-package-audit.json。
+
+## 当前候选状态（2026-09-13）
+
+candidate-6 的 MQTT 首轮最终未通过。之后的尝试均保留为独立候选，不回填或改写已有失败：
+
+- candidate-7 通过能力与公开工具阶段，未形成完整候选；candidate-8 在 Flash `compile_repair` 公开夹具失败；candidate-9 与 candidate-11 仅记录能力阶段通过。
+- candidate-10 通过能力、公开工具、私有修复与冻结阶段，随后并行启动两次 MQTT 和一次 HTTP。三个运行 `20260913T050011Z-06cdbaa9`、`20260913T050011Z-384cff28`、`20260913T050011Z-789766f1` 均在 final-integration 阶段失败，其中一项触及 191535 大于 180000 的上下文容量限制，另两项耗尽 final-integration 会话；并行门槛失败。
+- candidate-12 通过能力、公开工具、私有修复与冻结阶段。MQTT 首轮 `20260913T101739Z-78273787` 在 provider 调用期间进程消失，`run.json` 状态为 `interrupted`、退出码 130；调用 718 的 usage 未知且预留保留。候选账本明确标记 `mqtt-first: false`，没有继续 HTTP 或其余 MQTT 样本。
+
+当前结论仍为未完成：最新候选没有满足三个全新 MQTT 与一个全新 HTTP 的同候选成功门槛。非付费测试、静态检查和打包通过仅证明离线链路一致，不等于真实 P0–P2 验收通过。
