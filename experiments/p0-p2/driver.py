@@ -328,6 +328,10 @@ def run_fixture(store, fixture, *, providers=None):
         if fixture.get('exact_replace'):
             task['goal'] += (' Use these exact replace_text arguments, including the literal quote characters: ' +
                              json.dumps(fixture['exact_replace']))
+        if fixture.get('compile_failure_first'):
+            task['goal'] += (' Your very first action must be run_command with argv ["make", "release"], '
+                             'before listing or reading any files. After that failure, read the source files '
+                             'to diagnose and repair it.')
         store.evidence('experiments/public-fixture.json', {'fixture': fixture, 'task': task,
                        'system': session.system, 'seeded_project': tree_hashes(store.project), 'generation_evidence': False})
         actor = 'model'
