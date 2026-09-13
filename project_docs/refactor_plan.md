@@ -1,398 +1,222 @@
-# Approved refactor execution record
+# 端到端重构执行记录
 
-## Baseline and authorization
+## 基线与授权
 
-User authorized implementation with “PLEASE IMPLEMENT THIS PLAN” on 2026-09-12.
-Active design: System Design 9.0. No OpenSpec skills/workflow.
-Source baseline: bba527d5f520f2de63a4fc11f74f57b9ba0ba890, master, remote matched.
-Worktree: /home/ljf/NePA/runs/_refactor/worktree; branch codex/e2e-refactor.
-Original dirty state: deleted project_docs/_lessons-top-agent-workflow.md and
-untracked project_docs/research/. Original directory remains untouched.
-Exact user research snapshot is separate commit db8741d.
-Report SHA256: 401f640efd6b8a00c6acd9fc14188f5165abb65b0573238b5e175fc2e513d17b.
-Lessons SHA256: 991f7096c32758b070a8340f1f1ee5da2af97f26c71af7445de81e6e45b4f61e.
-Original user patch: /home/ljf/NePA/runs/_refactor/baseline/user.patch.
+用户于 2026-09-12 以“PLEASE IMPLEMENT THIS PLAN”授权实施。实施时的权威设计为 System Design 9.0，
+全过程不使用 OpenSpec。源码基线为 `bba527d5f520f2de63a4fc11f74f57b9ba0ba890`，master 与远端一致；
+隔离工作树为 `/home/ljf/NePA/runs/_refactor/worktree`，分支 `codex/e2e-refactor`。
 
-Baseline full pytest: 816 passed, 6 failed, 712.09s. Command:
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider.
-Six failures are stale S5 config and downstream S6/lease provenance; assertions
-were not relaxed. Ruff passed; mypy covered only four files; gold input lints passed.
-M1-13: 25/30 checked; 7.2/7.3/7.4/8.3/8.4 incomplete. Nine natural runs stopped at
-S4; 65K group has 2/5 and missing final study artifacts. Latest --check fails.
-No real generated-protocol success at baseline. Old study is superseded, not completed.
+原工作树已有用户变更：删除 `project_docs/_lessons-top-agent-workflow.md`、新增未跟踪的
+`project_docs/research/`。原目录保持不动；用户研究快照另存于提交 `db8741d`。研究报告 SHA256 为
+`401f640efd6b8a00c6acd9fc14188f5165abb65b0573238b5e175fc2e513d17b`，经验文档 SHA256 为
+`991f7096c32758b070a8340f1f1ee5da2af97f26c71af7445de81e6e45b4f61e`，原用户补丁位于
+`runs/_refactor/baseline/user.patch`。
 
-## Decision
+基线完整 pytest：816 通过、6 失败，耗时 712.09 秒。命令为
+`PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider`。六项失败来自过期 S5
+配置及后续 S6／lease provenance，未放宽断言。Ruff 通过；mypy 当时仅覆盖四个文件；gold 输入 lint
+通过。M1-13 为 25/30 已检查，7.2／7.3／7.4／8.3／8.4 未完成。九次自然运行停在 S4；65K 组只有
+2/5 且缺最终研究产物，最新 `--check` 失败。基线没有真实协议生成成功；旧研究被替代而非完成。
 
-Preserve provider/SSE, budget, logging, sandbox and storage foundations; replace
-planning/execution/verification. Incremental frozen-architecture patches retain
-blockers; rewriting tested HTTP/sandbox foundations adds no endpoint value.
-Research v2 remains unchanged. Adopt factual refs, deterministic small tasks and
-feedback repair; defer OPIR/DSL/solvers/extraction/test generation/language expansion.
-Do not retain CAP/epochs/F1–F3/calibration as production prerequisites.
+## 重构决策
 
-## Execution checklist and verification
+保留供应商／SSE、预算、日志、沙箱和存储基础；替换规划、执行和验证。继续修补冻结旧架构无法消除
+阻塞，而重写已验证的 HTTP／沙箱基础不会增加端到端价值。研究报告 v2 保持不变。采用事实引用、
+确定性小任务和反馈修复；暂缓 OPIR、DSL、求解器、自动抽取、测试生成和语言扩展。CAP、epoch、
+F1–F3 和校准不再作为生产前置条件。
 
-- [x] R0 isolated branch, original baseline and exact user snapshot.
-- [x] R1 Design9.0, this record and README before runtime changes.
-- [x] R2 Target/Acceptance contracts and independent verification supervisor.
-- [x] R3 deterministic 23-task compiler with 110 primary requirement bindings.
-- [x] R4 API tool loop and actual compiler-diagnostic repair.
-- [x] R5 CLI-to-export pipeline, checkpoint recovery, truthful final reports.
-- [x] R6 wheel, full mypy, CI and obsolete-path retirement.
-- [ ] R7 three consecutive frozen-version real API successes.
+## 实施清单与验证
 
-R1: git diff --check; inspect active document references.
-R2/R3: input/schema/oracle/plan/reference tests.
-R4: provider and budget regressions, actual compilation-failure→repair.
-R5: actual CLI/orchestrator wiring, interruptions, budgets, report consistency.
-R6: uv run ruff check nepa tests; uv run mypy nepa;
-docker build -t nepa-sandbox:refactor -f docker/sandbox.Dockerfile .;
-uv run pytest -q -m 'not live_e2e'; wheel install outside source checkout.
-R7: NEPA_LIVE_E2E=1 uv run pytest -q -m live_e2e tests/test_live_e2e.py.
+- [x] R0：隔离分支、原基线和精确用户快照。
+- [x] R1：运行时代码修改前提交 Design 9.0、本记录和 README。
+- [x] R2：Target／Acceptance 合同及独立验证监督器。
+- [x] R3：确定性的 23 任务编译器和 110 条主需求绑定。
+- [x] R4：API 工具循环及真实编译诊断修复。
+- [x] R5：CLI 到导出的完整流水线、checkpoint 恢复和如实最终报告。
+- [x] R6：wheel、完整 mypy、CI 和废弃路径退出。
+- [x] R7：按用户后续修订的流程完成三个真实 API 成功样本。
 
-## Acceptance, budget and rollback
+R1 使用 `git diff --check` 并检查活动文档引用；R2／R3 覆盖输入、Schema、oracle、计划和引用测试；
+R4 覆盖供应商、预算和真实“编译失败→诊断→修复”；R5 覆盖 CLI／orchestrator、异常中断、预算和
+报告一致性；R6 执行 Ruff、全量 mypy、沙箱镜像、非 live pytest，并在源码目录外安装 wheel；R7 使用
+显式付费的 live E2E。
 
-All 110 requirements enter 23 tasks. Agent claims are distinct from verification.
-Both release and san exported clean builds must pass CONNECT, PING, unsupported-level
-reply/close and a subsequent valid connection. Original inputs, random client IDs,
-dynamic ports, real API, zero cache, no imported/hand-fixed target.
-Three consecutive runs share commit/prompts/config/inputs/image. Changes restart
-the batch; debug/failed calls remain recorded. USD100 campaign; USD20/four hours per
-run. Unknown calls keep reserved cost. Stop at budget, do not silently increase.
+## 验收、预算与回滚原则
 
-Each phase uses an isolated commit. Old run versions are not migrated. Preserve
-failed attempts and manual edits before restoring accepted code in a new copy.
-Original raw runs/research are not cleaned. Old tracked content is recoverable from
-baseline. Before deletion confirm consumers removed and replacement tests exist.
+110 条需求全部进入 23 个任务；模型声明与独立验证分开。导出副本的 release 与 san clean 构建均须
+通过 CONNECT、PING、不支持协议级别响应／关闭，以及随后新的合法连接。使用原输入、随机 client ID、
+动态端口、真实 API、零响应缓存，不导入或人工修复目标工程。
 
-## Deletion ledger
+原计划要求三次运行共享提交、提示词、配置、输入和镜像；任一变化都重启批次，调试／失败调用完整保留。
+初始活动上限 $100，每次 $20／4 小时；后续用户先将单次提高到 $100，再将累计提高到 $300，历史费用
+继续占用且从不重置。未知调用保留预留，达到预算即停止。
 
-| Item | Reason, recovery, replacement |
-| --- | --- |
-| pipeline_design_s4_s9.md | Superseded by Design9.0; recover at baseline; one active pipeline contract |
-| 365 obsolete source/schema/test/fixture paths | Exact paths and replacement coverage in refactor_deletions.json; no remaining production imports; baseline recovery |
+每阶段使用隔离提交。旧运行不迁移。恢复已接受代码前，先保留失败尝试和人工变更。原始运行和研究资料
+不得清理；旧跟踪内容可从基线恢复。删除前必须确认消费者已移除并有替代测试。
 
-## Deviations / execution evidence
+## 删除台账
 
-- Actual Dockerfile is docker/sandbox.Dockerfile, not docker/Dockerfile in the plan;
-  retain the existing path. This is a path correction, not an architecture change.
-- R0: original HEAD/status unchanged, research hashes identical.
-- R1: user explicitly authorized replacing old design; historical research retained.
-- R2/R3: 10 input/plan/oracle unit checks passed; 26 original provider/SSE tests
-  passed unchanged. Current gold deterministically yields 23 tasks / 110 bindings.
-- R4/storage: 23 new tests passed, including actual Docker compilation failure,
-  diagnostic-driven API-action repair, budget reservation, snapshot recovery and
-  preservation of unexpected manual edits. Oracle positive/wrong-response/sanitizer/
-  missing-binary/idle cases: 4 tests passed in 7.58s, using test doubles only.
-- Build-only container successfully built without mosquitto or protocol libraries.
-- Storage reservation/checkpoint primitives were implemented alongside R4 because
-  tool sessions require durable evidence and pre-I/O budgets; R5 supplies their
-  production orchestration. This changes implementation grouping, not architecture.
-- A standalone stdlib verification_worker.py is packaged for the container boundary;
-  the host verification module cannot be executed there with package-relative imports.
+| 项目 | 原因、恢复与替代 |
+|---|---|
+| `pipeline_design_s4_s9.md` | 被 Design 9.0 取代；可从基线恢复；现行流水线只保留一个权威合同 |
+| 365 个废弃源码／Schema／测试／夹具路径 | 精确路径和替代覆盖见 `refactor_deletions.json`；生产代码已无引用；可从基线恢复 |
 
-## Completion
+## 实施偏差与早期证据
 
-Live debug 20260912T053200Z-c7cc1591 was intentionally interrupted after 18 real
-calls and USD0.39849744 accounted cost: the single-user history representation led
-to repeated list_files without implementation progress. Preserve its input, calls,
-Makefile and report; do not reuse its generated code. Fix: actual assistant/action
-and user/tool-result chat messages through the same provider API, no native tools.
+- 实际 Dockerfile 是 `docker/sandbox.Dockerfile`，不是计划中的 `docker/Dockerfile`；仅修正路径，不改变架构。
+- R0 核对原 HEAD／状态和研究摘要均未变化；R1 由用户明确授权替换旧设计并保留历史研究。
+- R2／R3 的 10 项输入／计划／oracle 测试和原有 26 项供应商／SSE 测试通过；当前 gold 确定性生成
+  23 个任务和 110 条绑定。
+- R4／存储新增 23 项测试通过，包括真实 Docker 编译失败、诊断驱动动作修复、预算预留、快照恢复和
+  意外人工修改保留。oracle 正确、错误响应、sanitizer、缺二进制、只休眠五类中有 4 项测试通过，
+  当时只使用测试替身。
+- 构建镜像不包含 mosquitto 或协议库仍可成功构建。
+- 工具会话需要持久证据和 I/O 前预算，因此存储预留／checkpoint 与 R4 同期实现，R5 再接入生产编排；
+  这只调整实施分组。独立 stdlib `verification_worker.py` 被打包到容器边界，避免宿主模块的相对导入问题。
 
-Independent sanitizer probe in runs/_refactor/asan-probe: an empty C program had
-5/20 PIE startup failures, 0/20 with -fno-pie -no-pie. Old templates used non-PIE too.
-The san Target now requires these flags; ASan/UBSan and interaction gates remain.
-This is consistent with the extra repair observed in the test-only CLI wiring run.
+## 调试运行与机制修复
 
-Second live debug 20260912T053748Z-a3f90aac was interrupted at 26 calls and
-USD0.98489160 accounted cost. It over-read the full Spec in bootstrap and attempted
-unavailable acceptance paths. Added the complete task overview, explicit bootstrap
-scope, character-pagination guidance, and read-only input/check mounts. The oracle
-remains immutable and host judged. Combined debug accounting: USD1.38338904.
-No generated source was copied into NePA or subsequent runs.
+`20260912T053200Z-c7cc1591` 在 18 次真实调用、$0.39849744 后主动中断。单条 user 历史表示导致模型
+重复 `list_files` 而不实现。修复为同一供应商 API 中真实配对的 assistant/action 与 user/tool-result
+消息，仍不使用原生工具。输入、调用、Makefile 和报告均保留，生成代码不复用。
 
-Fault injection proved a final repair could fail but export still return success.
-The terminal loop now requires every task passed before checking export. Its
-regression test failed against the old loop and passed after correction.
-Optional transport was incorrectly indexed as mandatory by the new Spec linter;
-retained original Spec tests caught it, now handled according to Spec3 schema.
+`runs/_refactor/asan-probe` 的独立探测显示：空 C 程序 PIE 启动失败 5/20 次，使用
+`-fno-pie -no-pie` 后为 0/20；旧模板也使用非 PIE。因此 san Target 增加这些参数，ASan/UBSan 与
+交互门禁不变。
 
-R6 initial full non-live suite: 94 passed, one paid test deselected, 23.03 seconds;
-actual Docker tests ran, not skipped. Full mypy: all 29 retained Python modules
-passed, without the previous four-file exclusion or skipped imports. Original
-provider/SSE tests remain; obsolete stage API tests have named replacement coverage.
-Runtime configuration no longer requires Jinja2 or pytest; pytest is a dev extra.
-Wheel 0.1.0 built and installed into an independent virtual environment; CLI help
-and Spec/Target/Acceptance lints passed from a non-source directory. Packaged coder,
-seven schemas/examples and verification worker are included. Historical configs
-m1-* and experiments remain as baseline-only records, not loaded by production.
-CI builds the sandbox before tests and does not install or invoke OpenSpec.
-Additional crash-window tests cover response-before-settlement and Git-checkpoint-
-before-state-publication, preserving unknown costs and incomplete trees. A Linux
-deadline alarm now interrupts in-flight operations at the approved four-hour limit,
-not only at the next model decision; sandbox cleanup also handles that interruption.
+第二次调试 `20260912T053748Z-a3f90aac` 在 26 次调用、$0.98489160 后中断。它在 bootstrap 中读取
+完整 Spec，并尝试不存在的 Acceptance 路径。随后增加完整任务概览、明确 bootstrap 范围、字符分页说明
+和只读输入／检查挂载。oracle 始终不可变且由宿主判定。两次调试合计 $1.38338904，生成源码未被复制。
 
-Pre-live frozen candidate: full non-live regression 100 passed / one paid test
-deselected in 23.49s; Ruff passed and mypy passed all 29 production modules.
-Wheel resource imports and lints passed outside the source checkout.
+故障注入发现最终修复失败后导出仍可能返回成功；终态循环改为必须先确认全部任务通过。回归测试在旧
+循环失败、修正后通过。新 Spec lint 曾把可选 transport 当作必选，原 Spec 测试发现后按 Spec 3 修复。
 
-Candidate 2241bbd / batch 69de2630c7494280b25345caef93c5c8 failed by controlled
-interruption (CLI 130), not task-budget exhaustion: run 20260912T055806Z-895133e7
-accepted bootstrap, then spent all 40 decisions of shared-wire's first session
-without modifying source. Repeated individual requirement reads and invalid XML
-pseudo-tool outputs were preserved. One read-only response consumed 12040 output
-tokens. Stopped after 56 calls / USD1.40643492, with 1/23 tasks accepted.
-Combined live accounting is USD2.78982396; no completed generation.
+R6 首轮非 live 测试 94 通过、1 个付费测试未选中，23.03 秒；真实 Docker 测试未跳过。全部 29 个生产
+模块通过 mypy；运行配置不再依赖 Jinja2 或 pytest，pytest 仅属开发依赖。wheel 0.1.0 在独立虚拟环境
+安装后，CLI help 和三类输入 lint 通过；coder、七套 Schema／示例和 verification worker 均被打包。
+历史 m1-* 配置和实验只作为基线记录，不进入生产。CI 在测试前构建沙箱且不安装 OpenSpec。新增崩溃
+窗口测试覆盖“响应先于结算”和“Git checkpoint 先于状态发布”；Linux alarm 在四小时到期时中断正在
+执行的操作，并清理沙箱。
 
-Evidence-driven correction: include all structurally referenced requirement texts
-in bootstrap/shared-wire context (no semantic guessing or protocol branch), show
-remaining decisions, supply JSON action examples and explicit XML correction.
-Search now supports regex because actual agent actions used regex alternation and
-the literal implementation silently returned no matches. Oracle, task ownership,
-model, budgets and final acceptance remain unchanged. Next batch starts at zero.
+预 live 候选的非 live 回归为 100 通过、1 个付费测试未选中，23.49 秒；Ruff、29 模块 mypy 和源码
+目录外 wheel 导入／lint 均通过。
 
-Candidate 48c09e7 / batch e2df059be0a249f482a13987a5df128e failed naturally at the
-per-run reservation budget (CLI 3), without manual interruption: run
-20260912T062127Z-d81914f3, 539 calls, USD19.77608556, 7661.68 seconds, 16/23
-tasks accepted and 48/110 claims. No delivery; runs two and three did not start.
-Campaign accounting including previous debug runs: USD22.56590952. Retain everything.
-The generated project had successful agent-invoked smoke checks, but these are not
-the final independent export gate and do not establish complete acceptance.
+候选 `2241bbd`、批次 `69de2630c7494280b25345caef93c5c8`、运行
+`20260912T055806Z-895133e7` 在 bootstrap 后，shared-wire 首会话用尽 40 次决策且没有修改源码，最终
+受控中断（CLI 130）。重复逐条读取需求和 XML 伪动作被保留，一次只读响应输出 12040 token。56 次调用
+花费 $1.40643492，只接受 1/23 任务。累计真实调用 $2.78982396，没有完整生成。
 
-Cost diagnosis: 13,720,245 input and 420,546 output tokens; about 91.6% of cost is
-input. There were 45 non-action responses. Several full finish responses omitted
-the final outer closing brace; generic JSON extraction then returned their inner
-arguments object, obscuring the syntax error behind a large generic schema error.
-The final task repeatedly submitted partial claims instead of repairing its report.
-Evidence also shows source reads using 80/90-character windows as if they were lines,
-and an evidence-root listing that incorrectly searched the project directory.
+证据驱动修正：将结构引用的全部需求文本放入 bootstrap／shared-wire 上下文；显示剩余决策；给出 JSON
+动作样例和 XML 拒绝反馈；`search` 支持正则，以处理模型实际使用的正则 alternation。oracle、任务归属、
+模型、预算和最终验收不变。
 
-Corrections within the existing design: reduce configurable actual-wire context
-limit from 180000 to 60000 bytes (all task facts retained, older transcript trimmed);
-require complete JSON actions in sessions with precise syntax location; validate
-the selected action schema branch for useful missing-argument diagnostics; enumerate
-missing/extra/duplicate claim IDs; show a complete finish envelope and explicit
-character/line reading guidance. Fix read-only evidence-root resolution. No model,
-task count, claim requirements, cost ceilings or oracle changed. Regression tests
-cover malformed outer JSON, schema diagnostics, claim diagnostics and evidence root.
-No edits to the authoritative design are required for these implementation/config
-corrections. The next frozen batch starts from three entirely new projects.
+候选 `48c09e7`、批次 `e2df059be0a249f482a13987a5df128e`、运行
+`20260912T062127Z-d81914f3` 自然达到单次预留上限（CLI 3）：539 次调用、$19.77608556、7661.68 秒，
+16/23 任务和 48/110 声明完成，没有交付；后两次未启动。累计活动 $22.56590952。模型运行过 smoke，
+但那不是最终独立导出门禁。
 
-Subsequent explicit user authorization on 2026-09-12 raises the per-run cost ceiling
-from USD20 to USD100. Update the authoritative budget clause and configuration to
-match this instruction. Campaign ceiling remains USD100, prior USD22.56590952 stays
-counted, and the four-hour deadline remains. Available campaign funds are therefore
-USD77.43409048, not a new USD100 allocation. Old snapshots and failed runs remain
-unchanged. The prompt/context improvements above continue alongside this change.
+该运行输入 13,720,245、输出 420,546 token，约 91.6% 费用来自输入；有 45 次非动作响应。多个完整
+`finish` 少最外层右花括号，通用 JSON 提取反而取出内部 arguments，掩盖成大型 Schema 错误。最终任务
+反复提交部分声明。证据还显示模型把 80／90 字符窗口误当成行，以及 evidence 根目录错误搜索工程目录。
 
-The next user instruction explicitly raises the cumulative experiment ceiling to
-USD300 as well. This supersedes the preceding USD100 campaign limit: current limits
-are USD100/run, USD300/campaign, four hours/run. Historical USD22.56590952 remains
-accounted, leaving USD277.43409048. Configuration validation and the authoritative
-design now reflect both authorized increases; no historical record is rewritten.
+在既有设计内修正：实际 wire 上限从 180000 降至 60000 字节，保留全部任务事实并裁剪旧转录；要求完整
+JSON 动作并指出语法位置；针对所选 Schema 分支给出缺参数诊断；列出缺失／多余／重复声明 ID；提供
+完整 `finish` 外壳和字符／行读取说明；修复只读 evidence 根路径。模型、任务数、声明、费用上限和 oracle
+均未改变。随后用户将单次上限提高至 $100、累计提高至 $300，四小时限制不变，历史费用仍计入。
 
-Validation after the final budget changes: full non-live suite 110 passed / one
-paid test deselected in 34.07 seconds; Ruff and mypy (all 29 production modules)
-passed; wheel/sdist rebuilt. Added long-history tests exercise actual 60000-byte
-request trimming while retaining complete current task facts. A test process that
-had imported the earlier USD100 campaign validator was restarted after the live
-user-authorized config update; only the fresh full run above is the final result.
+最终预算调整后，非 live 测试 110 通过、1 个付费测试未选中，34.07 秒；Ruff、29 模块 mypy、wheel／
+sdist 通过。长历史测试覆盖 60000 字节真实请求裁剪并保留完整当前任务事实。
 
-## Context-mechanism root-cause correction
+## 上下文机制根因修复
 
-The user authorized all evidence-driven design changes during this refactor without
-further per-change approval. Remote writes, existing user changes, cost ceilings and
-the actual end-to-end acceptance boundary remain protected. Latest scheduling:
-prove one complete real run first, then execute two independent stability repeats
-on the identical frozen candidate; these two can run concurrently.
+`fc170b1` 并行批次因两个任务会话耗尽及一次用户中断失败，活动累计 $49.02257712。详细记录见
+`research/session_context_failure_analysis.md`。一次性采用调度器按摘要保留在该批次 `scheduler.py`；
+活动测试驱动已删除已完成的采用 CLI，并要求第一次运行完成独立导出验证后才能启动重复样本。
 
-The fc170b1 parallel batch failed: two task-session exhaustions and one subsequent
-user-authorized interruption, cumulative campaign USD49.02257712. See
-session_context_failure_analysis.md for the exact runs and transcript audit.
-Its one-time adoption scheduler is preserved byte-for-byte in that batch's
-scheduler.py (SHA256 matches batch.harness_sha256); its completed adoption CLI has
-been removed from the active test harness. The active harness gates repetitions
-on the first run's full independent export verification, not only its CLI result.
+根因修复位于 `agents/context.py` 和现有 session／workspace 路径：精确读取观察带版本、去重，并在请求前
+与真实文件摘要比较；未变源码经过构建命令后仍保留，已变源码失效。请求只包含完整动作／结果事务，并
+保留最新失败／检查诊断。旧事务可淘汰，当前事实、观察和最新反馈不能静默消失。工作集超限在付费调用前
+明确失败。跨会话共享合法观察，不插入未配对 user 消息。它只是临时模型上下文，不是第二份工程状态或缓存。
 
-Root fix implemented in agents/context.py and the existing session/workspace path:
-versioned exact read observations are deduplicated and checked against actual file
-hashes before requests; unchanged source survives command/build actions, changed
-source is invalidated. Requests use complete action/result transactions and retain
-the latest observed failure/check diagnostic. Older transactions may be evicted;
-current facts/observations/latest feedback cannot silently disappear. Over-capacity
-working sets cause an explicit error before further paid API calls. Repeated
-sessions share valid observations without inserting unpaired user messages. This
-is ephemeral model context, not another persisted project state or answer cache.
+只读重放 `runs/_refactor/replay_failed_context.py` 重现失败 SUBSCRIBE 的 120 步读取序列，不调用 API、
+不改代码。60000 字节时第八步需要 62714 字节并明确失败；180000 字节时 120 步全部容纳，八个观察、
+峰值请求 130855 字节。该结果只证明上下文保留，不证明自主生成成功。
 
-Read-only replay runs/_refactor/replay_failed_context.py executes the exact 120-step
-failed SUBSCRIBE read sequence without API calls or code changes. At 60000 bytes,
-the eighth step requires 62714 bytes and explicitly fails; at 180000, all 120 steps
-fit, retaining eight observations with a 130855-byte peak request. This is context
-retention evidence only, not a claim of autonomous generation success.
+回归覆盖工作集保留、源码摘要失效、删除／符号链接、JSON-pointer 读取、最新编译诊断、容量耗尽、跨三
+会话真实编译修复、并发预算预留，以及首次成功后才启动重复样本。完整测试 120 通过、1 个付费测试未
+选中，Ruff 和 30 模块 mypy 通过；最终 pre-live 重跑同样通过。wheel 在隔离环境重装，三类输入 lint
+从源码外通过，原工作树状态和研究摘要未变。
 
-Regression coverage includes working-set retention, source hash invalidation,
-deletion/symlink changes, JSON-pointer reads, latest compiler diagnostic retention,
-capacity exhaustion, real compiler repair spanning three sessions, concurrent
-campaign reservations, and first-success-before-repetitions scheduling. Full suite:
-120 passed / one paid test deselected in 34.88s; Ruff and mypy passed all 30 production
-modules. Model, complete input, serial task plan, budgets and oracle are unchanged.
-Final pre-live rerun: 120 passed / one deselected in 33.97s. Wheel reinstalled in the
-isolated package-test environment; new context module imports from site-packages,
-and Spec/Target/Acceptance lint all pass from outside the source directory.
-Original workspace status and research SHA256 were rechecked unchanged.
+候选 `ebd3341`、批次 `e5e9fb02bb134fba86707b8372df9f4c`、运行
+`20260912T112242Z-56f67d18` 在 3566.52 秒后以 CLI 2 停止，因为 DeepSeek 在 call 278 返回 HTTP 402，
+不是网络挂起或 NePA 预算。12 个基础／消息任务均在一个会话内完成；CONNECT 用 22 次决策、SUBSCRIBE
+用 23 次，明显优于此前 120 次读取循环。requirements:001 进行中；无交付和最终验收，重复样本未启动。
+本次占用 $8.12165244，其中 402 调用保留 $0.29382936 预留；累计 $57.14422956／$300。适配器正确地
+不重试 402。因未保存响应正文，仅凭状态无法证明具体账户结算原因。后续增加 402 单次尝试和保留预留
+回归，非 live 测试 121 通过、1 未选中；Ruff、30 模块 mypy 通过。
 
-Candidate ebd3341 / batch e5e9fb02bb134fba86707b8372df9f4c / run
-20260912T112242Z-56f67d18 stopped after 3566.52s with CLI 2 because the configured
-DeepSeek endpoint returned HTTP402 on call278 (error response after 0.86s, not a
-network hang or NePA budget limit). All 12 foundation/message tasks passed within
-one session each; CONNECT used22 decisions and SUBSCRIBE23, compared with the
-previous read-loop failures at120. This is progress evidence, not full generation
-or a controlled model-success-rate comparison. requirements:001 was in progress;
-no delivery and no independent final acceptance. Repetition runs were not launched.
+## 充值恢复与 V4.1 Flash 路由
 
-This run accounts USD8.12165244, including an unresolved USD0.29382936 reservation
-for the402 call. Historical cumulative accounting: USD57.14422956 out of USD300.
-Do not clear reservations or reset prior costs. The provider adapter correctly
-does not retry402. Its response body was not retained, so the exact account billing
-condition is not proven solely by the recorded status. Restoring API availability
-requires an external account action or a verified alternative provider config.
-Alternative configured credentials are present, but their model prices are absent;
-do not initiate unpriced paid generation or claim those accounts are usable.
-After adding a402 regression (one attempt, reservation retained), full non-live
-suite:121 passed / one paid test deselected in34.30s; Ruff and all30-module mypy
-passed. No production code or prompt changed after candidate ebd3341.
+用户确认充值并授权恢复上述运行：简单任务使用 V4.1 Flash，困难任务使用 V4 Pro；第一次继续运行可以
+混合配置。2026-09-12 核对官方价格：API 名为 `deepseek-flash`，服务 DeepSeek-V4.1-Flash；Pro 继续
+提供服务。美元／百万 token：Flash 忙时缓存命中／未命中／输出 0.006／0.30／1.20，闲时
+0.003／0.15／0.60；Pro 忙时 0.044／1.32／3.96，闲时 0.022／0.66／1.98。忙时 UTC 为周一至周五
+01:00–04:00、06:00–10:00。记账仍按忙时未命中保守预留，不把折扣当作实际账单。
 
-Not complete. No post-refactor live success yet. Final conclusion must describe
-three minimum-check successes, not all requirements or arbitrary protocols proven.
+默认 YAML 将 bootstrap／message／requirements 的首会话路由到 Flash，将 shared-wire／integration／
+follow-up／retry／repair 路由到 Pro。实际请求模型决定 wire、价格和上下文；选择与协议名无关。恢复配置
+变化必须显式说明，旧状态和报告先存为不可变证据，且不重置尝试、创建时间、call ID、费用或 checkpoint。
+只读认证 GET `/models` 返回 200，并精确包含 `deepseek-flash`、`deepseek-v4-pro`，未产生生成费用。
+130 项回归通过、1 项付费未选中；Ruff、30 模块 mypy 通过。
 
-### Recharge continuation and V4.1 Flash routing (2026-09-12)
+## 首次完整结果与延迟优化
 
-The user confirmed recharge and explicitly requested resuming the interrupted run,
-using V4.1 Flash for faster tasks and V4 Pro for difficult work; first experimental
-continuation may mix configurations. Official pricing was directly checked at
-https://api-docs.deepseek.com/quick_start/pricing/ on 2026-09-12. The API name is
-`deepseek-flash`, serving DeepSeek-V4.1-Flash, not `deepseek-v4.1-flash`.
-USD per million tokens, Flash peak: cache-hit input0.006, cache-miss input0.30,
-output1.20; off-peak0.003/0.15/0.60. Pro peak0.044/1.32/3.96,
-off-peak0.022/0.66/1.98. Peak hours Monday-Friday01:00-04:00 and06:00-10:00 UTC.
-The current official pricing page supersedes the September10 announcement's
-planned Pro retirement: it now explicitly says Pro service and pricing continue.
+运行 `20260912T112242Z-56f67d18` 于 13:50:04 UTC 完成：23/23 任务、110 条需求声明、CLI 0；release、
+san 和必过交互通过。交付位于 `runs/e2e/20260912T112242Z-56f67d18/delivery`。额外复制导出经 clean build
+和独立检查通过，证据位于 `runs/e2e/_acceptance/first-continuation-20260912/batch.json`。两个变体服务／
+客户端退出码均为 0，无 sanitizer 报告和人工生成代码修改。运行占用 $21.78629862，活动累计
+$70.80887574，并保留 402 预留。
 
-Accounting retains conservative peak cache-miss rates for reservations and usage
-estimates. Cache-hit and off-peak discounts are documented, not claimed as realized
-savings or a provider invoice. Historical settled costs and unresolved reservations
-remain unchanged. Default YAML selects Flash for initial bootstrap/message/requirement
-sessions, Pro for shared-wire/integration/follow-up and retry/repair sessions.
-Actual request model drives wire payload, pricing and context; tests cover all routes
-and real compiler-repair escalation. No protocol names participate in selection.
+用户随后要求先分析时间并优化。该运行墙钟 147.36 分钟，其中 18.58 分钟是充值／开发暂停；API 等待
+125.35 分钟，205 次无效动作消耗 31.28 分钟。详见 `research/session_latency_analysis.md`。下一候选
+在配置、请求、上下文和供应商报文启用明确 JSON-object 输出；模型路由、思考默认、完整上下文／输出
+限制、23 任务、110 需求、任务／会话预算和独立质量门禁不变。非付费回归 138 通过、1 未选中，Ruff
+和 30 模块 mypy 通过。
 
-The minimal affected path includes config, context/session, client, resume/store,
-report and schema because model selection must propagate to actual billing and
-explicit continuation must preserve evidence end-to-end. Resume configuration
-changes are explicit and reasoned, preserve old state/report in immutable evidence,
-and do not reset task attempts, creation time, call IDs, costs or checkpoints.
-Run20260912T112242Z-56f67d18 remains the continuation target. Its first requirement
-session was interrupted by402; its next session uses Pro as an existing retry,
-then new ordinary task sessions use Flash. No generated source is manually edited.
-Read-only authenticated GET /models returned HTTP200 and exactly deepseek-flash /
-deepseek-v4-pro; no generation charge was initiated by this check. Regression suite:
-130 passed, one paid test deselected,34.45s; Ruff and mypy all30 modules passed.
-Resume launched from387955c, retaining the original run identity and time limit.
-The opt-in harness now accepts NEPA_LIVE_FIRST_RUN for the explicitly requested
-development continuation: it must already be successful and pass the same current
-input/config/runtime/image, empty-root, call, export, clean-build and oracle checks
-before launching two fresh projects. Reports distinguish that mixed-version first
-run from the two stability samples. A failed first run never triggers repetitions.
+调度改为以 `NEPA_LIVE_FIRST_EVIDENCE` 指定第一次成功的独立验证 JSON；按原运行时／配置重新核对该
+基线，再在同一优化候选上启动两个新空工程。报告明确区分基线和当前版本。这符合“基线成功→分析优化
+→重复”的用户流程，不再声称三次完全相同候选。
 
-### First complete live result, then measured latency optimization
+## R7 最终验收
 
-Run20260912T112242Z-56f67d18 completed13:50:04UTC,23/23 tasks,110 requirement
-declarations, real CLI0, release/san and mandatory interactions passed. Delivery:
-runs/e2e/20260912T112242Z-56f67d18/delivery. An additional copied export was clean-built
-and independently checked: runs/e2e/_acceptance/first-continuation-20260912/batch.json.
-Both variants' server/client exits0, no sanitizer reports, no manual generated edits.
-Run accountingUSD21.78629862; campaignUSD70.80887574, retaining402 reservation.
+第一次开发继续运行通过；完成时间／费用分析和机制优化后，同一冻结候选上的两个新运行并发通过。
+批次 `runs/e2e/_acceptance/7266ae1ab1d642e9be3424b141c05859/batch.json` 状态为 passed；付费驱动
+1 项通过，耗时 4614.88 秒，未复用第一次运行源码或响应。
 
-The user then required time analysis and optimization before further experiments.
-See session_latency_analysis.md:147.36 wall minutes including18.58-minute recharge/
-development pause;125.35 API minutes,31.28 spent on205 invalid action responses.
-The next candidate enables explicit JSON-object output in config/request/context/
-provider payload. It keeps model routing, thinking defaults, full context/output
-limits,23-task planning,110 requirements, task/session budgets and all independent
-quality gates unchanged. Regression coverage includes actual HTTP serialization,
-wire-byte budgeting, malformed/empty output rejection and real compiler repair.
-Full non-paid suite138 passed / one deselected,38.28s; Ruff and all30-module mypy pass.
-
-Scheduling adjustment supersedes the preceding NEPA_LIVE_FIRST_RUN interface:
-NEPA_LIVE_FIRST_EVIDENCE identifies the first passed independent-verification JSON.
-Reverify that baseline with its recorded runtime/config; require identical input and
-image hashes, then launch two fresh projects on one frozen optimized candidate.
-Record distinct baseline/current versions. This implements the user's requested
-baseline-then-optimize-then-repeat sequence, not three unchanged-candidate samples.
-No repetitions had started before the time analysis and offline validation above.
-
-### R7 final acceptance: completed under the amended user workflow
-
-First development continuation passed, followed by the requested time-cost audit
-and mechanism optimization, then two fresh parallel runs on one frozen candidate.
-Batch: runs/e2e/_acceptance/7266ae1ab1d642e9be3424b141c05859/batch.json, status passed.
-Paid harness:1 passed in4614.88s; no first-run source or response reuse.
-
-| Run | Candidate | Tasks / declarations | CLI / independent builds | Interactions / sanitizer | Wall minutes | USD |
+| 运行 | 候选 | 任务／声明 | CLI／独立构建 | 交互／sanitizer | 墙钟分钟 | 美元 |
 |---|---|---|---|---|---:|---:|
-| 20260912T112242Z-56f67d18 | Recorded development continuation | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 147.36 including pause | 21.7863 |
-| 20260912T135449Z-4c036768 | 0d93e4c | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 76.76 | 10.3946 |
-| 20260912T135449Z-22021a32 | 0d93e4c | 23 /110 | 0 / clean,release,san all0 | Both variants passed / none | 75.38 | 6.9263 |
+| `20260912T112242Z-56f67d18` | 记录的开发继续版本 | 23／110 | 0／clean、release、san 均为 0 | 双变体通过／无 | 147.36（含暂停） | 21.7863 |
+| `20260912T135449Z-4c036768` | `0d93e4c` | 23／110 | 全部通过 | 双变体通过／无 | 76.76 | 10.3946 |
+| `20260912T135449Z-22021a32` | `0d93e4c` | 23／110 | 全部通过 | 双变体通过／无 | 75.38 | 6.9263 |
 
-All three independently copied exports passed dynamic-port/client-ID CONNECT,
-PING, unsupported-level CONNACK01 followed by close, and a later valid connection;
-release and ASan/UBSan builds retained real binaries. Server/client exits were0,
-not normalized errors. Complete source/Makefile/README, run/report/evidence and
-delivery hashes are present; all110 requirements retain their primary claims.
-Claim coverage is not proof that every requirement is semantically correct.
+三个复制导出均通过动态端口／client ID 的 CONNECT、PING、不支持级别 CONNACK 01 后关闭，以及后续
+合法连接；release 和 ASan/UBSan 均为真实二进制。服务／客户端退出码为 0，完整源码、Makefile、README、
+运行／报告／证据和交付摘要均存在；110 条需求保留主声明，但声明覆盖不证明语义全部正确。
 
-Deliveries are under each run's delivery/ directory. Binary sizes (release/san):
-baseline50392/326848 bytes; optimized4c03676846816/259296;
-optimized22021a3227648/148752. Generated C-file counts14/15/21 respectively;
-distinct empty-root checkpoint repositories and actual calls were verified.
+二进制大小（release／san）：基线 50392／326848 字节；`4c036768` 为 46816／259296；`22021a32`
+为 27648／148752。生成 C 文件数分别为 14／15／21，均有独立空根 checkpoint 和真实调用。
 
-Frozen optimized runtime SHA256:
-4ad68cc3e2b6fbbdb41be67d8e3912e324e53c48306ff822e74c3e45b7f68d62.
-Configuration:a4ad737de8835a099129e7017fa5f53703fd2b7e144a5681a8f178dbc2f181b4.
-Sandbox:sha256:ecd9faac985a5e00a5be7d3e08edd0b74ffaedceb9db097d32aee44ee626d9f8.
-Exact commit, input/acceptance and harness hashes are in batch.json. Full call/action
-evidence remains in each run, including requested/returned model identities and
-conservatively accounted unknown calls. No paid response cache was used.
+冻结优化运行时 SHA256 为 `4ad68cc3e2b6fbbdb41be67d8e3912e324e53c48306ff822e74c3e45b7f68d62`；
+配置为 `a4ad737de8835a099129e7017fa5f53703fd2b7e144a5681a8f178dbc2f181b4`；沙箱为
+`sha256:ecd9faac985a5e00a5be7d3e08edd0b74ffaedceb9db097d32aee44ee626d9f8`。精确提交、输入、Acceptance
+和驱动摘要均在 `batch.json`。没有使用付费响应缓存。
 
-Historical cumulative campaignUSD88.12981374; no budget resets, remote push, main
-merge or external deployment. First-run snapshot/config-change records and failed
-experiments remain preserved. Original user worktree remains untouched.
+历史活动累计 $88.12981374；没有重置预算、推送、合并主分支或部署，失败实验和配置变化全部保留。
+排除第一次运行 18.58 分钟暂停后，两个新运行墙钟分别减少 40.4% 和 41.5%。比较限制和剩余格式错误
+见延迟分析。最终验收只能表述为：一个开发基线和两个优化候选新运行通过规定构建和最小交互；这满足
+用户后续修订流程，不满足已被替代的“三次同候选”要求，也不证明全部 110 条需求、任意协议或语言。
 
-Compared with the first baseline excluding its18.58-minute pause, fresh runs took
-40.4% and41.5% less wall time. See session_latency_analysis.md for measured categories,
-remaining format errors and comparison limitations. Packaging was rebuilt/reinstalled
-outside the checkout; installed JSON wire mode and all three input lints passed.
-
-Acceptance statement: one development baseline and two optimized-candidate fresh
-runs passed the defined build/minimum-interaction checks. This satisfies the latest
-user-directed sequence, not the superseded requirement for three unchanged-candidate
-runs. Other protocol behaviors, all110 requirements' correctness, other protocols
-and languages are not comprehensively verified. No further paid experiments needed
-for this amended acceptance; do not expand the task solely to claim broader coverage.
-
-Final post-live regression exposed a repository test-discovery boundary defect:
-pytest without testpaths recursively imported generated delivery/tools/test_*.py,
-causing21 collection errors (including trying to treat pytest's -q as a server
-executable). All tracked NePA test modules are under tests/; these generated files
-are independent project diagnostics, not NePA pytest tests. Set testpaths=["tests"]
-and add an actual subprocess collection regression with a generated script that
-must not be imported. No tracked test, generated evidence or assertion was removed;
-generated project checks remain in the real sandbox acceptance path. This is a
-test-discovery/configuration correction only: production runtime/config/prompts and
-the accepted deliverables remain byte-identical to the paid candidate.
-Final full default non-live run after that correction:139 passed / one paid test
-deselected in39.62s; Ruff passed, mypy passed all30 production modules, diff check
-passed. Run/report schemas, budgets and delivery hashes were rechecked consistent
-for all three successes; optimized production runtime hash still matches0d93e4c.
-There are no active experiments or sandbox containers. Original research and
-lessons hashes remain401f640e... and991f7096..., with the original user diff intact.
+最终非 live 回归还发现 pytest 会递归导入生成交付中的 `tools/test_*.py`，造成 21 个收集错误。项目将
+`testpaths` 固定为 `tests`，并增加子进程收集回归。未删除任何测试、生成证据或断言，生产运行时、
+配置、提示词和交付保持不变。修复后默认非 live 测试 139 通过、1 个付费测试未选中，39.62 秒；Ruff、
+30 模块 mypy 和 diff check 通过。三个成功运行的 Schema、预算和交付摘要一致；当时没有活动实验或容器。

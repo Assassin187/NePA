@@ -64,3 +64,5 @@ candidate-4：能力通过；Flash 四会话及 Plus 前两会话通过，Plus �
 candidate-5：能力与两模型共八个公开工具会话全部通过。真实私有修复以脱敏 expected/actual_length 定位 n-1 错误并完成源码修复、双构建和自测，但 12 次决策用尽未 finish，保持失败。明确受控修复任务的决策预算与最后 finish 要求，主机仍承担独立双变体复验；不增加预算、不修改生成代码或检查标准。下一候选重新执行全部门槛。
 
 candidate-6 前置门槛全部通过：能力四组合八样本；两模型各四个公开会话；真实私有修复 20260913T025938Z-67b7298d，5 次 Plus 调用、¥0.03329560，同一私有断言与种子 before 两变体 echo_mismatch，after 两变体 echo_exact。无手工修复、未改私有资产。候选摘要 91a5242e68d514e6804f7cab3229ae9135ca9e171f92898f62eb36cae63f882e 已冻结；空工程 MQTT 首轮 20260913T030005Z-ee4d7b51 已启动，完整链条失败即停，尚不宣称协议成功。
+
+MQTT 首轮监控审查：一次低成本监控回执误把 mqtt-first-initial.json 的空项目断言 status:true 当作生成成功，主任务依据实际运行目录 run.json 拒绝该结论并纠正。初始条件通过不等于 generation/report/export 成功，最终门槛仍由 driver.verify_generation 和独立复验执行；此次监控误读未修改任何状态或报告。

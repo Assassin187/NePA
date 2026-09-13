@@ -1,174 +1,143 @@
-# Protocol expansion implementation and evidence
+# 协议扩展实施与证据
 
-The approved next iteration keeps all 110 original MQTT requirements, adds independent
-core behavior checks, compares JSON-object with native tool calls under strict local
-validation, and requires one fresh success for MQTT and the HTTP fixed-length subset.
-No OpenSpec workflow is used. Inputs are parallel under gold_file/mqtt and gold_file/http;
-each has specIR.json, target.json, acceptance.json and read-only oracle assets.
+本轮保留 MQTT 原有 110 条需求，增加独立核心行为检查；在严格本地校验下比较 JSON-object 与原生
+工具调用；并要求 MQTT 与 HTTP 固定长度子集各完成一次全新生成。全过程不使用 OpenSpec。
+两套输入并列存放在 `gold_file/mqtt` 和 `gold_file/http`，各自包含 `specIR.json`、`target.json`、
+`acceptance.json` 及只读 oracle 资产。
 
-## Budgets and experiment order
+## 预算与实验顺序
 
-1. Offline tests and historical export-copy audit.
-2. Freeze and execute action_study.py: 24 Flash/8 Pro paired samples per interface,
-   four actual tool fixtures per interface, strict Beta capability probe. CNY10 maximum,
-   included in the new MQTT campaign. Native promotion follows preregistered gates.
-3. Freeze the selected candidate. Launch empty-project MQTT and HTTP generations
-   concurrently, as subsequently authorized by the user. Independently rebuild and
-   verify each export; one failure does not stop the other experiment. These are
-   feasibility samples, not stability.
+1. 完成离线测试和历史导出副本审计。
+2. 冻结并执行 `action_study.py`：每种接口使用相同的 24 个 Flash、8 个 Pro 样本，各运行四个真实
+   工具夹具，并探测 Strict Beta。总上限 ¥10，计入新的 MQTT 活动。只有达到预注册门槛才切换原生接口。
+3. 冻结最终候选，并行启动空工程 MQTT 和 HTTP 生成；分别对导出副本重新构建和验证。一个实验失败
+   不阻断另一个。这些样本只证明本轮场景可行，不证明稳定性。
 
-Latest budget authorization: use new roots runs/mqtt-e2e and runs/http-e2e, each
-CNY300 cumulative, each generation CNY20/four hours. Study total CNY10 is included
-in the new MQTT campaign and is not replenished on retry. These replace earlier USD
-limits for this iteration. Historic runs remain under runs/_refactor/worktree/runs/e2e
-and are explicitly excluded from the new limits. All new failures/reservations count.
+最终预算授权：`runs/mqtt-e2e` 和 `runs/http-e2e` 各自使用新的 ¥300 累计额度，每次生成最多 ¥20／
+4 小时。动作研究 ¥10 计入新 MQTT 活动且失败后不补回。旧美元限额由本轮人民币限额替代；历史运行
+仍在 `runs/_refactor/worktree/runs/e2e`，明确不计入新额度。所有新失败和未知调用预留均计入。
 
-Domestic prices are captured from the official Chinese price page on 2026-09-13:
-Flash peak cache-hit input / miss input / output = CNY0.04/2/8 per million tokens;
-Pro = CNY0.30/9/27. Off-peak is half price. Peak is Asia/Shanghai Mon-Fri 09:00-12:00
-and 14:00-18:00. Run6.0 records request-start UTC, selected period/rates and available
-cache counts. Missing cache counts assume all misses; unknown usage retains the
-peak-price reservation. These are estimates, not invoices. Legacy USD reports stay
-unchanged and require their original runtime.
+国内价格采用 2026-09-13 官方页面快照：Flash 忙时缓存命中输入／未命中输入／输出为每百万 token
+¥0.04／¥2／¥8，Pro 为 ¥0.30／¥9／¥27，闲时半价。忙时为上海时区周一至周五 09:00–12:00、
+14:00–18:00。Run 6.0 记录请求开始 UTC、所选时段与价格，以及可获得的缓存计数。缓存计数缺失时
+按全部未命中估算；usage 未知时保留忙时价格预留。金额是估算，不是供应商账单。旧美元报告保持原样，
+只能用其原运行时复现。
 
-## Historical audit
+## 历史导出审计
 
-The original deliveries and reports were not changed. Copies were clean-built for
-release and ASan/UBSan and run through 20 mandatory checks (minimum plus 19 additions).
-Raw results and per-requirement scenario joins: runs/behavior-audit-v4/summary.json.
+原交付和报告均未修改。审计只复制交付，执行 clean release 与 ASan/UBSan 构建，再运行 20 个必过
+MQTT 场景。原始结果和按需求关联记录在 `runs/behavior-audit-v4/summary.json`。
 
-| Historical run | Build variants | Expanded checks |
+| 历史运行 | 构建变体 | 扩展检查 |
 |---|---|---|
-| 20260912T112242Z-56f67d18 | Both passed | All passed |
-| 20260912T135449Z-4c036768 | Both passed | 12 cases failed in each variant |
-| 20260912T135449Z-22021a32 | Both passed | 6 cases failed in each variant |
+| `20260912T112242Z-56f67d18` | 两者通过 | 全部通过 |
+| `20260912T135449Z-4c036768` | 两者通过 | 每个变体各失败 12 个场景 |
+| `20260912T135449Z-22021a32` | 两者通过 | 每个变体各失败 6 个场景 |
 
-4c036768 failures: pubsub, multi_client, unsubscribe, session_isolation, qos,
-session_reset, fragmented_publish, coalesced, length_boundaries, truncated,
-invalid_flags, invalid_utf8. 22021a32 failures: session_reset, duplicate_connect,
-invalid_qos, fragmented_publish, coalesced, invalid_flags. This does not revoke the
-historical minimum-check result; it exposes behavior that it did not verify.
-An initial audit attempt retained its build/check output but its summary publication
-failed on relative-path handling; v2 reran after that harness fix. The v3 audit
-freezes its own input assets and accepts TCP reset as connection closure where the
-scenario only requires closure. Both later audits found the same failing cases.
-The final v4 audit narrows the requirement mapping (the underlying transport
-assumption remains unverified); failing scenarios are unchanged. Original input/source
-hashes were unchanged for all three deliveries.
+`4c036768` 失败于 pubsub、multi_client、unsubscribe、session_isolation、qos、session_reset、
+fragmented_publish、coalesced、length_boundaries、truncated、invalid_flags、invalid_utf8。
+`22021a32` 失败于 session_reset、duplicate_connect、invalid_qos、fragmented_publish、coalesced、
+invalid_flags。这不推翻历史最小检查的成功结论，只说明当时没有验证这些行为。
 
-## Current implementation
+第一次审计保留了构建和检查输出，但汇总发布因相对路径处理失败。修复驱动后执行 v2；v3 冻结自身输入，
+并在只要求连接结束的场景中将 TCP reset 视为关闭。v2、v3 的失败场景一致。最终 v4 收紧需求映射，
+底层传输假设仍未验证；失败场景不变。三个原交付的输入和源码摘要均未变化。
 
-The final mapping links 51 MQTT requirements to actual server assertions and leaves
-59 explicit gaps. In particular, stream scenarios do not prove the background
-assumption that the underlying transport is lossless.
+## 当前实现
 
-Report4.0 lists all requirements and keeps claims separate from final-export scenario
-outcomes. Optional checks and missing/incomplete evidence never establish verification.
-Config2.0 uses coder.action_format (json_object/tool_calls); default selection remains
-JSON until the real paired study supports changing it. Native calls retain streaming
-arguments, IDs and reasoning content; the unchanged local action schema gates execution.
+最终映射只将 51 条 MQTT 需求关联到实际服务端断言，余下 59 条明确列为缺口。字节流场景不证明
+“底层传输无损”等背景假设。
 
-HTTP has 27 manually curated requirements and 12 mandatory cases. Its target is
-byte-identical to MQTT's C99/server target. The local profile distinguishes selected
-RFC9110/9112 rules from application decisions. Chunked is deliberately excluded, so
-this is not full HTTP/1.1 conformance. No HTTP-specific generator path was added.
+Report 4.0 列出全部需求，并将模型声明与最终导出场景结果分开。可选检查、缺失证据和不完整执行都不能
+建立验证。Config 2.0 以 `coder.action_format`（`json_object`／`tool_calls`）代替布尔配置；默认仍为
+JSON，除非真实配对研究支持切换。原生调用保留流式参数、调用 ID 和 `reasoning_content`，并经过不变的
+本地 AgentAction Schema。
 
-Offline verification passed 172 non-paid tests, Ruff, mypy and sdist/wheel builds.
-## Completed action-interface comparison
+HTTP 有 27 条人工需求和 12 个必过场景，Target 与 MQTT 的 C99/server Target 字节一致。输入明确区分
+RFC 9110／9112 规则和项目应用约定。因明确排除 chunked，本实现不是完整 HTTP/1.1 符合性实现。
+生成器没有增加 HTTP 专用路径。
 
-Frozen study candidate: 73cdc4b. Preregistration and complete raw results are under
-runs/action-study-cny-v1; individual calls/fixtures remain in runs/mqtt-e2e and are
-marked as study-only runs, never protocol-generation successes. All 64 format samples
-(24 Flash and 8 Pro per mode), eight short sessions and strict Beta probe completed.
+本阶段离线验证通过 172 项非付费测试、Ruff、mypy、sdist 和 wheel 构建。
 
-| Metric | JSON-object | Native tool calls |
+## 已完成的动作接口比较
+
+冻结候选为 `73cdc4b`。预注册和完整结果位于 `runs/action-study-cny-v1`；单次调用和夹具位于
+`runs/mqtt-e2e`，均标记为研究运行，不能算协议生成成功。64 个格式样本、8 个短会话和 Strict Beta
+探测均已完成。
+
+| 指标 | JSON-object | 原生工具调用 |
 |---|---:|---:|
-| Flash invalid | 15/24 (62.5%) | 22/24 (91.7%) |
-| Pro invalid | 0/8 | 4/8 |
-| Format-call seconds per valid action | 3.843 | 13.457 |
-| Format-call CNY per valid action | 0.01069 | 0.08291 |
-| Invalid format generation time | 21.693 s | 58.902 s |
-| Actual short sessions passed | 3/4 | 3/4 |
+| Flash 无效动作 | 15/24（62.5%） | 22/24（91.7%） |
+| Pro 无效动作 | 0/8 | 4/8 |
+| 每个有效格式动作耗时 | 3.843 秒 | 13.457 秒 |
+| 每个有效格式动作费用 | ¥0.01069 | ¥0.08291 |
+| 无效格式生成耗时 | 21.693 秒 | 58.902 秒 |
+| 真实短会话通过数 | 3/4 | 3/4 |
 
-JSON failures: 11 XML/DSML and four syntax/prose responses. All 26 native failures
-were multiple calls; none executed. Read/write, replacement and finish sessions passed
-in both modes. Compiler-repair sessions built successfully but expanded the tiny fixture
-into a persistent server and timed out in the predeclared execution check. Those fixtures
-retain server-task context, so these failures alone do not measure pure syntax-repair
-ability. No thresholds or fixture checks were changed after seeing results.
+JSON 失败包括 11 次 XML/DSML 和 4 次语法／附加文字错误；26 次原生失败全是多调用，均未执行。
+两种模式的读写、替换和完成会话通过。编译修复会话虽构建成功，却把小夹具扩展成常驻服务，因而在
+预定义运行检查中超时。夹具本身保留了 server 任务上下文，所以该失败不能单独衡量纯语法修复能力。
+观察结果后没有修改门槛或夹具检查。
 
-Strict Beta returned HTTP400: required properties must match all object properties.
-The unchanged AgentAction schemas include optional properties; the probe did not
-rewrite them or weaken local validation. Its unknown usage keeps a CNY0.145724 peak
-reservation. Total study ledger cost is CNY1.16708254 (settled estimate CNY1.02135854
-plus that reservation), within the fixed CNY10 sublimit. All settled calls used off-peak
-rates and available provider cache usage. No response cache or generated protocol is
-claimed by this study. The default remains JSON-object: promotion gates failed.
+Strict Beta 返回 HTTP 400：required 属性必须覆盖对象的全部属性。原 AgentAction Schema 含可选属性，
+探测没有重写 Schema 或放宽本地校验。未知 usage 保留 ¥0.145724 忙时预留。研究活动共占用
+¥1.16708254（已结算估算 ¥1.02135854，加未知预留），低于 ¥10。所有已结算调用发生在闲时，并使用
+供应商缓存 usage。没有使用响应缓存，也没有生成协议代码。由于升级门槛失败，默认接口仍为 JSON-object。
 
-## Final frozen-candidate generations
+## 最终冻结候选生成
 
-Both experiments passed. Candidate commit: `10cb987178c329cefb909c8651a2daa9e9c548b5`.
-Runtime package SHA256: `cf4b589a6dadd872890bcaba8428a50edfc4d11992b8d844c3a0a3bec70d5b35`.
-They started concurrently from empty projects and used real API calls. No source,
-prompt, configuration or input changed during the runs; generated code was not manually
-edited. No cached response, historical solution or study fixture was imported.
-Documentation-only updates after this candidate record results and correct stale version
-labels; they do not change the generation runtime, prompts, configuration or inputs.
+两个真实实验都通过。候选提交：`10cb987178c329cefb909c8651a2daa9e9c548b5`；运行时包 SHA256：
+`cf4b589a6dadd872890bcaba8428a50edfc4d11992b8d844c3a0a3bec70d5b35`。
+两者从空工程并发启动，使用真实 API。运行期间源码、提示词、配置和输入未变；生成代码没有人工编辑；
+没有响应缓存、历史实现或研究夹具。候选后的文档变更只记录结果和修正旧版本标注，不改变运行时、
+提示词、配置或输入。
 
-| Result | MQTT | HTTP fixed-length subset |
+| 结果 | MQTT | HTTP 固定长度子集 |
 |---|---:|---:|
-| Run ID | 20260912T164202Z-e4b27709 | 20260912T164202Z-d0b839c4 |
-| Generation time | 69.39 min | 19.74 min |
-| Tasks passed | 23/23 | 10/10 |
-| Mandatory scenarios, each release/san | 20/20 | 12/12 |
-| Independent export clean builds and checks | Both passed | Both passed |
-| Requirements with mapped scenarios passed | 51/110 | 26/27 |
-| Requirements without an independent scenario | 59 | 1 (scope definition) |
-| Calls, including unknown usage | 750 | 208 |
-| Settled CNY estimate (all off-peak) | 9.91957752 | 2.05181392 |
-| Retained unknown-call reservations | 0 | 0.236486 |
-| Generation budget consumed, CNY | 9.91957752 | 2.28829992 |
-| New campaign used, CNY | 11.08666006 (includes study) | 2.28829992 |
-| New campaign remaining, CNY | 288.91333994 | 297.71170008 |
+| Run ID | `20260912T164202Z-e4b27709` | `20260912T164202Z-d0b839c4` |
+| 生成时间 | 69.39 分钟 | 19.74 分钟 |
+| 通过任务 | 23/23 | 10/10 |
+| 必过场景（release、san 各一次） | 20/20 | 12/12 |
+| 独立导出 clean 构建和检查 | 两者通过 | 两者通过 |
+| 场景映射需求通过 | 51/110 | 26/27 |
+| 无独立场景需求 | 59 | 1（范围定义） |
+| 调用数（含 usage 未知） | 750 | 208 |
+| 已结算人民币估算（均为闲时） | ¥9.91957752 | ¥2.05181392 |
+| 未知调用预留 | 0 | ¥0.236486 |
+| 本次生成占用 | ¥9.91957752 | ¥2.28829992 |
+| 新活动累计占用 | ¥11.08666006（含动作研究） | ¥2.28829992 |
+| 新活动剩余额度 | ¥288.91333994 | ¥297.71170008 |
 
-HTTP retained call102's reservation after a ConnectTimeout; its usage was not returned.
-The study retains its strict-Beta reservation. No unknown reservation was reset.
-Each generation stayed below CNY20/four hours, the study below CNY10, and each new
-campaign below CNY300. Historical USD records are excluded by the user's later explicit
-authorization, and remain unchanged. These figures are estimates, not invoices.
+HTTP 的 call 102 在 ConnectTimeout 后未返回 usage，因此保留预留；动作研究同样保留 Strict Beta 预留。
+任何未知预留均未重置。两个生成均低于 ¥20／4 小时，研究低于 ¥10，各活动低于 ¥300。历史美元记录
+按用户后续授权排除在新活动之外并保持不变。金额均为估算。
 
-The default JSON interface still produced 192 format-invalid responses in MQTT
-(152 XML/DSML, 22 syntax/prose, 17 empty, one schema error; 11.27 API minutes) and
-52 in HTTP (41 XML/DSML, eight syntax/prose, three empty; 3.89 API minutes).
-Their full local validation rejected execution. The new MQTT run does not establish
-an improvement over the historical 185/180 counts; scope and context also differ.
-Long source-inspection sessions remain another observed cost. Interface evaluation
-is complete, but the action-format error problem remains open.
+默认 JSON 接口在 MQTT 中仍产生 192 次格式无效响应（152 XML/DSML、22 语法／附加文字、17 空响应、
+1 Schema 错误），消耗 11.27 分钟 API 时间；HTTP 为 52 次（41 XML/DSML、8 语法／附加文字、3 空响应），
+消耗 3.89 分钟。严格校验保证它们没有执行。因范围和上下文不同，不能用此次 MQTT 证明相较历史
+185／180 次已有改善。长时间源码检查是另一个已观察到的费用来源。接口评估已经完成，动作格式问题仍开放。
 
-Only current final-export checks feed requirement status. The independent repeat
-checks use copied exports, clean release/san builds and read-only oracle assets.
-Every requirement keeps its original text, model claim and evidence references in
-the delivered requirement-evidence JSON. Passing means only mapped scenarios passed;
-it is not proof of all compound clauses, client duties or background definitions.
+需求状态只使用当前最终导出的检查。独立复验对复制导出执行 clean release／san 构建，并使用只读 oracle。
+每条需求在交付证据 JSON 中保留原文、模型声明和证据引用。通过只表示已映射场景通过，不证明全部复合
+条款、客户端义务或背景定义。
 
-No stability or complete protocol-conformance claim is made. MQTT remains the selected
-core behavior set, without expanded QoS1/2 acknowledgement/retransmission or persistent
-session Spec. HTTP deliberately excludes chunked, TLS, proxying, upgrades, caching and
-HTTP/2; rejecting Transfer-Encoding does not satisfy full HTTP/1.1 receiver requirements.
+本轮不作稳定性或完整协议符合性声明。MQTT 只覆盖所选核心行为，不扩展 QoS 1/2 确认／重传和持久会话。
+HTTP 明确排除 chunked、TLS、代理、升级、缓存和 HTTP/2；拒绝 Transfer-Encoding 不等于满足完整
+HTTP/1.1 接收要求。
 
-Offline validation passed 172 non-paid tests, Ruff, mypy and sdist/wheel builds. The
-paid parallel harness passed both generations and independent export checks. Subsequent
-changes are result documents/artifacts only.
+## 交付物
 
-## Deliverables
+- [MQTT 源码／二进制／输入／报告包](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/mqtt-c99-server.tar.gz)；
+  [Report 4.0](/home/ljf/NePA/runs/mqtt-e2e/20260912T164202Z-e4b27709/report.json)；
+  [完整需求证据](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/mqtt-requirement-evidence.json)。
+- [HTTP 源码／二进制／输入／报告包](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/http-c99-server.tar.gz)；
+  [Report 4.0](/home/ljf/NePA/runs/http-e2e/20260912T164202Z-d0b839c4/report.json)；
+  [完整需求证据](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/http-requirement-evidence.json)。
 
+共享批次和独立验证见 [batch.json](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/batch.json)，
+摘要和实测费用见 `experiments/protocol-expansion/generation-results.json`，MQTT 110 条索引见
+`mqtt_requirement_evidence.md`。
 
-- [MQTT source/binary/input/report archive](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/mqtt-c99-server.tar.gz) · [Report4.0](/home/ljf/NePA/runs/mqtt-e2e/20260912T164202Z-e4b27709/report.json) · [full requirement evidence](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/mqtt-requirement-evidence.json)
-- [HTTP source/binary/input/report archive](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/deliverables/http-c99-server.tar.gz) · [Report4.0](/home/ljf/NePA/runs/http-e2e/20260912T164202Z-d0b839c4/report.json) · [full requirement evidence](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/http-requirement-evidence.json)
-
-[Shared batch and independent verification](/home/ljf/NePA/runs/protocol-expansion/8a21d64ddcde4728a675322aaa74105f/batch.json), [all hashes and measured costs](/home/ljf/NePA/experiments/protocol-expansion/generation-results.json), [MQTT 110-row requirement index](/home/ljf/NePA/project_docs/mqtt_requirement_evidence.md).
-
-Each archive contains unchanged generated project sources and both binaries, manual
-inputs, frozen run inputs, Report4.0, requirement evidence and independent verification
-results. Extract and run `make clean && make release san` inside `project/` with a C99
-compiler and ASan/UBSan support. No NePA import is required by either Makefile.
+每个压缩包都包含未修改的生成工程源码、两个二进制、人工输入、冻结运行输入、Report 4.0、需求证据和
+独立验证结果。解压后可在 `project/` 中执行 `make clean && make release san`，需要 C99 编译器和
+ASan/UBSan。两个 Makefile 均不依赖 NePA。
