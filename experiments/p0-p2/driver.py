@@ -325,6 +325,9 @@ def run_fixture(store, fixture, *, providers=None):
         task = copy.deepcopy(next(t for t in store.plan()['tasks'] if t['id'] == 'requirements:001'))
         task.update(goal=fixture['goal'], context={'fixture': fixture['id'], 'stdout': fixture['stdout'],
                     'exit_code': 0, 'timeout_s': 2, 'requirements': store.inputs()[0]['requirements']})
+        if fixture.get('exact_replace'):
+            task['goal'] += (' Use these exact replace_text arguments, including the literal quote characters: ' +
+                             json.dumps(fixture['exact_replace']))
         store.evidence('experiments/public-fixture.json', {'fixture': fixture, 'task': task,
                        'system': session.system, 'seeded_project': tree_hashes(store.project), 'generation_evidence': False})
         actor = 'model'
