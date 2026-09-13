@@ -310,6 +310,8 @@ def test_semantic_failures_contain_status_type_length_order_offset(capsys):
         (h, lambda: client(h, b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\naXc').expect(200, b'abc'), 'response_body', {'expected_length': 3, 'actual_length': 3, 'offset': 1}),
         (h, lambda: client(h, b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nabc').expect(200, b'abcd'), 'body_EOF', {'actual_length': 3, 'expected_length': 4}),
         (m, lambda: client(m, b'\xd0').expect(0xd0, b''), 'early_EOF', {'expected_length': 1, 'actual_length': 0}),
+        (m, lambda: client(m, b'').expect(0x30, b'z' * 16384), 'early_EOF',
+         {'expected_length': 1, 'actual_length': 0, 'expected': {'length': 16384, 'stage': 'packet_body'}}),
         (h, lambda: client(h, b'private').quiet(), 'quiet', {'actual_outcome': 'data', 'actual_length': 1}),
     ]
     for module, callback, category, fields in cases:

@@ -220,6 +220,35 @@ def test_nested_exec_is_not_double_counted():
                                       'detail': {'execution': {'duration_ms': 800}}}) == 1
 
 
+def test_parallel_launches_all_children_before_wait_and_keeps_failure(tmp_path, monkeypatch):
+    processes = []
+
+    class Process:
+        def __init__(self, argv, **kwargs):
+            self.stage = argv[2]
+            self.batch = Path(argv[argv.index('--batch') + 1])
+            processes.append(self)
+
+        def wait(self):
+            assert len(processes) == 3
+            record = driver.read(self.batch / 'experiment.json')
+            driver.gate(record, self.stage)
+            passed = self.batch.name != 'mqtt-b'
+            record['stages'][self.stage] = {'status': passed, 'run_id': self.batch.name}
+            record['runs'].append(self.batch.name)
+            driver.atomic_json(self.batch / 'experiment.json', record)
+            return 0 if passed else 2
+
+    monkeypatch.setattr(driver.subprocess, 'Popen', Process)
+    record = {'stages': {'freeze': {'status': True}, 'parallel': {'status': False}}, 'runs': []}
+    result = driver.parallel_generation(tmp_path, record, None)
+    assert result['status'] is False
+    assert result['rows']['http']['status'] is True
+    assert result['rows']['mqtt-a']['status'] is True
+    assert result['rows']['mqtt-b']['status'] is False
+    assert len(record['runs']) == 3
+
+
 @pytest.mark.parametrize('name', ('deepseek_first', 'deepseek_mqtt_expanded', 'deepseek_http'))
 def test_baseline_matches_existing_inventory_without_repricing(name):
     inventory = baseline.read(ROOT / 'runs/p0-baseline-inventory' / (name + '.json'))

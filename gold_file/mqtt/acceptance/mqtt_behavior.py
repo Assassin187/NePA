@@ -226,6 +226,7 @@ class Client:
             actual_header, actual_body = self.packet()
         except WireMismatch as exc:
             exc.observation['expected_type'] = header
+            exc.observation['expected'] = {'length': len(body), 'stage': 'packet_body'}
             raise
         require(actual_header == header, 'expected_packet_type',
                 expected_type=header, actual_type=actual_header, actual_order=self.order)

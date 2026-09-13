@@ -563,6 +563,9 @@ def generation(stage, batch, record, base):
 
 def gate(record, stage):
     require(stage not in record['stages'], 'stage already attempted; preserve it and prepare a new batch for diagnosis/retry')
+    if stage == 'parallel' or (record.get('parallel_parent') and stage in ('mqtt-first', 'http')):
+        require(record['stages'].get('freeze', {}).get('status') is True, 'predecessor freeze incomplete')
+        return
     predecessors = {'capability': (), 'public-tools': ('capability',), 'private-repair': ('public-tools',),
                     'freeze': ('capability', 'public-tools', 'private-repair'),
                     'mqtt-first': ('freeze',), 'mqtt-repeat-1': ('mqtt-first',),
@@ -573,12 +576,45 @@ def gate(record, stage):
 
 
 def summary(record):
+    if 'parallel' in record['stages']:
+        return {'status': record['stages']['parallel'].get('status') is True,
+                'parallel': record['stages']['parallel'],
+                'scope': 'two fresh MQTT and one fresh HTTP; mapped scenarios only; no stability claim'}
     stages = {stage: record['stages'].get(stage, {}).get('status') is True for stage in STAGES}
     return {'status': all(stages.values()),
             'stages': stages, 'private_feedback_repair': stages['private-repair'],
             'paid_executed': record['paid_executed'], 'run_ids': record['runs'],
             'scope': 'three fresh MQTT plus fresh HTTP under one candidate; mapped scenarios only',
             'limitation': 'Controlled fixture repair is not fresh MQTT generation or full protocol conformance.'}
+
+
+def parallel_generation(batch, record, base):
+    """Separate processes retain production deadlines and campaign reservation locks."""
+    jobs = []
+    for name, stage in (('mqtt-a', 'mqtt-first'), ('mqtt-b', 'mqtt-first'), ('http', 'http')):
+        child = batch / name
+        child.mkdir(exist_ok=False)
+        child_record = copy.deepcopy(record)
+        child_record['stages'] = {key: value for key, value in record['stages'].items()
+                                  if key in ('capability', 'public-tools', 'private-repair', 'freeze')}
+        child_record.update(parallel_parent=str(batch), runs=[], status=False)
+        atomic_json(child / 'experiment.json', child_record)
+        with (child / 'driver.log').open('w') as log:
+            process = subprocess.Popen([os.sys.executable, str(Path(__file__).resolve()), stage,
+                                        '--batch', str(child), '--paid'], cwd=ROOT,
+                                       stdout=log, stderr=subprocess.STDOUT)
+        jobs.append((name, stage, child, process))
+    rows = {}
+    for name, stage, child, process in jobs:
+        code = process.wait()
+        state = read(child / 'experiment.json')
+        row = state['stages'].get(stage, {})
+        rows[name] = {'status': code == 0 and row.get('status') is True,
+                      'exit_code': code, 'batch': str(child), 'run_id': row.get('run_id')}
+        record['runs'].extend(state['runs'])
+        atomic_json(batch / 'parallel-results.json', rows)
+    return {'status': all(row['status'] for row in rows.values()), 'rows': rows,
+            'scope': 'two fresh MQTT and one fresh HTTP; no stability claim'}
 
 
 def archive(record, stage, output):
@@ -623,7 +659,7 @@ def archive(record, stage, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('prepare', *STAGES, 'summary', 'archive'))
+    parser.add_argument('command', choices=('prepare', *STAGES, 'parallel', 'summary', 'archive'))
     parser.add_argument('--batch', type=Path, required=True)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--paid', action='store_true')
@@ -660,7 +696,8 @@ def main():
             else:
                 record['paid_executed'] = True
                 atomic_json(batch / 'experiment.json', record)
-                function = {'capability': capability, 'public-tools': public_tools, 'private-repair': private_repair}.get(args.command)
+                function = {'capability': capability, 'public-tools': public_tools, 'private-repair': private_repair,
+                            'parallel': parallel_generation}.get(args.command)
                 result = function(batch, record, base) if function else generation(args.command, batch, record, base)
             record['stages'][args.command].update(result, state='complete')
         except Exception as exc:

@@ -40,6 +40,9 @@ Do not use line numbers as character offsets or read 80 characters to inspect 80
 lines. To inspect a line range from search, use run_command with sed -n '40,100p'
 and the actual file path. Do not repeatedly list build artifacts or unchanged files.
 Do not guess current file contents when making an exact replacement.
+When a task explicitly requires reading named files, read every named file even if
+a compiler diagnostic quotes part of one. A diagnostic is not a complete source read.
+run_command takes literal argv, not shell syntax: do not place && or pipelines in argv.
 
 Use ordinary C99 and the runtime environment in Target. Respect all build output paths,
 flags and run arguments. Print compiler invocations in Makefile builds so required
@@ -63,6 +66,11 @@ not rerun unchanged builds or reimplement code to fix a reporting error.
 
 If host validation fails, inspect its safe diagnostics and repair the project. Published
 safe output remains readable and paginated through evidence references after context trimming.
+For a length or missing-output failure, trace the entire receive, decode, dispatch,
+encode and send path against the supplied requirements. Check capacities and lengths
+at each step; do not assume that fixing the input buffer fixes the output path.
+After the repair, request finish to obtain fresh complete host validation; avoid
+running clean, release and san separately immediately before the same host builds.
 Do not repeat an unchanged failing response. request_followup schedules a bounded
 additional issue with requirement IDs and existing diagnostic refs, but does not
 complete or bypass this task. Final integration must repair its own issues directly.
