@@ -7,8 +7,6 @@
 ## 架构与方法研究
 
 - `deep-research-report-v2.md`：协议规划编译架构、义务图、类型化填空和计划修订边界。
-- `_lessons-top-agent-workflow.md`：外部智能体工作流经验及其对 NePA 的适用性分析。
-- `session_record_design_consistency_review_2026-09-05.md`：旧设计文档的一致性问题和历史评审结论。
 
 ## 实验与性能分析
 

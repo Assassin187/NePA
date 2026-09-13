@@ -1,12 +1,18 @@
 # NePA
 
-NePA 根据人工整理的协议 Spec（含需求）、目标格式和独立 Acceptance 资产生成协议工程。当前实现范围为
-Linux x86_64、C99 服务端。MQTT 是首个评估输入，不是生成器中的协议特例。
+NePA 当前包含两条相连但边界明确的流水线：RFC→Spec 从冻结文本快照生成可审阅、批准并严格投影的
+Spec；Spec→Code 根据批准后的 Spec v3、目标格式和独立 Acceptance 资产生成协议工程。代码生成当前
+范围为 Linux x86_64、C99 服务端。MQTT 是首个评估输入，不是生成器中的协议特例。
 
 文档总览见 [project_docs/README.md](project_docs/README.md)，权威合同见
 [系统设计](project_docs/system_design.md)，实际实施与验收状态见
 [P0–P2 执行记录](project_docs/p0-p2-progress.md) 和
 [完成审计](project_docs/p0-p2-completion-audit.md)。
+
+两条流水线当前都尚未通过各自的真实验收门槛。Spec→Code 最新 P0–P2 candidate-12 在首个 MQTT
+样本中断；RFC→Spec Phase 1 的字段及需求精确率／召回率门禁失败。离线测试、静态检查和打包通过
+不能替代这些验收结论。RFC→Spec 的最小失败摘要见
+[`experiments/rfc-spec-ir/phase1-failed/`](experiments/rfc-spec-ir/phase1-failed/README.md)。
 
 2026-09-12 的历史验证包括一个真实开发基线，以及同一优化候选的两个新运行；它们通过规定构建和最小
 交互。两个新运行耗时 76.8／75.4 分钟，基线排除充值暂停后为 128.8 分钟。这不是完整 MQTT 符合性，
