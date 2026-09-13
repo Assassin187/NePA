@@ -15,7 +15,7 @@ def validate_evidence(document: Document, claims: list[Claim]) -> list[str]:
     by_id = {s.segment_id: s for s in document.segments}; errors=[]
     for c in claims:
         for ref in c.source_spans:
-            seg = by_id.get(ref.get("segment_id"))
+            seg = by_id.get(str(ref.get("segment_id")))
             if seg is None: errors.append(f"unknown segment {ref.get('segment_id')}"); continue
             quote = ref.get("quote", c.quote)
             if quote and quote not in seg.text: errors.append(f"quote not in segment {seg.segment_id}")
