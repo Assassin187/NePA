@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 import pytest
 from nepa.config import load_config, ConfigError, public_config_snapshot
-from nepa.llm.client import LLMClient, LLMRequest, ProviderError, extract_first_json_value
+from nepa.llm.client import LLMClient, LLMRequest, ProviderError, decode_action
 from nepa.llm.telemetry import calculate_cost
+from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
 from nepa.run_store import RunStore
 from nepa.report import publish_report
 from nepa.llm.client import structured_validation_errors
@@ -12,8 +13,8 @@ from nepa.schemas import load_schema
 ROOT = Path(__file__).parents[1]
 
 def make_store(tmp_path, config=None):
-    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
-                               ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", config or load_config())
+    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                               ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", config or load_config())
 
 def test_config_override_and_secret_free_snapshot(monkeypatch):
     monkeypatch.setenv("NEPA_DS_API_KEY", "secret-value")
@@ -21,23 +22,30 @@ def test_config_override_and_secret_free_snapshot(monkeypatch):
     assert config.coder.max_tokens == 2000
     assert "secret-value" not in json.dumps(public_config_snapshot(config))
     with pytest.raises(ConfigError):
-        load_config(overrides={"budgets": {"max_cost_usd": 1000}})
+        load_config(overrides={"budgets": {"max_cost_cny": 1000}})
     with pytest.raises(ConfigError):
         load_config(overrides={"calibration_models": {}})
 
 def test_authorized_cost_ceilings_do_not_change_time_budget():
     config = load_config(ROOT / "configs/default.yaml")
-    assert config.budgets.max_cost_usd == 100
-    assert config.budgets.campaign_max_cost_usd == 300
+    assert config.budgets.max_cost_cny == 20
+    assert config.budgets.campaign_max_cost_cny == 300
     assert config.budgets.wall_clock_hours == 4
-    assert config.coder.json_output
-    for key, limit in (("max_cost_usd", 100), ("campaign_max_cost_usd", 300)):
+    assert config.coder.action_format == "json_object"
+    for key, limit in (("max_cost_cny", 20), ("campaign_max_cost_cny", 300)):
         with pytest.raises(ConfigError):
             load_config(overrides={"budgets": {key: limit + 1}})
 
 @pytest.mark.parametrize("text", ['{"a":1}', '\x60\x60\x60json\n{"a":1}\n\x60\x60\x60', 'answer: {"a":1}'])
 def test_json_envelope_parsing(text):
-    assert extract_first_json_value(text) == {"a": 1}
+    from nepa.llm.client import LLMResponse
+    schema = {"type": "object", "required": ["a"]}
+    response = LLMResponse(text=text, tokens_in=1, tokens_out=1, cost_cny=0, model="fixture", parameter_support={})
+    parsed, errors = decode_action(response, "json_object", schema)
+    if text == '{"a":1}':
+        assert parsed == {"a": 1} and not errors
+    else:
+        assert parsed is None and errors
 
 def test_action_error_identifies_missing_argument_not_generic_schema_dump():
     errors = structured_validation_errors({"tool": "finish", "arguments": {"summary": "ready"}},
@@ -47,7 +55,7 @@ def test_action_error_identifies_missing_argument_not_generic_schema_dump():
 def test_pricing_known_and_negative():
     config = load_config()
     price = config.pricing["deepseek/deepseek-v4-pro"]
-    assert calculate_cost(price, 1_000_000, 1_000_000) == pytest.approx(5.28)
+    assert calculate_cost(price, 1_000_000, 1_000_000) == pytest.approx(36)
     with pytest.raises(ValueError):
         calculate_cost(price, -1, 0)
 
@@ -64,18 +72,22 @@ def test_fast_initial_coding_and_pro_complexity_escalation(kind):
 
 def test_selected_model_controls_wire_and_cost(tmp_path):
     from nepa.llm.client import LLMResponse
-    class Provider:
-        native_structured_output = False
-        def complete(self, request, *, model, native_schema):
-            assert model == request.model == "deepseek-flash"
-            return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_usd=0,
-                               model=model, parameter_support={})
+    class Provider(OpenAICompatibleProvider):
+        def send(self, prepared):
+            model = prepared.model
+            assert model == prepared.wire["model"] == "deepseek-flash"
+            return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_cny=0,
+                               model=model, parameter_support={}, provider_metadata={
+                                   "returned_model_identity": model, "returned_model_identity_observed": True,
+                                   "usage": {"prompt_tokens": 100, "completion_tokens": 200}})
     config = load_config(ROOT / "configs/default.yaml")
     store = make_store(tmp_path, config)
-    response = LLMClient(config, {"deepseek": Provider()}).complete(
-        LLMRequest(role="coder", model="deepseek-flash", json_output=True, system="s", user="u", temperature=0, max_tokens=1000),
+    response = LLMClient(config, {"deepseek": Provider("deepseek", config.providers["deepseek"])}).complete(
+        LLMRequest(role="coder", model="deepseek-flash", action_format="json_object", system="s", user="u", temperature=0, max_tokens=1000),
         store=store, task_id="bootstrap")
-    assert response.cost_usd == pytest.approx((100 * .30 + 200 * 1.20) / 1_000_000)
+    assert response.pricing is not None
+    factor = .5 if response.pricing["period"] == "off_peak" else 1
+    assert response.cost_cny == pytest.approx((100 * 2 + 200 * 8) * factor / 1_000_000)
     evidence = json.loads((store.root / "evidence/calls/000001.request.json").read_text())
     assert "deepseek-flash" in json.dumps(evidence)
     assert evidence["wire"]["response_format"] == {"type": "json_object"}
@@ -83,11 +95,12 @@ def test_selected_model_controls_wire_and_cost(tmp_path):
         load_config(overrides={"coder": {"fast_model": "unpriced"}})
 
 def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypatch):
-    class FailingProvider:
+    class FailingProvider(OpenAICompatibleProvider):
         native_structured_output = False
         def __init__(self):
+            super().__init__("deepseek", load_config().providers["deepseek"])
             self.calls = 0
-        def complete(self, request, *, model, native_schema):
+        def send(self, prepared):
             self.calls += 1
             raise ProviderError("service unavailable", provider="deepseek", status_code=503)
     store = make_store(tmp_path)
@@ -99,14 +112,15 @@ def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypa
     assert provider.calls == 3
     assert store.run["budget"]["calls"] == 3
     assert len(store.run["pending_calls"]) == 3
-    assert store.run["budget"]["cost_usd"] > 0
+    assert store.run["budget"]["cost_cny"] > 0
 
 def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path):
-    class PaymentRejected:
+    class PaymentRejected(OpenAICompatibleProvider):
         native_structured_output = False
         def __init__(self):
+            super().__init__("deepseek", load_config().providers["deepseek"])
             self.calls = 0
-        def complete(self, request, **kwargs):
+        def send(self, prepared):
             self.calls += 1
             raise ProviderError("deepseek returned HTTP 402", provider="deepseek", status_code=402)
     provider = PaymentRejected()
@@ -115,7 +129,7 @@ def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path
     with pytest.raises(ProviderError, match="402"):
         client.complete(LLMRequest(role="coder", system="s", user="u", temperature=0, max_tokens=1), store=store, task_id="bootstrap")
     assert provider.calls == store.run["budget"]["calls"] == 1
-    assert store.run["budget"]["cost_usd"] > 0
+    assert store.run["budget"]["cost_cny"] > 0
     assert len(store.run["pending_calls"]) == 1
 
 def test_failed_run_with_input_drift_still_reports_truthfully(tmp_path):
@@ -172,3 +186,33 @@ def test_default_pytest_discovery_does_not_import_generated_project_scripts(tmp_
     assert result.returncode == 0, result.stdout + result.stderr
     assert "test_owned.py::test_owned" in result.stdout
     assert "test_generated" not in result.stdout
+
+
+@pytest.mark.parametrize('fault', ['identity', 'usage', 'usage_mismatch'])
+def test_injected_provider_has_no_identity_or_usage_exemption(tmp_path, fault):
+    from nepa.llm.client import LLMResponse, ResponseIdentityError, ResponseUsageError
+    class InvalidProvider(OpenAICompatibleProvider):
+        def send(self, prepared):
+            metadata = {'returned_model_identity': prepared.model, 'returned_model_identity_observed': True,
+                        'usage': {'prompt_tokens': 10, 'completion_tokens': 20}}
+            if fault == 'identity':
+                metadata.pop('returned_model_identity_observed')
+            elif fault == 'usage':
+                metadata.pop('usage')
+            else:
+                metadata['usage']['completion_tokens'] = 21
+            return LLMResponse(text='{"tool":"finish","arguments":{"summary":"done","claims":[]}}',
+                               model=prepared.model, tokens_in=10, tokens_out=20, cost_cny=0,
+                               parameter_support={}, provider_metadata=metadata)
+    config = load_config()
+    store = make_store(tmp_path, config)
+    client = LLMClient(config, {'deepseek': InvalidProvider('deepseek', config.providers['deepseek'])})
+    req = LLMRequest(role='coder', system='JSON', user='finish', temperature=0, max_tokens=1000)
+    reserved = client.prepare(req).reservation_cny
+    with pytest.raises(ResponseIdentityError if fault == 'identity' else ResponseUsageError):
+        client.complete(req, store=store, task_id='bootstrap')
+    assert store.run['budget']['calls'] == 1 and store.run['budget']['cost_cny'] == reserved
+    assert len(store.run['pending_calls']) == 1
+    saved = json.loads((store.root / 'evidence/calls/000001.fault-response.json').read_text())
+    assert 'finish' in saved['text'] and saved['tokens_out'] == 20
+    assert not (store.root / 'evidence/calls/000001.response.json').exists()

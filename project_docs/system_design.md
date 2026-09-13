@@ -1,230 +1,287 @@
-# NePA System Design 9.0
+# NePA 系统设计 11.0
 
-Status: approved architecture. Actual implementation/acceptance progress is in
-`refactor_plan.md`. Replaces 8.0.3 and the separate S4–S9 pipeline design.
+状态：已批准的现行架构。当前 P0–P2 的实施与验收进度见 `nepa-p0-p2-plan.md`、
+`p0-p2-progress.md`；历史证据见 `protocol_expansion.md`、`refactor_plan.md`。
+本版设计变更由用户在 2026-09-13 授权自主完成 P0–P2，不使用 OpenSpec。
 
-## 1. Success contract
+## 1. 成功判定合同
 
-Inputs are manually curated Spec 3.0 (including all original requirements), Target
-1.0 and independent Acceptance 1.0 assets. Initial implementation scope: Linux
-x86_64, C99, server. MQTT is an acceptance input, never a production special case.
+输入为人工整理的 Spec 3.0（包含全部原始需求）、Target 1.0，以及独立私有的 Acceptance 1.0
+资产。首个实现范围固定为 Linux x86_64、C99、服务端。MQTT 只是验收输入，生产代码中不得存在
+MQTT 专用分支。
 
-Success requires all tasks completed, clean release and ASan/UBSan builds, mandatory
-protocol interactions passed, and independently buildable sources, binaries and
-Report 3.0 published. JSON validity, stub compilation, process survival or an agent's
-finish declaration are not success. Optional observations remain non-gating and
-never establish full protocol conformance.
+一次生成只有同时满足以下条件才算成功：全部任务完成；clean release 与 ASan/UBSan 构建通过；
+全部必过协议交互通过；发布可独立构建的源码、二进制和 Report 5.0。JSON 合法、桩代码可编译、
+进程存活或智能体提交 `finish` 均不等于成功。可选观察不作为门禁，也不能证明完整协议符合性。
 
-Formal acceptance: three consecutive independent empty-project runs with identical
-NePA commit, prompts, input/configuration and image, real API calls, no response
-cache, imported solution or manual generated-code edits. Changing these inputs
-restarts the batch. Retain debug/failed runs. Approved campaign budget: USD300
-including debug and failures; each run USD100 and four hours from creation, never
-reset on resume. Unknown usage keeps its pre-call reservation.
-The user raised the per-run ceiling from USD20 to USD100 on 2026-09-12;
-then raised the cumulative campaign ceiling to USD300. Both include prior costs;
-this is not a reset or an additional USD300 allocation.
-The Linux CLI installs a run deadline alarm, including provider/tool calls; deadline
-interruption retains unknown-call reservations and cleans active tool containers.
-Scheduling (latest user instruction): first complete one real end-to-end run and
-its independent export checks. Only after it passes, launch two additional empty
-projects with that same frozen candidate; these two may execute concurrently.
-A first-run failure does not launch stability repetitions. All three must pass.
-The user subsequently authorized continuing the payment-interrupted first run with
-a changed Flash/Pro model configuration. That development run may have multiple
-recorded code/configuration versions; it is not a fixed-candidate stability sample.
-After that first successful run, the user requested time-cost analysis and optimization
-before another experiment. Preserve its independent baseline evidence; reverify it
-against its own recorded runtime/configuration, then run two fresh projects with the
-same optimized candidate. Reports distinguish one earlier development baseline plus
-two optimized-candidate repetitions, never three unchanged-candidate runs.
+P0 将首次 DeepSeek 成功和 MQTT/HTTP 扩展结果保留为“验收脚本当时可读”的可行性证据。
+它们的原始运行、美元／人民币费用、预留和导出不得迁移、覆盖或计入新活动。实测时间、费用和缺口
+见 `research/p0-serial-baseline.md`。
 
-## 2. Deterministic planning
+P1 要求在新模型证明运行前，完成私有检查的物理隔离和有用的脱敏反馈。P2 只使用
+`qwen3.7-plus-2026-05-26` 与 `qwen3.7-flash-2026-07-15`，并须先核实官方文档、账户能力和价格。
+新活动根目录为 `runs/qwen-e2e`：累计上限 ¥300；每次生成从创建起最多 ¥20／4 小时；探测、失败、
+恢复、重试和未知调用预留均计入。能力探测和公共工具阶段各设 ¥5 子限额，复用 RunStore 活动锁和
+按阶段预留。禁止响应缓存、导入已有生成工程、人工修改生成代码和供应商回退。
 
-Freeze original input bytes. Validate schemas, unique IDs and structural references,
-not natural-language semantics. Requirements have one original source: Spec
-requirements[]. Keep input array order. Generate a serial Plan 6.0:
+2026-09-13 用户调整执行顺序：首次 MQTT 结束（包括失败）后，先诊断并优化生成速度，保持正确性与
+验收门禁；重新冻结后并行执行两次空工程 MQTT 和一次空工程 HTTP。每个子实验独立记录状态、日志
+与导出复验，共享活动预算锁；任一子实验失败不能补计为成功。该轮只报告两个 MQTT 样本，不据此
+作三次稳定性声明。下述三次样本合同保留用于单独执行原三次队列时。
 
-1. bootstrap: real project, build/start entrypoints, initial interfaces and README.
-   This task establishes a listening process and clean shutdown, not all message
-   or behavior implementation; the complete pipeline overview is supplied up front.
-2. shared-wire: transport and builtin/custom wire types.
-3. One message:<id> task per message. Decode for receiver target roles, encode for
-   sender roles, both if applicable. Explicitly review scope for irrelevant messages.
-4. requirements:<n> batches of at most 12 original requirements, including DEFINITION.
-5. final-integration: integrate and run clean builds and mandatory interactions.
+第一次可计数的空工程 MQTT 运行前，冻结代码、提示词、配置／能力／价格、输入、公共与私有检查、
+实验驱动、依赖和镜像 ID。首次成功后，同一候选还须再完成两次全新 MQTT，才可作三次范围内稳定性
+声明；随后同一运行时和模型配置以单独冻结的 HTTP 输入完成一次 HTTP 子集运行。第一次成功后，
+相互独立的空工程可以并行，但单个工程内仍串行。共享候选一旦改变，MQTT 三次样本须重新开始。
+所有失败运行必须保留。与候选无关的用户文档变更不使候选失效，也不得为了整棵工作树干净而删除。
 
-Current gold: 8 types, 10 messages, 110 requirements, 23 tasks. Every requirement has
-exactly one primary batch. Codec/type req references provide context, not completion.
-Resolve type closure through fields, encoding members/item_type/length_type/base_type.
-Keep constraints, bits, presence, derived values and source references intact.
-Bootstrap and shared-wire receive the complete requirement texts referenced by
-transport/types, just as message tasks do; those facts are support, not primary claims.
-All tasks may read the full input/current project. Batches are not filesystem or
-semantic boundaries. Never infer behavior ownership from protocol names or ID prefixes.
+Linux 截止时间覆盖供应商调用和工具执行；未知 usage 保留预留；中断时清理本运行拥有的容器。
+按任务记录模型等待、工具、构建／检查、token、已结算人民币、预留、决策、重试和路由原因。
+后续独立导出审计与生成墙钟时间分开。历史未测开销明确记为缺口，不得伪造时间。
 
-Each batch reports exactly its requirements: implemented/already_present with code
-locations and explanations, or not_applicable with original requirement and target
-scope justification. Missing/duplicate/out-of-batch claims fail validation.
-Unsupported/not_implemented/deferred cannot complete a task; absence from minimum
-tests does not justify not_applicable. Claims are not independently verified behavior.
+Config 3.0 和 Run 7.0 拒绝旧版本的执行／恢复；旧运行只能用原运行时复现。不同 Schema 或币种的
+活动不得静默合并。DeepSeek 国内价格采用 2026-09-13 官方快照：Flash 忙时缓存命中输入／未命中
+输入／输出为每百万 token ¥0.04／¥2／¥8，Pro 为 ¥0.30／¥9／¥27；闲时半价。忙时定义为上海时区
+周一至周五 `[09:00,12:00)` 和 `[14:00,18:00)`，其余为闲时。记录请求开始 UTC、所选时段／单价
+及供应商缓存 usage。由于官方未说明跨边界调用如何结算，本地估算以请求开始时间为准，报告明确
+只是估算而非账单。调用前按忙时、缓存未命中价格预留，返回后按实际 usage 和请求开始时段结算；
+未知调用继续占用预留。缺失缓存明细时明确按全部未命中估算。
 
-A field constraint is not a universal error policy. Preserve sufficient parsed
-information for behavior-specific rejection responses rather than silently dropping
-every constant mismatch. Ordinary implementation and actual tests determine this.
+## 2. 确定性规划
 
-## 3. Tool-using coding session
+冻结输入原始字节。校验 Schema、ID 唯一性和结构引用，不校验自然语言语义。需求的唯一事实源是
+Spec 的 `requirements[]`，并保持数组顺序。生成串行 Plan 6.0：
 
-One writer at a time. Sources, shared headers, main and build files are editable.
-Code and compiler are interface authority: no frozen ABI, file-owner leases, module
-vocabulary or shadow signature JSON. Fix affected callers when changing interfaces.
+1. `bootstrap`：创建真实工程、构建／启动入口、初始接口和 README。只需建立可监听、可干净退出的
+   进程，不要求此时实现全部消息和行为；任务开始即提供完整流水线概览。
+2. `shared-wire`：实现传输及内置／自定义 wire 类型。
+3. 每条消息一个 `message:<id>` 任务。目标角色接收时解码、发送时编码；若两者都需要则同时实现；
+   对无关消息必须显式判断范围。
+4. `requirements:<n>`：每批最多 12 条原始需求，包含 `DEFINITION`。
+5. `final-integration`：集成并执行 clean 构建和必过交互。
 
-Reuse current provider adapters in a JSON action loop:
-list_files/read_file/search/write_file/replace_text/run_command/finish/request_followup.
-Carry executed actions as actual assistant messages and tool results as subsequent
-user messages, not as a history blob inside a single user message. Context assembly
-uses complete action/result transactions; session transitions are request metadata,
-never additional unpaired messages. Retain complete calls/actions in evidence.
-Keep task facts, deduplicated current file observations and the latest diagnostic
-in the model request. A successful read observation contains its exact selected
-content, original file SHA256 and evidence reference. Before each request, compare
-observed file hashes with the actual allowed workspace/input files; invalidate
-changed/deleted/escaped paths. This also handles edits through arbitrary commands
-without discarding unchanged source observations after a harmless build.
-Read results appear once in the observation set; transcript receipts refer to them
-and durable evidence. Only older whole transactions may be evicted for space, not
-the current working observations or the latest action/result. If those required
-parts exceed the configured actual-wire limit, fail with an explicit capacity
-diagnostic before another paid call instead of silently entering a reread loop.
-This is disposable model context, not a second authoritative project/run state.
-Retries preserve validated observations and latest diagnostics without breaking
-transaction pairing; resumed processes re-read actual files as necessary.
-Native provider function calling is not required. Serialize the action schema once,
-budget actual wire requests including corrections, and honor explicit coder config.
-Use configured JSON-object output for providers that support it: the actual request
-includes response_format={"type":"json_object"}. This constrains syntax only;
-strict local action schema/claim checks and all host build/oracle gates remain.
-Empty, malformed or schema-invalid responses execute no tool and consume their
-normal decision/cost budget. Do not scrape DSML/XML or execute nested fragments.
-The first complete run spent31.3 API minutes on205 invalid action responses;
-see session_latency_analysis.md. Keep reasoning effort, full task scope and all
-existing resource/output/context limits unchanged while evaluating this correction.
-Include concrete JSON action examples, reject XML pseudo-tool calls with corrective
-feedback, and show the remaining decision budget. Search accepts regular expressions.
+当前基准有 8 个类型、10 条消息、110 条需求和 23 个任务。每条需求恰有一个主批次。Codec／类型的
+需求引用只提供上下文，不代表完成。类型闭包通过字段及编码的 `members`、`item_type`、`length_type`、
+`base_type` 解析；约束、位、存在条件、派生值和来源引用必须完整保留。`bootstrap` 和 `shared-wire`
+与消息任务一样获得传输／类型引用的完整需求文本，但这些事实只是辅助上下文，不是其主声明。
+所有任务可读取完整输入和当前工程。批次不是文件系统或语义边界。不得从协议名称或需求 ID 前缀
+推断行为归属。
 
-Default: configured deepseek/deepseek-v4-pro, temperature 0, max output 16000. This is
-a starting configuration, not a proven model ranking. Restore the actual-wire
-window to 180000 bytes after the evidenced 60000-byte source-eviction regression;
-the working-set invariants above, not the larger number alone, fix the mechanism.
-Optional coder.fast_model uses the same configured provider and requires an explicit
-price. Bootstrap, message and requirement tasks use it for their first session;
-shared-wire, integration, follow-up and repair/retry sessions use coder.model (Pro).
-Selection is based on task kind and observed session exhaustion, not protocol names
-or requirement prefixes. The selected model must drive the actual wire request,
-context sizing and usage/reservation pricing; record route reasons in call context.
-Maximum 40 decisions per
-session, three sessions per task; retries carry real prior diagnostics and consume
-the same run budgets. Full evidence is durable; file/log tools paginate outputs.
-Retain task/target/index and recent transcript in context; older evidence remains
-readable by reference. Read current code rather than trust stale summaries.
+每个批次必须恰好报告本批需求：`implemented`／`already_present` 要附代码位置与解释；
+`not_applicable` 要附原始需求和目标范围理由。缺失、重复或跨批声明均校验失败。
+`unsupported`、`not_implemented`、`deferred` 不能完成任务；最小检查未覆盖也不能作为
+`not_applicable` 的理由。智能体声明不等于行为已获独立验证。
 
-Only generated project files are writable. Input and oracle are available as
-read-only inputs/checks paths and /inputs and /checks container mounts; runtime state
-and Git metadata are not mounted. File pagination offsets are characters, not array
-indices; use JSON pointers for specific facts. Reject traversal and symbolic-link escapes.
-Commands run in a network-disabled, resource-limited container without host secrets,
-NePA source, old answer fixtures, cached answers or installed protocol servers.
-Host tools never execute generated commands outside that sandbox.
-finish requests host checks; it cannot mark success itself.
+字段约束不是统一错误策略。解析时必须保留足够信息，以便按具体行为返回拒绝响应，不能对所有常量
+不匹配一律静默丢弃。实际实现和真实检查共同决定具体策略。
 
-## 4. Independent build and interaction checks
+## 3. 使用工具的编码会话
 
-Target fixes argv build/run commands and output paths. The initial C99 target uses
-make release/make san and separate build/release/protocol-server and
-build/san/protocol-server outputs. Both require -std=c99 -Wall -Wextra -Werror;
-san additionally uses ASan/UBSan. Agent-editable build files must honor this contract.
-The Linux sandbox san target also requires -fno-pie -no-pie. A minimal instrumented
-program failed 5/20 PIE startups versus 0/20 non-PIE startups in this environment.
-This addresses observed toolchain address-layout failures without weakening checks.
+同一时刻只有一个写者。源码、共享头文件、主程序和构建文件均可修改。代码和编译器是接口权威，
+不使用冻结 ABI、文件所有者租约、模块词表或影子签名 JSON；接口变化时必须同步修复调用方。
 
-Each task passes actual builds and output checks before acceptance. Final checks
-clean-build the exported project. A generic supervisor starts its binary and the
-trusted client in one network-disabled container on loopback with a dynamic port.
-Oracle code is read-only, performs readiness/interaction assertions and returns real
-results. Capture actual server/client exit codes, timeouts and logs; stop the server
-and reject sanitizer failures or unexpected termination. Never normalize failure.
+复用现有供应商适配器和一套动作执行器：`list_files`、`read_file`、`search`、`write_file`、
+`replace_text`、`run_command`、`finish`、`request_followup`。JSON 模式把已执行动作作为真实 assistant
+消息、工具结果作为后续 user 消息；原生模式使用配对的 tool 消息。上下文只装入完整动作／结果事务；
+会话状态是请求元数据，不增加未配对消息。完整调用和动作永久保存在证据中。
 
-MQTT-specific checks exist only in sample acceptance assets: valid CONNECT/CONNACK,
-PINGREQ/PINGRESP, unsupported-level CONNACK 0x01 followed by EOF, then a subsequent
-valid connection. Vary client IDs; run both variants. Oracle unit-test doubles do
-not count as real generation. Remaining protocol behavior is explicitly unverified.
+模型请求保留任务事实、去重后的当前文件观察和最新诊断。成功读取必须包含所选原文、原文件 SHA256
+和证据引用。每次请求前，将观察中的文件摘要与允许的工程／输入文件比较；已修改、删除或逃逸的路径
+立即失效。任意命令造成的修改也按此处理，而无副作用构建后仍保留未变源码观察。读取内容只在观察集
+出现一次，转录回执引用该观察和持久证据。空间不足时只能淘汰较旧的完整事务，不能删除当前工作观察
+或最新动作／结果。若这些必需内容超过实际 wire 限额，应在下一次付费调用前给出明确容量错误，不能
+静默进入重复读取。模型上下文是可丢弃视图，不是第二份权威工程／运行状态。重试保留已验证观察和
+最新诊断，不破坏事务配对；恢复进程按需重新读取真实文件。
 
-## 5. State, repair and recovery
+Config 3.0 使用 `coder.action_format`，取代 `coder.json_output`；可选值为 `json_object` 和
+`tool_calls`。原生函数参数 Schema 从 AgentAction 1.0 导出，两种格式经过同一套严格本地校验和执行器。
+原生响应跨调用保留 tool ID、参数分片和 `reasoning_content`。保持当前思考模式，使用
+`tool_choice=auto`。零调用、多调用、未知调用或不完整调用均不执行动作；有 ID 时返回配对错误回执。
+不得提取 XML、嵌套 JSON，也不得自动切换接口。上下文裁剪以完整事务为单位，实际 wire 容量和预留
+必须计算 reasoning、工具定义和结果。
 
-One atomic Run 5.0 run.json is authoritative: input/config refs, immutable active
-plan ref, task/session counters, accepted Git checkpoint, budgets, current operation
-and terminal result. Independent immutable traces are evidence, not shadow state.
-Single-controller lock; status is read-only.
+由选定供应商生成唯一的实际请求字节，供上下文计量、预算预留和发送共同使用；其他组件不得硬编码
+OpenAI／DeepSeek 报文。配置 profile 明确声明流式、JSON、工具、思考字段、上下文／输出上限、
+temperature／stop 限制、模型身份和 usage 记账能力；不支持的组合在 I/O 前拒绝。Qwen 根据配置使用
+`enable_thinking`、`preserve_thinking`、`max_completion_tokens`（包括思考和正文）及
+`parallel_tool_calls=false`，并额外预留官方说明的 10 个完成 token。事实和阶梯价格见
+`research/qwen-capability-audit.md`。
 
-Allocate never-reused call ID and worst-case budget reservation before provider I/O.
-Persist response before settling actual usage. Lost/unknown calls retain reservation.
-Persist task result/check evidence, create checkpoint, then atomically accept task
-and checkpoint. Orphan checkpoints cannot authorize completion. On interruption,
-preserve the incomplete tree and create a fresh working copy from accepted code.
-Unexpected manual changes must be preserved, not silently overwritten.
-An explicitly requested development resume can change active configuration/runtime
-using resume --config PATH --accept-runtime-change --change-reason TEXT. Before the
-change, validate unchanged input/plan/project evidence and preserve the previous
-state/report/config/runtime in immutable evidence; publish the new active values
-and a history reference atomically. Include these changes in reports. This never
-resets cost, call numbers, task/session counters, original creation time, accepted
-checkpoint or pending-call reservations. Ordinary resume still rejects runtime
-drift; legacy Run4 and completed deliveries cannot be migrated through this path.
+动作 Schema 只序列化一次；预算按包含纠错消息的实际 wire 请求计算，并服从显式 coder 配置。
+支持 JSON-object 的供应商在实际请求中携带 `response_format={"type":"json_object"}`；它只约束语法，
+本地 AgentAction／声明校验、宿主构建和 oracle 门禁不变。空、畸形或 Schema 不合法响应不执行工具，
+但消耗正常决策和费用预算。不得抓取 DSML／XML 或执行嵌套片段。首次完整运行的 205 个无效动作消耗
+31.3 分钟 API 时间，分析见 `research/session_latency_analysis.md`。评估修正时保持推理强度、完整任务
+范围和现有资源／输出／上下文上限；提示提供具体 JSON 动作示例，明确拒绝 XML 伪工具调用并显示
+剩余决策预算。`search` 支持正则表达式。
 
-Repair in the current task or append a small follow-up with problem, requirement
-and diagnostic refs. Maximum three follow-ups per run, inserted before final
-verification in a new immutable plan version. They cannot erase tasks, change
-inputs/oracles or evade an exhausted task budget. Final check failure allows up to
-three repair sessions, charged to the original run. No CAP/F1–F3, leases, migration
-classes, preservation ratios or rehearsal DSL.
+动作接口比较对每种模式使用相同的 24 个 Flash、8 个 Pro 格式样本（含 MQTT 和 HTTP 上下文），
+并各运行四个真实短工具会话，覆盖文件操作、编译修复和 `finish`。调用前冻结样本和门槛。原生接口
+只有同时满足以下条件才可升级为默认：Flash 无效率不超过 5% 且相对下降至少 50%；Pro 无效数不增加；
+四个短会话全部通过；每个有效动作的平均耗时和费用不超过 JSON 对照的 110%。样本不完整或预算耗尽
+不能证明改善。Strict Beta 只作能力探测，不能据此削弱本地 Schema。
 
-## 6. Interfaces and publication
+默认配置为 `deepseek/deepseek-v4-pro`、temperature 0、最大输出 16000；这是起点，不是模型排名。
+在已有 60000 字节窗口导致源码观察被逐出的证据后，实际 wire 窗口恢复为 180000 字节；真正修复来自
+上述工作集不变量，而非单纯扩大数值。可选 `coder.fast_model` 必须属于同一配置供应商并有显式价格。
+`bootstrap`、`message`、`requirements` 的首个会话使用快模型；`shared-wire`、集成、follow-up 和
+修复／重试使用 Pro。构建、私有检查或工作区命令失败后，在原决策／会话预算内将后续修复升级到强模型
+并记录转移。非零或超时命令保守路由为 `tool_failure_repair`，无需猜测编译器包装命令。路由依据任务
+种类、观察到的失败和会话耗尽，不依赖协议名称或需求前缀。选定模型必须决定实际请求、上下文计量、
+usage 和预留价格，并在调用上下文记录原因。
 
-CLI: nepa run --spec PATH --target PATH --acceptance PATH --config PATH --runs-root DIR.
-Preserve resume RUN_ID and status RUN_ID with --runs-root. Add lint acceptance;
-retire --test-bundle, --until and ledger-specific lint. Unsupported old runs/config
-fail explicitly; reproduce them with the baseline, never implicitly convert.
+每个会话最多 40 次决策，每任务最多三个会话；重试携带真实诊断并消耗同一运行预算。完整证据持久化，
+文件和日志工具分页。上下文保留 task／target／index 及近期转录；只有宿主发布的脱敏证据可按引用读取。
+应读取当前代码，不得相信过期摘要。
 
-Interfaces: compile_plan → ExecutionPlan; CodingSession.run → TaskResult;
-BuildRunner.run → BuildResult; VerificationRunner.run → VerificationResult;
-RunStore.accept → RunState; Orchestrator.run/resume → FinalRunResult.
-Contracts: Spec3.0, Target1.0, Acceptance1.0, AgentAction1.0, Plan6.0, Run5.0, Report3.0.
+只有生成工程可写。运行输入只包含 `spec.json`、`target.json`、`index.json` 和明确公开的开发资产。
+Acceptance 1.0 保存到 `private/acceptance.json` 与 `private/assets`，绝不进入智能体可见根目录。逻辑
+`evidence/` 只映射宿主发布的 `agent-evidence`，不映射原始 evidence／calls／actions／checks 或运行状态。
+文件列举、读取、搜索和摘要刷新必须解析每个后代的真实路径，拒绝绝对路径、遍历和符号链接逃逸。
 
-Export sources, build files, README, both executables and manifest. Clean-rebuild and
-verify the exported copy independently of the working directory. Report input/config/
-code hashes, actual models/calls, claims versus verified behavior, all check results,
-costs, artifact hashes, commands and limitations. Initialized failures also report.
+编码／构建容器仅挂载工程、公开输入和可选的安全证据，并禁用网络；不得挂载 `/checks`、私有目录、
+原始证据、源码仓库、宿主 Docker socket 或凭据。模型可见的命令结果隐藏 Docker 宿主 argv 和挂载路径；
+错误使用逻辑路径且不暴露宿主 traceback。宿主边界只发布一次脱敏动作／诊断视图，后续观察、历史、
+恢复时 `last_feedback`、follow-up、导出修复和证据分页都只能使用此视图。仅持有原始证据摘要不构成
+读取授权。`finish` 只请求宿主验证，不能自行标记成功。
 
-Generation/resume returns 0 only after all tasks, checks, export and report succeed.
-Other codes: 1 internal error, 2 execution/verification failure, 3 budget exhaustion,
-20 invalid input/config/unsupported version, 130 interruption. Status exit 0 means
-status was read, not generation passed; JSON exposes the actual outcome.
+## 4. 独立构建与交互检查
 
-## 7. Migration and scope
+Target 固定构建／运行 argv 和输出路径。初始 C99 Target 使用 `make release`、`make san`，分别输出
+`build/release/protocol-server` 和 `build/san/protocol-server`。两者均要求
+`-std=c99 -Wall -Wextra -Werror`，san 额外使用 ASan/UBSan。智能体可编辑的构建文件必须遵守合同。
+Linux 沙箱的 san 还要求 `-fno-pie -no-pie`；本环境最小插桩程序 PIE 启动失败 5/20 次，非 PIE 为
+0/20 次。此设置处理已观察到的工具链地址布局问题，不降低检查标准。
 
-Original worktree/user changes and raw runs remain untouched. Baseline Git preserves
-old code and tracked fixtures. Use isolated stage commits and recoverable attempt
-snapshots. Retire obsolete files only after consumer checks and replacement coverage
-are recorded. No automatic old-run migration or long-lived dual runtime.
+每个任务在验收前通过真实构建。最终检查对导出副本执行 clean build 和验证。验证使用两个独立容器：
+服务容器 `network=none`，只读挂载生成工程；检查容器只加入服务容器的 loopback 网络命名空间，只读
+挂载私有资产和可信 worker。服务端不能接触共享文件系统、PID／IPC 命名空间或私有可写卷；检查器
+不导入或挂载生成代码。禁止宿主网络、端口发布和共享 `/checks` 回退。两个容器都移除非必要 capability
+和提权，并在原 CPU／内存额度内分配资源。宿主管理两者生命周期，在 I/O 前记录标识，中断／恢复时
+清理本运行拥有的容器。每项检查保留完整超时、退出、sanitizer 和关闭验证；畸形／不完整检查结果、
+缺失场景、提前退出或强制终止均判失败。
 
-Retain provider/SSE, redaction, budget, schema/reference, path, atomic-publication,
-lock and sandbox tests. Add actual compiler repair, CLI wiring, checkpoint windows,
-independent oracle, wheel-install and paid opt-in live tests. CI builds sandbox
-before dependent tests and type-checks all retained production modules.
+Acceptance 1.0 本身保持不变；隔离属于宿主执行属性，与验证器／随机化版本一起记录在 Run 7／Report 5。
+分类来自可信 oracle 的结构化结果。CLI 的 `--acceptance` 始终是宿主私有最终验收；公共开发检查仅包括
+模型可见构建／测试和冻结的公共工具夹具。不新增 public-check CLI 或无消费者的公开 manifest 合同。
+Spec 3、Target 1、Plan 6 和 AgentAction 1 保持不变。所有 MQTT 20／HTTP 12 条断言和必测边界样例
+必须按明确迁移表保留。
 
-Research v2 stays unchanged. Adopt fact indexing, deterministic small tasks and real
-feedback. Defer OPIR, macro DSL, solvers, automatic extraction/test generation,
-additional languages and broad protocol validation. Historical calibration is not
-production admission. Evidence may justify within-scope design changes if reason,
-impact and replacement tests are recorded. Do not weaken acceptance, increase
-budgets, overwrite user work, push, merge or deploy without separate authorization.
+每次验证由宿主在 I/O 前生成并记录 seed；端口和各场景流由 seed 独立派生，不得从公开端口或 run ID
+生成 seed。私有 oracle 使用稳定生成器版本，为合法 ID、载荷、分片切点、粘包分组和适用场景的 2–4 次
+有界交互生成数据，同时保留所有原始切点、畸形向量、边界值和 Keep Alive 窗口。两个构建变体使用
+不同端口／流；测试证明不同 seed 会变化，同 seed 可重放输入。本轮每个变体运行一次带冻结随机策略的
+完整套件即可，不默认重复三次所有时序敏感场景。宿主证据记录实际收发字节、连接 ID、分块、半关闭、
+超时和时间戳。重放保证相同字节和调度，不保证 OS／TCP 时序逐毫秒一致。seed 与转录不得导出。
+
+私有脚本除完整宿主日志外，只输出有界结构化语义诊断。宿主仅向修复会话转发 `repair-diagnostic/1`
+允许字段：检查 ID、类别、变体、状态、预期／实际协议结果、类型、长度、顺序，以及构建、sanitizer、
+服务状态和安全的项目源码诊断。私有文件名、argv、traceback、seed、原始向量和原始宿主引用均不得进入
+模型上下文。生成服务日志可能回显私有向量，因此原始日志只留在宿主；只发布有界编译／sanitizer
+源码诊断和已分类观察，无法分类的服务输出明确省略。隔离不能只靠字符串替换。安全诊断必须足以支撑
+一次真实受控修复会话。
+
+离线准入必须包含真实容器拒绝访问测试，覆盖所有工具、绝对路径、符号链接、宿主历史和生成服务端的
+文件系统读取；正确的完整导出通过，错误响应、只休眠、单一 ID／固定端口、提前退出和真实 sanitizer
+插桩夹具失败。JSON／原生模式、上下文裁剪、恢复、导出修复和最终归档都要检查安全上下文。
+
+MQTT 专用知识只能存在于样例 Acceptance：验证合法 CONNECT／CONNACK、PINGREQ／PINGRESP、
+不支持协议级别时返回 CONNACK 0x01 后 EOF，以及错误连接后正常客户端仍可交互；扩展至发布、订阅、
+取消订阅、客户端隔离、CleanSession=1 重置、QoS 0 转发、订阅 QoS 降级、分片／粘包、帧边界、
+畸形报文和 Keep Alive。110 条原始需求保持不变；本轮不扩展 QoS 1/2 投递和持久会话。检查只能映射
+其真实断言，不能用一个正常样例或客户端动作推断整条需求已经证明。
+
+HTTP 输入是人工整理的 Spec 3.0，以字节字段和需求文本描述请求行、头部和消息体，编译器／运行时
+不得包含 HTTP 专用分支。RFC 9110／9112 定义选定语义；明确标为应用规则的行为是：`GET /` 返回 200
+和 `nepa\n`；`HEAD /` 返回对应元数据但无响应体；`POST /echo` 返回相同字节；未知路径返回 404；
+未实现方法返回 501。检查 Host、头字段大小写不敏感、Content-Length、二进制／空 body、持久连接、
+流水线顺序、分片、`Connection: close`、非法／冲突长度和截断。子集策略对 Transfer-Encoding 输入
+拒绝并关闭。明确排除 chunked、TLS、代理、升级、缓存和 HTTP/2。RFC 9112 要求解码 chunked，因此
+不得称此子集为完整符合 HTTP/1.1 的接收器。协议知识只存在于输入和 oracle 资产。两个变体使用变化的
+标识与输入。oracle 单元测试替身不算真实生成；其余协议行为明确记为未验证。
+
+## 5. 状态、修复与恢复
+
+完成的能力探测和公共工具样本使用 `study_complete`，不能记为生产成功；其未执行 Plan 任务仍保持
+未执行，也不能恢复为生产生成。费用和预留继续占用。
+
+单一原子 `run.json`（Run 7.0）是权威状态，包含输入／配置引用、不可变 active plan 引用、任务／会话
+计数器、已接受 Git checkpoint、预算、当前操作和终态。独立不可变 trace 只是证据，不是影子状态。
+同一运行只有一个控制器锁；`status` 只读。
+
+供应商 I/O 前分配永不复用的 call ID 和最坏情况预算预留；响应先持久化，再按实际 usage 结算。
+丢失／未知调用保留预留。请求模型和返回模型分别记录，不能合成观察。身份缺失／不匹配、usage 缺失
+或非法时，不产生可执行动作，保留预留和原始响应证据。缓存明细可缺失，但须明确按全部未命中；思考
+明细可记为不可用，不能虚构。Qwen 的 `prompt_tokens_details.cached_tokens` 与
+`completion_tokens_details.reasoning_tokens` 被归一化；思考 token 已包含在 completion_tokens 中，
+不得重复计费。阶梯按总输入 token 选择。Qwen 为全天阶梯价，不套用 DeepSeek 忙／闲时折扣。
+预留使用适用的最坏阶梯、全部未命中和最大输出；超过预留的已知负债单独记录并阻止后续调用，不能截断。
+只重试有界的传输、429 和 5xx 错误；请求、身份和 usage 错误不得回退。
+
+任务结果和检查证据持久化后创建 checkpoint，再原子接受任务与 checkpoint；孤立 checkpoint 不能授权
+完成。中断时保留未完成树，并从已接受代码创建新的工作副本。意外人工变更必须保留，不能静默覆盖。
+显式开发恢复可使用 `resume --config PATH --accept-runtime-change --change-reason TEXT` 修改活动配置／
+运行时。变更前校验输入、计划和工程证据未变，将旧状态、报告、配置和运行时保存为不可变证据，再原子
+发布新活动值和历史引用。报告必须包含这些变化。此流程绝不重置费用、call number、任务／会话计数、
+原始创建时间、已接受 checkpoint 或待结算预留。普通恢复仍拒绝运行时漂移；旧 Run 4 和已交付运行
+不能通过该入口迁移。
+
+修复可留在当前任务，也可追加一个包含问题、需求和诊断引用的小型 follow-up。每次运行最多三个，
+插入最终验证前的新不可变 Plan 版本；不得删除任务、修改输入／oracle 或绕过已耗尽的任务预算。
+最终检查失败允许最多三个修复会话，费用计入原运行。不再使用 CAP／F1–F3、租约、迁移类别、保全率
+或 rehearsal DSL。
+
+## 6. 接口与发布
+
+CLI：`nepa run --spec PATH --target PATH --acceptance PATH --config PATH --runs-root DIR`。
+保留 `resume RUN_ID` 和 `status RUN_ID` 的 `--runs-root`。增加 `lint acceptance`；移除
+`--test-bundle`、`--until` 和账本专用 lint。旧版本运行／配置明确失败，只能用原基线复现，不能隐式转换。
+
+核心接口：`compile_plan → ExecutionPlan`；`CodingSession.run → TaskResult`；
+`BuildRunner.run → BuildResult`；`VerificationRunner.run → VerificationResult`；
+`RunStore.accept → RunState`；`Orchestrator.run/resume → FinalRunResult`。
+合同版本为 Spec 3.0、Target 1.0、Acceptance 1.0、AgentAction 1.0、Plan 6.0、Run 7.0、Config 3.0、
+Report 5.0。旧配置／运行时快照必须使用旧代码。
+
+Report 5.0 保留每条主声明，并将 Acceptance 的 check ID／req_ids 关联至当前最终导出的证据、变体、结果
+和引用。状态分为 `scenarios_passed`、`failed`、`incomplete`、`unverified`。可选观察不能建立验证；
+缺少检查明确列为缺口；缺少变体／场景、监督失败或中断均不能通过；以前尝试的结果不得补齐当前证据。
+即使 `scenarios_passed` 也不等于完整语义证明。Report 5 分开公共开发构建／检查与私有最终检查，标明
+`legacy_readable` 或 `private_isolated`，并保留原始声明。宿主报告含私有证据引用；可分发投影只含私有
+套件／验证器聚合摘要、场景／类别／变体／状态和安全诊断，不含私有文件名、向量、对话或可读原始引用。
+
+导出源码、构建文件、README、两个可执行文件和公共 manifest／报告。不得打包私有输入／资产、seed、
+转录、原始调用或运行根目录。必须在工作目录之外对导出副本重新 clean build 和验证。报告记录输入／
+配置／代码摘要、实际模型／调用、声明与已验证行为、全部检查结果、费用、产物摘要、命令和限制。初始化
+失败也要生成报告。
+
+仅当全部任务、检查、导出和报告成功时，生成／恢复返回 0。其他退出码：1 内部错误；2 执行／验证失败；
+3 预算耗尽；20 输入／配置／版本非法；130 中断。`status` 返回 0 只代表状态读取成功，JSON 中的实际
+结果才代表生成状态。
+
+## 7. 迁移与范围
+
+原工作树、用户变更和原始运行保持不动。基线 Git 保留旧代码和已跟踪夹具。使用隔离阶段提交和可恢复
+尝试快照；只有记录消费者检查和替代覆盖后才能移除废弃文件。不提供旧运行自动迁移或长期双运行时。
+
+保留供应商／SSE、脱敏、预算、Schema／引用、路径、原子发布、锁和沙箱测试。增加真实编译修复、CLI
+接线、checkpoint 窗口、独立 oracle、wheel 安装和显式付费开关测试。CI 先构建沙箱，再运行依赖测试，
+并对全部保留的生产模块执行类型检查。
+
+研究报告 v2 保持为理论依据。采用事实索引、确定性小任务和真实反馈；暂缓 OPIR、宏 DSL、求解器、
+自动抽取／测试生成、更多语言和广泛协议验证。历史校准不构成生产准入。范围内设计只有在记录原因、
+影响和替代测试后才能依据证据修改。未经单独授权，不得降低验收、增加预算、覆盖用户工作、推送、
+合并或部署。
+
+## 8. RFC → Spec IR 前端（批准架构）
+
+RFC 前端采用 evidence-bound Spec IR 4.0，并通过严格的 Spec IR 3.0 projection 供当前
+Spec→Code 模块使用。4.0 不直接替换 3.0；任何无法无损投影的规范力度、条件、关系、状态或
+冲突都必须阻止 projection，不能静默丢弃。首版输入为冻结的文本 RFC source snapshot：HTTP
+使用 TXT，MQTT 使用固定官方来源的文字版，PDF 不在首版范围内。source snapshot、scope、
+claim/evidence/gap、review 和 projection 都必须以 hash 绑定并可回放。
+
+RFC 抽取只生成 draft；人工 review/approve 后才产生不可变 4.0 快照。RunStore 仍只接受
+approved 的 3.0 projection。RFC gold 与 `gold_file/http`、`gold_file/mqtt` 中的 coder 夹具
+分目录、分测试和分 hash 保存，不能覆盖或挂载到现有 Spec→Code 验收。应用 profile 规则与
+RFC 事实分开记录和评估。

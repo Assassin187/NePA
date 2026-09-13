@@ -6,10 +6,10 @@ from nepa.speclib.lint import lint_target
 ROOT = Path(__file__).parents[1]
 
 def target():
-    return json.loads((ROOT / "gold_file/target.json").read_bytes())
+    return json.loads((ROOT / "gold_file/mqtt/target.json").read_bytes())
 
 def test_target_lint_accepts_explicit_profile():
-    assert lint_target(target(), ROOT / "gold_file/specIR.json")["valid"]
+    assert lint_target(target(), ROOT / "gold_file/mqtt/specIR.json")["valid"]
 
 @pytest.mark.parametrize("mutation", [
     lambda t: t.update(roles=["client", "server"]),

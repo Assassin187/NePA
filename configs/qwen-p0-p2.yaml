@@ -1,0 +1,105 @@
+# Verified snapshot facts and rates: project_docs/research/qwen-capability-audit.md
+# No API calls are performed by loading this profile. Native capability admission remains pending.
+schema_version: '3.0'
+providers:
+  qwen:
+    kind: openai_compat
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: NEPA_QWEN_API_KEY
+coder:
+  provider: qwen
+  model: qwen3.7-plus-2026-05-26
+  fast_model: qwen3.7-flash-2026-07-15
+  action_format: tool_calls
+  temperature: 0
+  max_tokens: 16000
+  context_max_bytes: 360000
+capabilities:
+  qwen/qwen3.7-plus-2026-05-26:
+    stream: true
+    json_object: true
+    tool_calls: true
+    json_requires_instruction: true
+    wire:
+      output_token_field: max_completion_tokens
+      enable_thinking: true
+      preserve_thinking: true
+      parallel_tool_calls: false
+      completion_reserve_tokens: 10
+    context_tokens: 1000000
+    max_input_tokens: 991808
+    thinking_max_input_tokens: 983616
+    max_output_tokens: 131072
+    temperature_min: 0
+    temperature_max_exclusive: 2
+    stop: false
+    identity: exact
+    usage: qwen
+  qwen/qwen3.7-flash-2026-07-15:
+    stream: true
+    json_object: true
+    tool_calls: true
+    json_requires_instruction: true
+    wire:
+      output_token_field: max_completion_tokens
+      enable_thinking: true
+      preserve_thinking: true
+      parallel_tool_calls: false
+      completion_reserve_tokens: 10
+    context_tokens: 1000000
+    max_input_tokens: 991808
+    thinking_max_input_tokens: 983616
+    max_output_tokens: 131072
+    temperature_min: 0
+    temperature_max_exclusive: 2
+    stop: false
+    identity: exact
+    usage: qwen
+pricing:
+  qwen/qwen3.7-plus-2026-05-26:
+    input_cny_per_million_tokens: 2
+    cache_hit_input_cny_per_million_tokens: 0.4
+    output_cny_per_million_tokens: 8
+    schedule: flat
+    off_peak_multiplier: 1
+    tiers:
+    - max_input_tokens: 256000
+      input_cny_per_million_tokens: 2
+      cache_hit_input_cny_per_million_tokens: 0.4
+      output_cny_per_million_tokens: 8
+    - max_input_tokens: 1000000
+      input_cny_per_million_tokens: 6
+      cache_hit_input_cny_per_million_tokens: 1.2
+      output_cny_per_million_tokens: 24
+  qwen/qwen3.7-flash-2026-07-15:
+    input_cny_per_million_tokens: 0.2
+    cache_hit_input_cny_per_million_tokens: 0.04
+    output_cny_per_million_tokens: 0.8
+    schedule: flat
+    off_peak_multiplier: 1
+    tiers:
+    - max_input_tokens: 32000
+      input_cny_per_million_tokens: 0.2
+      cache_hit_input_cny_per_million_tokens: 0.04
+      output_cny_per_million_tokens: 0.8
+    - max_input_tokens: 256000
+      input_cny_per_million_tokens: 0.6
+      cache_hit_input_cny_per_million_tokens: 0.12
+      output_cny_per_million_tokens: 2.4
+    - max_input_tokens: 1000000
+      input_cny_per_million_tokens: 1.2
+      cache_hit_input_cny_per_million_tokens: 0.24
+      output_cny_per_million_tokens: 4.8
+campaign:
+  phase: generation
+  phase_max_cost_cny:
+    capability: 5
+    public_tools: 5
+budgets:
+  max_cost_cny: 20
+  campaign_max_cost_cny: 300
+  wall_clock_hours: 4
+  decisions_per_session: 40
+  sessions_per_task: 3
+  followups: 3
+  final_repairs: 3

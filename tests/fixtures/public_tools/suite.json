@@ -1,0 +1,99 @@
+{
+  "schema_version": "public-tools/1",
+  "decisions": 12,
+  "sessions_per_model": 4,
+  "fixtures": [
+    {
+      "id": "read_write",
+      "files": {
+        "main.c": "#include <stdio.h>\n#include \"answer.h\"\nint main(void) { printf(\"%d\\n\", ANSWER); return 0; }\n"
+      },
+      "goal": "Read main.c, create answer.h defining ANSWER as 42. Do not change main.c. Finish with the output requirement claim.",
+      "stdout": "42\n",
+      "sequence": [
+        "read_file",
+        "write_file",
+        "finish"
+      ],
+      "unchanged": [
+        "main.c"
+      ],
+      "exit_code": 0,
+      "timeout_s": 2,
+      "requirement_ids": [
+        "REQ-PUBLIC-OUTPUT-001"
+      ]
+    },
+    {
+      "id": "exact_replace",
+      "files": {
+        "main.c": "#include <stdio.h>\nint main(void) { puts(\"before\"); return 0; }\n"
+      },
+      "goal": "Read main.c and use replace_text to replace the unique string literal \"before\" with \"after\". Do not use write_file for this source. Finish with the output requirement claim.",
+      "stdout": "after\n",
+      "sequence": [
+        "read_file",
+        "replace_text",
+        "finish"
+      ],
+      "exact_replace": {
+        "path": "main.c",
+        "old": "\"before\"",
+        "new": "\"after\""
+      },
+      "exit_code": 0,
+      "timeout_s": 2,
+      "requirement_ids": [
+        "REQ-PUBLIC-OUTPUT-001"
+      ]
+    },
+    {
+      "id": "compile_repair",
+      "files": {
+        "main.c": "#include <stdio.h>\n#include \"answer.h\"\nint main(void) { printf(\"%d\\n\", answer(40)); return 0; }\n",
+        "answer.h": "int answer(void);\n",
+        "answer.c": "#include \"answer.h\"\nint answer(void) { return 41; }\n"
+      },
+      "goal": "First run make release before editing: compilation must really fail. Read the actual diagnostic and main.c, answer.h and answer.c. Keep main.c unchanged; fix both answer.h and answer.c to agree on int answer(int value), returning value + 2. Then finish with the output requirement claim.",
+      "stdout": "42\n",
+      "sequence": [
+        "run_command",
+        "read_file",
+        "finish"
+      ],
+      "unchanged": [
+        "main.c"
+      ],
+      "changed": [
+        "answer.h",
+        "answer.c"
+      ],
+      "compile_failure_first": true,
+      "exit_code": 0,
+      "timeout_s": 2,
+      "requirement_ids": [
+        "REQ-PUBLIC-OUTPUT-001"
+      ]
+    },
+    {
+      "id": "finish_claim",
+      "files": {
+        "main.c": "#include <stdio.h>\nint main(void) { puts(\"complete\"); return 0; }\n"
+      },
+      "goal": "Read main.c, confirm REQ-PUBLIC-OUTPUT-001 is already implemented, and finish with that exact claim, status already_present, a reason and main.c code reference. Do not edit source files. The host must really build both variants.",
+      "stdout": "complete\n",
+      "sequence": [
+        "read_file",
+        "finish"
+      ],
+      "unchanged": [
+        "main.c"
+      ],
+      "exit_code": 0,
+      "timeout_s": 2,
+      "requirement_ids": [
+        "REQ-PUBLIC-OUTPUT-001"
+      ]
+    }
+  ]
+}

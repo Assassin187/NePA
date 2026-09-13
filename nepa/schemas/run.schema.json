@@ -2,7 +2,7 @@
   "type": "object",
   "properties": {
     "schema_version": {
-      "const": "5.0"
+      "const": "7.0"
     },
     "run_id": {
       "type": "string",
@@ -20,13 +20,13 @@
       "enum": [
         "pending",
         "running",
-        "passed",
         "success",
         "failed",
         "budget_exhausted",
         "interrupted",
         "invalid",
-        "internal_error"
+        "internal_error",
+        "study_complete"
       ]
     },
     "exit_code": {
@@ -41,24 +41,68 @@
     },
     "inputs": {
       "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
+      "additionalProperties": false,
+      "properties": {
+        "spec": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
           },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$"
-          }
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
         },
-        "required": [
-          "path",
-          "sha256"
-        ],
-        "additionalProperties": false
-      }
+        "target": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "index": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "spec",
+        "target",
+        "index"
+      ]
     },
     "runtime": {
       "type": "object",
@@ -244,7 +288,7 @@
     "budget": {
       "type": "object",
       "properties": {
-        "cost_usd": {
+        "cost_cny": {
           "type": "number",
           "minimum": 0
         },
@@ -259,13 +303,42 @@
         "calls": {
           "type": "integer",
           "minimum": 0
+        },
+        "settled_cny": {
+          "type": "object",
+          "properties": {
+            "peak": {
+              "type": "number",
+              "minimum": 0
+            },
+            "off_peak": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unclassified": {
+              "type": "number",
+              "minimum": 0
+            },
+            "flat": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "peak",
+            "off_peak",
+            "unclassified",
+            "flat"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "cost_usd",
+        "cost_cny",
         "tokens_in",
         "tokens_out",
-        "calls"
+        "calls",
+        "settled_cny"
       ],
       "additionalProperties": false
     },
@@ -285,11 +358,23 @@
           "task_id": {
             "type": "string",
             "minLength": 1
+          },
+          "started_at": {
+            "type": "number"
+          },
+          "phase": {
+            "enum": [
+              "capability",
+              "public_tools",
+              "generation"
+            ]
           }
         },
         "required": [
           "reserved",
-          "task_id"
+          "task_id",
+          "started_at",
+          "phase"
         ],
         "additionalProperties": false
       }
@@ -361,6 +446,74 @@
     },
     "reason": {
       "type": "string"
+    },
+    "private_inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "verification_policy": {
+      "type": "object",
+      "properties": {
+        "exposure": {
+          "const": "private_isolated"
+        },
+        "verifier_version": {
+          "const": "private-isolated/1"
+        },
+        "randomization_version": {
+          "const": "random-inputs/1"
+        }
+      },
+      "required": [
+        "exposure",
+        "verifier_version",
+        "randomization_version"
+      ],
+      "additionalProperties": false
+    },
+    "phase_cost_cny": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "type": "number",
+          "minimum": 0
+        },
+        "public_tools": {
+          "type": "number",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "capability",
+        "public_tools",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "liability_overflow_cny": {
+      "type": "number",
+      "minimum": 0
     }
   },
   "required": [
@@ -385,8 +538,47 @@
     "pending_calls",
     "followups",
     "final_repairs",
-    "history"
+    "history",
+    "private_inputs",
+    "verification_policy",
+    "phase_cost_cny",
+    "liability_overflow_cny"
   ],
   "additionalProperties": false,
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "study_complete"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "config_snapshot": {
+            "properties": {
+              "campaign": {
+                "properties": {
+                  "phase": {
+                    "enum": [
+                      "capability",
+                      "public_tools"
+                    ]
+                  }
+                },
+                "required": [
+                  "phase"
+                ]
+              }
+            },
+            "required": [
+              "campaign"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

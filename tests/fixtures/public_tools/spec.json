@@ -1,0 +1,23 @@
+{
+  "schema_version": "3.0",
+  "protocol": {
+    "name": "PublicToolFixture",
+    "version": "1",
+    "roles": [
+      "server"
+    ]
+  },
+  "types": [],
+  "messages": [],
+  "requirements": [
+    {
+      "id": "REQ-PUBLIC-OUTPUT-001",
+      "text": "The fixture executable prints exactly the specified stdout, exits 0, and terminates within two seconds.",
+      "level": "MUST",
+      "source_ref": {
+        "section": "public-tools/1",
+        "quote": "Exact stdout, exit zero, bounded termination."
+      }
+    }
+  ]
+}

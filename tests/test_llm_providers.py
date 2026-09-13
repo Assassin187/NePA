@@ -4,9 +4,12 @@ import httpx
 import pytest
 
 from nepa.config import load_config
-from nepa.llm.client import DecodingError, LLMConfigurationError, LLMRequest, ParameterSupportState, ProviderError, TransportError
+from nepa.llm.client import DecodingError, LLMConfigurationError, LLMRequest, ParameterSupportState, ProviderError, TransportError, ResponseIdentityError
 from nepa.llm.providers.anthropic import AnthropicProvider
 from nepa.llm.providers.openai_compat import DEFAULT_HTTP_TIMEOUT, OpenAICompatibleProvider
+
+
+CAPS = load_config().capabilities["deepseek/deepseek-v4-pro"].model_copy(update={"json_schema": True})
 
 
 def _request():
@@ -17,7 +20,7 @@ def _event(value):
     return f"data: {json.dumps(value, separators=(',', ':'))}\n\n"
 
 
-def _stream(*, model="returned/model-v2", chunks=("ans", "wer"), prompt_tokens=3, completion_tokens=4, finish_reason="stop"):
+def _stream(*, model="fixture/model", chunks=("ans", "wer"), prompt_tokens=3, completion_tokens=4, finish_reason="stop"):
     events = [
         _event({"model": model, "choices": [{"delta": {"content": chunk}, "finish_reason": None}]})
         for chunk in chunks
@@ -50,14 +53,14 @@ def test_openai_compat_routes_qwen_and_deepseek_to_chat_completions(provider_nam
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
-    result = provider.complete(_request(), model="fixture/model")
+    result = provider.complete(_request(), model="fixture/model", capabilities=CAPS)
 
     assert seen["url"].endswith("/chat/completions")
     assert seen["authorization"] == f"Bearer {secret}"
     assert seen["payload"]["stream"] is True
     assert seen["payload"]["stream_options"] == {"include_usage": True}
     assert result.text == "answer"
-    assert result.model == "returned/model-v2"
+    assert result.model == "fixture/model"
     assert result.tokens_in == 3
     assert result.tokens_out == 4
     assert result.parameter_support["temperature"] is ParameterSupportState.UNKNOWN
@@ -78,7 +81,7 @@ def test_openai_compat_uses_native_schema_payload_only_when_explicit(monkeypatch
     )
     request = _request().model_copy(update={"json_schema": {"type": "object"}})
 
-    provider.complete(request, model="fixture/model", native_schema=True)
+    provider.complete(request, model="fixture/model", native_schema=True, capabilities=CAPS)
 
     assert "response_format" in payloads[0]
     assert "json_schema" in payloads[0]["response_format"]
@@ -99,27 +102,30 @@ def test_openai_compat_missing_secret_fails_before_http(monkeypatch):
     with pytest.raises(LLMConfigurationError):
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
     assert called is False
 
 
-@pytest.mark.parametrize("json_output", [False, True])
-def test_json_object_setting_reaches_actual_http_without_duplicate_schema(monkeypatch, json_output):
+@pytest.mark.parametrize("action_format", ["json_object", "tool_calls"])
+def test_action_format_reaches_actual_http_without_duplicate_schema(monkeypatch, action_format):
+    from nepa.schemas import load_schema
     config = load_config()
     monkeypatch.setenv("NEPA_DS_API_KEY", "test-only")
     def handler(request):
         payload = json.loads(request.read())
-        if json_output:
+        if action_format == "json_object":
             assert payload["response_format"] == {"type": "json_object"}
         else:
             assert "response_format" not in payload
+            assert payload["tool_choice"] == "auto"
+            assert len(payload["tools"]) == 8
         assert "json_schema" not in json.dumps(payload)
         assert "reasoning_effort" not in payload and "thinking" not in payload
-        return _stream_response(chunks=("{}",))
+        return _stream_response(model="deepseek-flash", chunks=("{}",))
     provider = OpenAICompatibleProvider("deepseek", config.providers["deepseek"],
                                         client=httpx.Client(transport=httpx.MockTransport(handler)))
-    request = _request().model_copy(update={"json_output": json_output})
-    assert provider.complete(request, model="deepseek-flash").text == "{}"
+    request = _request().model_copy(update={"action_format": action_format, "json_schema": load_schema("agent-action.schema.json")})
+    assert provider.complete(request, model="deepseek-flash", capabilities=CAPS).text == "{}"
 
 
 def test_openai_compat_malformed_success_is_typed_and_not_secret_bearing(monkeypatch):
@@ -133,7 +139,7 @@ def test_openai_compat_malformed_success_is_typed_and_not_secret_bearing(monkeyp
     with pytest.raises(DecodingError) as exc_info:
         OpenAICompatibleProvider(
             "deepseek", config.providers["deepseek"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
     assert secret not in str(exc_info.value)
 
 
@@ -152,7 +158,7 @@ def test_anthropic_exact_url_and_no_messages_path(monkeypatch):
     monkeypatch.setenv(config.providers["anthropic"].api_key_env, secret)
     response = AnthropicProvider(
         "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
-    ).complete(_request(), model="claude-opus-5")
+    ).complete(_request(), model="claude-returned", capabilities=CAPS)
 
     assert seen["url"] == config.providers["anthropic"].base_url
     assert "/v1/messages" not in seen["url"]
@@ -176,13 +182,12 @@ def test_anthropic_missing_returned_model_is_recorded_as_absent(monkeypatch):
         body += "data: [DONE]\n\n"
         return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
-    response = AnthropicProvider(
-        "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
-    ).complete(_request(), model="claude-opus-5")
-
-    assert response.model == "claude-opus-5"
-    assert response.provider_metadata["returned_model_identity"] is None
-    assert response.provider_metadata["returned_model_identity_observed"] is False
+    with pytest.raises(ResponseIdentityError) as error:
+        AnthropicProvider(
+            "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
+        ).complete(_request(), model="claude-opus-5", capabilities=CAPS)
+    assert error.value.retryable is False
+    assert '"content":"answer"' in error.value.observed_raw_response["sse"]
 
 
 def test_anthropic_alternate_url_is_used_exactly(monkeypatch):
@@ -196,7 +201,7 @@ def test_anthropic_alternate_url_is_used_exactly(monkeypatch):
     monkeypatch.setenv(config.providers["anthropic"].api_key_env, "fixture-secret")
     AnthropicProvider(
         "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
-    ).complete(_request(), model="fixture")
+    ).complete(_request(), model="fixture", capabilities=CAPS)
 
     assert urls == ["https://alternate.test/custom-endpoint"]
 
@@ -212,7 +217,7 @@ def test_anthropic_no_messages_secret_is_redacted_from_failure(monkeypatch):
     with pytest.raises(ProviderError) as exc_info:
         AnthropicProvider(
             "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="claude-opus-5")
+        ).complete(_request(), model="claude-opus-5", capabilities=CAPS)
     assert secret not in str(exc_info.value)
 
 
@@ -225,7 +230,7 @@ def test_anthropic_normalize_response(monkeypatch):
 
     response = AnthropicProvider(
         "anthropic", config.providers["anthropic"], client=httpx.Client(transport=httpx.MockTransport(handler))
-    ).complete(_request(), model="claude-opus-5")
+    ).complete(_request(), model="claude-v3.1", capabilities=CAPS)
     assert response.text == "normalized"
     assert response.model == "claude-v3.1"
     assert response.tokens_in == 7
@@ -241,7 +246,7 @@ def test_stream_chunks_usage_done_finish_reason_and_model_identity(monkeypatch):
         client=httpx.Client(transport=httpx.MockTransport(lambda request: _stream_response(model="qwen-v1", chunks=("a", "b", "c"), prompt_tokens=11, completion_tokens=12))),
     )
 
-    result = provider.complete(_request(), model="fixture/model")
+    result = provider.complete(_request(), model="qwen-v1", capabilities=CAPS)
 
     assert result.text == "abc"
     assert result.model == "qwen-v1"
@@ -264,7 +269,7 @@ def test_stream_requires_usage_and_done(monkeypatch):
     with pytest.raises(DecodingError, match="final usage"):
         OpenAICompatibleProvider(
             "deepseek", config.providers["deepseek"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
 
 
 def test_stream_requires_done_marker(monkeypatch):
@@ -282,7 +287,7 @@ def test_stream_requires_done_marker(monkeypatch):
     with pytest.raises(DecodingError, match=r"before \[DONE\]"):
         OpenAICompatibleProvider(
             "deepseek", config.providers["deepseek"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
 
 
 @pytest.mark.parametrize("status_code", [301, 400, 401, 429, 500, 503])
@@ -296,7 +301,7 @@ def test_stream_non_2xx_is_typed_and_retryability_is_preserved(monkeypatch, stat
     with pytest.raises(ProviderError) as exc_info:
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
     assert exc_info.value.status_code == status_code
     assert exc_info.value.retryable is (status_code == 429 or status_code >= 500)
 
@@ -321,7 +326,7 @@ def test_malformed_sse_is_decoding_error_without_secret(monkeypatch, stream_text
     with pytest.raises(DecodingError) as exc_info:
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
     assert secret not in str(exc_info.value)
 
 
@@ -337,7 +342,7 @@ def test_stream_model_identity_must_be_stable(monkeypatch):
     with pytest.raises(DecodingError, match="model identity changed"):
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
 
 
 def test_stream_read_timeout_is_transport_error(monkeypatch):
@@ -350,7 +355,7 @@ def test_stream_read_timeout_is_transport_error(monkeypatch):
     with pytest.raises(TransportError, match="ReadTimeout"):
         OpenAICompatibleProvider(
             "qwen", config.providers["qwen"], client=httpx.Client(transport=httpx.MockTransport(handler))
-        ).complete(_request(), model="fixture/model")
+        ).complete(_request(), model="fixture/model", capabilities=CAPS)
 
 
 def test_default_provider_timeout_is_explicit(monkeypatch):

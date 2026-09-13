@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "roles": [
+    "server"
+  ],
+  "language": {
+    "name": "C",
+    "version": "C99"
+  },
+  "clean": [
+    "make",
+    "clean"
+  ],
+  "builds": [
+    {
+      "id": "release",
+      "argv": [
+        "make",
+        "release"
+      ],
+      "artifact": "build/release/protocol-server",
+      "required_flags": [
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Werror"
+      ]
+    },
+    {
+      "id": "san",
+      "argv": [
+        "make",
+        "san"
+      ],
+      "artifact": "build/san/protocol-server",
+      "required_flags": [
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fsanitize=address,undefined",
+        "-fno-pie",
+        "-no-pie"
+      ]
+    }
+  ],
+  "run": [
+    "{artifact}",
+    "--host",
+    "{host}",
+    "--port",
+    "{port}"
+  ],
+  "description": "Controlled C99 stream echo service, --host/--port, clean SIGTERM exit 0. Both builds are required. This seeded development fixture is not fresh protocol generation."
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "description": "Private controlled echo assertion; same seed used before and after paid repair. Not MQTT generation evidence.",
+  "assets": [
+    "oracle.py"
+  ],
+  "checks": [
+    {
+      "id": "echo-complete",
+      "required": true,
+      "argv": [
+        "python3",
+        "/checks/oracle.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}"
+      ],
+      "timeout_s": 10,
+      "req_ids": [
+        "REQ-ECHO-001"
+      ]
+    }
+  ]
+}

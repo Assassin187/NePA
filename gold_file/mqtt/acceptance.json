@@ -1,0 +1,413 @@
+{
+  "schema_version": "1.0",
+  "description": "Independent MQTT 3.1.1 QoS0 core behavior scenarios; scenario coverage only, not full 110-requirement proof or full conformance.",
+  "assets": [
+    "acceptance/mqtt_smoke.py",
+    "acceptance/mqtt_behavior.py"
+  ],
+  "checks": [
+    {
+      "id": "minimum-interactions",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_smoke.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}"
+      ],
+      "timeout_s": 30,
+      "req_ids": [
+        "REQ-TRANSPORT-004",
+        "REQ-CONNECT-006",
+        "REQ-CONNACK-001",
+        "REQ-CONNACK-002",
+        "REQ-CONNACK-003",
+        "REQ-CONNACK-004",
+        "REQ-CONNACK-005",
+        "REQ-CONNACK-007",
+        "REQ-PING-003",
+        "REQ-PING-004"
+      ]
+    },
+    {
+      "id": "pubsub",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "pubsub"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-SUBSCRIBE-001",
+        "REQ-SUBSCRIBE-007",
+        "REQ-SUBSCRIBE-008",
+        "REQ-SUBSCRIBE-009",
+        "REQ-SUBACK-002",
+        "REQ-SUBACK-004",
+        "REQ-PUBLISH-005",
+        "REQ-PUBLISH-007",
+        "REQ-PUBLISH-009",
+        "REQ-TOPIC-002",
+        "REQ-SESSION-001",
+        "REQ-SESSION-002"
+      ]
+    },
+    {
+      "id": "multi_client",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "multi_client"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-PUBLISH-009",
+        "REQ-TOPIC-003"
+      ]
+    },
+    {
+      "id": "unsubscribe",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "unsubscribe"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-UNSUBSCRIBE-006",
+        "REQ-UNSUBSCRIBE-007",
+        "REQ-UNSUBACK-001",
+        "REQ-UNSUBACK-002",
+        "REQ-UNSUBACK-003",
+        "REQ-UNSUBACK-004"
+      ]
+    },
+    {
+      "id": "session_isolation",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "session_isolation"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-UNSUBSCRIBE-006",
+        "REQ-SESSION-002"
+      ]
+    },
+    {
+      "id": "qos",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "qos"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-PUBLISH-002",
+        "REQ-PUBLISH-003",
+        "REQ-PUBLISH-010",
+        "REQ-SUBACK-004",
+        "REQ-SUBACK-006"
+      ]
+    },
+    {
+      "id": "session_reset",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "session_reset"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-CONNECT-009",
+        "REQ-CONNECT-010",
+        "REQ-CONNECT-011",
+        "REQ-CONNACK-004"
+      ]
+    },
+    {
+      "id": "duplicate_connect",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "duplicate_connect"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-CONNECT-002",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "id": "disconnect",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "disconnect"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-DISCONNECT-007"
+      ]
+    },
+    {
+      "id": "invalid_qos",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "invalid_qos"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-SUBSCRIBE-006",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "id": "fragmented_connect",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "fragmented_connect"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-CONNECT-018"
+      ]
+    },
+    {
+      "id": "fragmented_publish",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "fragmented_publish"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-FRAME-001",
+        "REQ-FRAME-002",
+        "REQ-PUBLISH-009"
+      ]
+    },
+    {
+      "id": "coalesced",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "coalesced"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-PUBLISH-009",
+        "REQ-PING-003"
+      ]
+    },
+    {
+      "id": "length_boundaries",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "length_boundaries"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-FRAME-001",
+        "REQ-FRAME-002",
+        "REQ-PUBLISH-004"
+      ]
+    },
+    {
+      "id": "truncated",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "truncated"
+      ],
+      "timeout_s": 20,
+      "req_ids": []
+    },
+    {
+      "id": "invalid_flags",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "invalid_flags"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-FRAME-004",
+        "REQ-SUBSCRIBE-002",
+        "REQ-DISCONNECT-002",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "id": "invalid_utf8",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "invalid_utf8"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-STRING-002",
+        "REQ-STRING-003",
+        "REQ-ERROR-001"
+      ]
+    },
+    {
+      "id": "keep_alive",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "keep_alive"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-KEEPALIVE-001"
+      ]
+    },
+    {
+      "id": "keep_alive_zero",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "keep_alive_zero"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-KEEPALIVE-002"
+      ]
+    },
+    {
+      "id": "keep_alive_activity",
+      "required": true,
+      "argv": [
+        "python",
+        "/checks/acceptance/mqtt_behavior.py",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--case",
+        "keep_alive_activity"
+      ],
+      "timeout_s": 20,
+      "req_ids": [
+        "REQ-KEEPALIVE-001",
+        "REQ-PING-003"
+      ]
+    }
+  ]
+}

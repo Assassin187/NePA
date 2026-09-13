@@ -1,0 +1,7 @@
+protocol: HTTP
+version: "1.1"
+sections: ["2 Message", "2.1 Message Format", "2.2 Message Parsing", "3 Request Line", "6 ", "9 ", "15 "]
+documents:
+  - "protocol_document/http1.1/rfc9110-http-semantics.txt"
+  - "protocol_document/http1.1/rfc9112-http-1.1.txt"
+gold_input: "evaluation-only; profile-only claims scored separately"

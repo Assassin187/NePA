@@ -1,0 +1,1 @@
+Public tool fixtures are terminating C99 programs. Each must satisfy suite.json stdout/exit/timeout and actual host builds. This asset is not a private oracle.

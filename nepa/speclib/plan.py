@@ -49,7 +49,10 @@ def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]
         primary.update({req: task_id for req in ids})
     add("final-integration", "integration", "Integrate the entire project, review requirement claims and runtime dispatch. "
         "Use real builds and independent acceptance feedback to fix all mandatory checks. Ensure standalone README, "
-        "clean builds and orderly shutdown. Do not omit previously assigned requirements.",
+        "clean builds and orderly shutdown. Do not omit previously assigned requirements. "
+        "After reviewing or repairing the current source, request finish with empty claims: the host performs "
+        "clean builds of both variants and all required acceptance checks. Use the returned diagnostics to "
+        "repair failures and request finish again. Avoid duplicating those builds immediately before finish.",
         {"requirement_count": len(spec["requirements"])})
     return {"schema_version": "6.0", "revision": 1, "reason": "deterministic input compilation",
             "input_hashes": {"spec": digest(spec), "target": digest(target)}, "tasks": tasks, "primary_tasks": primary}

@@ -1,0 +1,1 @@
+Controlled echo repair fixture. Build with make release and make san. Start either executable with --host 127.0.0.1 --port PORT. SIGTERM stops it cleanly. This host-seeded fixture is development repair evidence only.

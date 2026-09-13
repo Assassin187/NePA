@@ -255,7 +255,7 @@ S4 中哪些决策真的需要 LLM？
 
 我建议将当前 S4 从“生成式规划”重构为**Protocol Planning Compiler**。
 
-### 从 Generate-and-Validate 改为 Compile-and-Fill
+### 从“生成后验证”改为“编译骨架后填空”（Generate-and-Validate → Compile-and-Fill）
 
 当前：
 
@@ -351,7 +351,7 @@ acceptance:
 
 正常的代码智能体可以在这个边界内进行完整编码推理，并不只是“填一个代码洞”。全局计划的作用是给它提供充分、稳定、可验证的局部问题，使多个代码智能体的输出可以被安全组合。换言之，NePA 要减少的是**规划模型的开放式全局搜索**，而不是取消代码智能体的实现能力。
 
-### Obligation Graph：规划前先回答“必须实现什么”
+### 义务图（Obligation Graph）：规划前先回答“必须实现什么”
 
 以：
 
@@ -450,7 +450,7 @@ hard lint
 
 LLM+P 的核心结果已经说明：让 LLM 提供形式化问题表示、让经典规划器寻找可行方案，能够明显克服模型独立规划时的可行性问题。NePA 应借鉴这个原则，但领域定义不是 PDDL，而是网络协议 obligation graph。citeturn17view4
 
-### Typed Hole：模型真正应该做什么
+### 类型化填空（Typed Hole）：模型真正应该做什么
 
 建议定义一个极小的 hole 类型集合：
 
@@ -515,7 +515,7 @@ def solve_hole(hole, model, budget):
 
 ADaPT 已经证明“按失败情况和 executor 能力递归分解”这一通用策略有效，所以 NePA 的创新应放在 `domain_specific_split()`、typed hole 和 protocol validators，而不是“递归分解”本身。citeturn22view0
 
-### N-best 不应该变成“多智能体投票”
+### 多候选（N-best）不应该变成“多智能体投票”
 
 对于少数高影响 hole，可以一次生成 2～3 个 candidate：
 
@@ -546,7 +546,7 @@ domain scoring
 
 RAP 和 Parsel 都说明“生成候选 + 搜索/验证组合”可以明显优于单次直接生成；NePA 的优势是 validator 不必由另一个 LLM 模拟，而可以大量使用真实 Schema、graph、compiler、test 和 protocol invariants。citeturn17view5turn14academia49
 
-### PlanCritic 的角色应该下降
+### 计划审查器（PlanCritic）的角色应该下降
 
 当前 PlanCritic 是重要 S4 角色。新系统中建议把它从：
 
@@ -830,7 +830,7 @@ if protocol == smtp
 ...
 ```
 
-### Wire-format 规划应尽量机械化，代码生成保持可选
+### 线格式规划应尽量机械化，代码生成保持可选
 
 Wire format 的重复结构非常适合减少**规划阶段**的自由度。对于当前 Spec IR 能完整表达的：
 
@@ -894,7 +894,7 @@ state = ACTIVE
 
 这样未来发现状态划分不好时，可以替换规划表示，而不会篡改 Spec。
 
-### Macro composition 是核心，而不是宏数量
+### 核心是宏组合，而不是宏数量
 
 假设某 requirement 同时匹配：
 
@@ -1104,7 +1104,7 @@ NePA 不宜照搬自由修改 Markdown 计划的做法。它需要可恢复、�
 
 ### 先审计旧修补机制：结论是总体可用
 
-在提出任何新修补机制之前，应先以现有 [`pipeline_design_s4_s9.md`](pipeline_design_s4_s9.md) 为基线检查它能否承载新的 Planning Compiler。逐项审计后，没有发现需要推翻旧修补架构的原则性冲突：**新方案改变的是初始 Plan 的产生方式，不是运行期修订所要解决的事务问题。**
+在提出任何新修补机制之前，应先以历史文档 `pipeline_design_s4_s9.md` 为基线检查它能否承载新的规划编译器。该文档已由 System Design 9.0 取代，历史版本可从 Git 恢复。逐项审计后，没有发现需要推翻旧修补架构的原则性冲突：**新方案改变的是初始 Plan 的产生方式，不是运行期修订所要解决的事务问题。**
 
 | 旧机制 | 与新架构的兼容性 | 结论与处理 |
 |---|---|---|
@@ -1475,7 +1475,7 @@ NePA：
 
 因此，当前重构的核心不是“让所有环节都更机械”，而是建立正确的分工：**全局结构由 NePA 编译并以不可变版本发布，局部规划漏洞由受限 LLM 填补，具体代码由普通代码智能体依据实时反馈迭代，跨边界失败则触发受控的分层计划修订，结果由确定性门禁裁决。** M0-E2E 则是验证这套分工能否真正落地的第一个硬里程碑。
 
-## Sources
+## 参考资料
 
 1. [OpenAI, *Using PLANS.md for multi-hour problem solving*](https://developers.openai.com/cookbook/articles/codex_exec_plans)（归档的 Codex Cookbook 设计示例）
 2. [Anthropic, *Skill authoring best practices*](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)

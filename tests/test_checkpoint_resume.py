@@ -8,8 +8,8 @@ ROOT = Path(__file__).parents[1]
 
 @pytest.fixture
 def store(tmp_path):
-    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/specIR.json",
-                               ROOT / "gold_file/target.json", ROOT / "gold_file/acceptance.json", load_config())
+    return RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                               ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", load_config())
 
 def test_input_snapshot_and_new_plan(store):
     spec, target, acceptance = store.inputs()
@@ -32,12 +32,12 @@ def test_input_drift_fails(store):
 
 def test_cost_reserved_then_settled_and_failed_call_not_free(store):
     seq = store.reserve_call("bootstrap", .05, {"messages": []})
-    assert store.run["budget"]["cost_usd"] == .05
-    store.settle_call(seq, {"cost_usd": .01, "tokens_in": 3, "tokens_out": 4}, elapsed_s=0)
-    assert store.run["budget"]["cost_usd"] == pytest.approx(.01)
+    assert store.run["budget"]["cost_cny"] == .05
+    store.settle_call(seq, {"cost_cny": .01, "tokens_in": 3, "tokens_out": 4}, elapsed_s=0)
+    assert store.run["budget"]["cost_cny"] == pytest.approx(.01)
     failed = store.reserve_call("bootstrap", .02, {})
     store.fail_call(failed, RuntimeError("no response"), elapsed_s=0)
-    assert store.run["budget"]["cost_usd"] == pytest.approx(.03)
+    assert store.run["budget"]["cost_cny"] == pytest.approx(.03)
     assert str(failed) in store.run["pending_calls"]
     again = RunStore(store.root)
     assert again.reserve_call("bootstrap", .01, {}) > failed
@@ -47,7 +47,7 @@ def test_campaign_counts_other_runs(store):
         store.reserve_call("bootstrap", 101, {})
     other = store.root.parent / "other"
     other.mkdir()
-    (other / "run.json").write_text(json.dumps({"schema_version": "5.0", "budget": {"cost_usd": store.config.budgets.campaign_max_cost_usd - .01}}))
+    (other / "run.json").write_text(json.dumps({"schema_version": "7.0", "phase_cost_cny": {"generation": 0}, "budget": {"cost_cny": store.config.budgets.campaign_max_cost_cny - .01}}))
     with pytest.raises(BudgetExhausted):
         store.reserve_call("bootstrap", .02, {})
 
@@ -100,9 +100,9 @@ def test_crash_after_response_keeps_reservation_and_never_reuses_call(store, mon
         raise RuntimeError("publication interrupted")
     monkeypatch.setattr(store, "save", crash)
     with pytest.raises(RuntimeError):
-        store.settle_call(seq, {"cost_usd": .01, "tokens_in": 1, "tokens_out": 1}, elapsed_s=0)
+        store.settle_call(seq, {"cost_cny": .01, "tokens_in": 1, "tokens_out": 1}, elapsed_s=0)
     reopened = RunStore(store.root)
-    assert reopened.run["budget"]["cost_usd"] == .05
+    assert reopened.run["budget"]["cost_cny"] == .05
     assert (store.root / "evidence/calls/000001.response.json").exists()
     assert reopened.reserve_call("bootstrap", .01, {}) == 2
 
@@ -125,7 +125,7 @@ def test_checkpoint_before_state_publication_is_not_accepted(store, monkeypatch)
 
 def test_followup_is_versioned_bounded_and_does_not_claim_primary_requirements(store):
     old = (store.root / "plans/0001.json").read_bytes()
-    ref = store.evidence("diagnostic.json", {"error": "test-only integration gap"})
+    ref = store.publish_agent_evidence("diagnostic.json", {"error": "test-only integration gap"})
     request = {"issue": "repair shared call site", "requirement_ids": [], "diagnostic_refs": [ref]}
     for _ in range(3):
         store.append_followup(request, "shared-wire")
@@ -179,3 +179,17 @@ def test_configuration_migration_refuses_manual_drift_or_completed_delivery(stor
     store.run["status"] = "success"
     with pytest.raises(RunStoreError, match="completed"):
         store.reconfigure(config, reason="test")
+
+
+def test_study_completion_is_not_generation_success_or_resumable(store):
+    config = store.config.model_copy(update={"campaign": store.config.campaign.model_copy(update={"phase": "capability"})})
+    store.reconfigure(config, reason="offline capability fixture")
+    store.run.update(status="study_complete", exit_code=0)
+    store.save()
+    reopened = RunStore(store.root)
+    assert reopened.run["status"] != "success"
+    assert all(t["status"] == "pending" for t in reopened.run["tasks"].values())
+    with pytest.raises(RunStoreError, match="completed study"):
+        reopened.recover()
+    with pytest.raises(RunStoreError, match="completed"):
+        reopened.reconfigure(store.config, reason="must start a fresh generation")

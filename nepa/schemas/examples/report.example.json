@@ -1,5 +1,5 @@
 {
-  "schema_version": "3.0",
+  "schema_version": "5.0",
   "run_id": "20260912T055304Z-f817eb41",
   "status": "failed",
   "exit_code": 2,
@@ -49,9 +49,15 @@
   "requirements": [],
   "budget": {
     "calls": 0,
-    "cost_usd": 0,
+    "cost_cny": 0,
     "tokens_in": 0,
-    "tokens_out": 0
+    "tokens_out": 0,
+    "settled_cny": {
+      "peak": 0.0,
+      "off_peak": 0.0,
+      "unclassified": 0,
+      "flat": 0
+    }
   },
   "unknown_calls": {},
   "cache_hits": 0,
@@ -67,5 +73,26 @@
     "inputs": "inputs/",
     "calls": "evidence/calls/",
     "tools": "evidence/actions/"
-  }
+  },
+  "private_inputs": {},
+  "verification_policy": {
+    "exposure": "private_isolated",
+    "verifier_version": "private-isolated/1",
+    "randomization_version": "random-inputs/1"
+  },
+  "phase_cost_cny": {
+    "capability": 0,
+    "public_tools": 0,
+    "generation": 0
+  },
+  "liability_overflow_cny": 0,
+  "visibility": "host_only",
+  "exposure": "private_isolated",
+  "private_suite_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "public_development": {
+    "kind": "build_and_fixture",
+    "build": {}
+  },
+  "private_final": {},
+  "verifier_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
 }
