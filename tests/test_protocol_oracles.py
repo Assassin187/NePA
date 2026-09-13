@@ -30,12 +30,16 @@ class WireSocket:
         pass
     def sendall(self, data):
         pass
+    def observe(self, event, **fields):
+        pass
 
 
 def client(module, data=b'', idle=False):
     c = module.Client.__new__(module.Client)
     c.sock = WireSocket(data, idle=idle)
     c.buffer = b''
+    c.order = 0
+    c.oracle = module.Oracle('01' * 32)
     return c
 
 
@@ -54,12 +58,12 @@ def test_mqtt_independent_vectors_and_dropped_forwarding():
 
 def test_mqtt_wrong_suback_and_unsuback_are_detected():
     m = oracle('mqtt')
-    client(m, m.frame(0x90, b'\x12\x34\x00')).subscribe([('topic', 0)])
+    client(m, m.frame(0x90, b'\x12\x34\x00')).subscribe([('topic', 0)], identifier=0x1234)
     for body in (b'\x12\x35\x00', b'\x12\x34', b'\x12\x34\x03'):
         with pytest.raises(AssertionError):
-            client(m, m.frame(0x90, body)).subscribe([('topic', 0)])
+            client(m, m.frame(0x90, body)).subscribe([('topic', 0)], identifier=0x1234)
     with pytest.raises(AssertionError):
-        client(m, m.frame(0xb0, b'\x00\x01')).unsubscribe(['topic'])
+        client(m, m.frame(0xb0, b'\x00\x01')).unsubscribe(['topic'], identifier=0x4567)
 
 
 def test_quiet_checks_detect_leaked_session_and_early_partial_reply():

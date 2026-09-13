@@ -1,4 +1,4 @@
-schema_version: "2.0"
+schema_version: "3.0"
 coder:
   provider: deepseek
   model: deepseek-v4-pro
@@ -16,11 +16,13 @@ pricing:
     input_cny_per_million_tokens: 2
     output_cny_per_million_tokens: 8
     cache_hit_input_cny_per_million_tokens: 0.04
+    schedule: deepseek
     off_peak_multiplier: 0.5
   deepseek/deepseek-v4-pro:
     input_cny_per_million_tokens: 9
     output_cny_per_million_tokens: 27
     cache_hit_input_cny_per_million_tokens: 0.30
+    schedule: deepseek
     off_peak_multiplier: 0.5
 budgets:
   max_cost_cny: 20

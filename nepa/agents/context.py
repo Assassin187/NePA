@@ -5,24 +5,26 @@ import json
 from typing import Any
 
 from ..config import CoderConfig
-from ..llm.client import LLMRequest, LLMRequestError, LLMResponse
-from ..llm.providers.openai_compat import OpenAICompatibleProvider
+from ..llm.client import LLMClient, LLMRequest, LLMRequestError, LLMResponse, PreparedRequest
 from ..tools.workspace import WorkspaceTools
 
 
 class CodingContext:
     def __init__(self, system: str, base: dict[str, Any], coder: CoderConfig, tools: WorkspaceTools,
-                 schema: dict[str, Any] | None = None):
+                 schema: dict[str, Any] | None = None, *, client: LLMClient):
         self.system, self.base, self.coder, self.tools = system, base, coder, tools
         self.observations: dict[str, dict[str, Any]] = {}
         self.schema = schema
         self.transactions: list[tuple[str | LLMResponse, dict[str, Any]]] = []
         self.evicted_transactions = 0
         self.latest_diagnostic: dict[str, Any] | None = None
+        self.client = client
+        self.prepared_request: PreparedRequest | None = None
 
     def record(self, response: str | LLMResponse, feedback: dict[str, Any], *, action: dict[str, Any] | None = None) -> dict[str, Any]:
         result = feedback.get("tool_result", {})
-        if "build" in result or "verification" in result or result.get("error") or result.get("returncode", 0) != 0:
+        if ((action and action["tool"] == "finish") or "build" in result or "verification" in result
+                or result.get("error") or result.get("returncode", 0) != 0 or result.get("timed_out")):
             self.latest_diagnostic = feedback
         if action and action["tool"] == "read_file" and "file_sha256" in result:
             read = {**action["arguments"], "path": result["path"],
@@ -72,8 +74,10 @@ class CodingContext:
             request = LLMRequest(role="coder", model=self.coder.model, system=self.system, user=json.dumps(self.base, ensure_ascii=False),
                                  messages=messages, action_format=self.coder.action_format, json_schema=self.schema,
                                  temperature=self.coder.temperature, max_tokens=self.coder.max_tokens)
-            size = len(json.dumps(OpenAICompatibleProvider._payload(request, self.coder.model, False), ensure_ascii=False).encode())
+            prepared = self.client.prepare(request)
+            size = prepared.wire_bytes
             if size <= self.coder.context_max_bytes:
+                self.prepared_request = prepared
                 return request
             if len(self.transactions) > 1:
                 self.transactions.pop(0)

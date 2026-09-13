@@ -34,7 +34,7 @@ class Orchestrator:
             verification = None
             if builds["passed"]:
                 verification = self.session.verifier.run(
-                    target, acceptance, candidate, store.root / "inputs/checks",
+                    target, acceptance, candidate, store.private_checks,
                     store.root / "evidence" / ("export-verification-" + uuid.uuid4().hex))
             result = {"passed": builds["passed"] and verification is not None and verification["passed"],
                       "build": builds, "verification": verification}
@@ -88,7 +88,10 @@ class Orchestrator:
                     store.run["final_repairs"] += 1
                     store.save()
                     final = store.plan()["tasks"][-1]
-                    if not self.session.run(final, repair=True, feedback=store.run["final_checks"]):
+                    feedback = self.session.publish_feedback(
+                        "exports/repair-" + uuid.uuid4().hex + ".json", store.run["final_checks"]["result"])
+                    feedback.setdefault("model_route", {"reason": "build_repair"})
+                    if not self.session.run(final, repair=True, feedback=feedback):
                         continue
                 store.run.update({"status": "success", "exit_code": 0, "reason": "all tasks, mandatory checks and export passed"})
             except BudgetExhausted as exc:

@@ -6,6 +6,8 @@ from typer.testing import CliRunner
 import nepa.cli as cli
 from nepa.application import build_orchestrator
 from nepa.llm.client import LLMResponse
+from nepa.config import load_config
+from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
 
 ROOT = Path(__file__).parents[1]
 SOURCE = r"""
@@ -47,7 +49,7 @@ MAKEFILE = ("release:\n\tmkdir -p build/release\n\tgcc -std=c99 -Wall -Wextra -W
             "san:\n\tmkdir -p build/san\n\tgcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie main.c -o build/san/protocol-server\n"
             "clean:\n\trm -rf build\n")
 CHECK = """
-import socket, sys, time
+import json, socket, sys, time
 for attempt in range(100):
     try:
         s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=1)
@@ -59,6 +61,7 @@ else:
 with s:
     s.sendall(bytes([1]))
     assert s.recv(1) == bytes([1])
+print(json.dumps({"passed": True, "category": "echo", "observation": {"matched": True}}))
 """
 
 class TestProvider:
@@ -67,9 +70,14 @@ class TestProvider:
     def __init__(self):
         self.bootstrap = 0
         self.calls = 0
-    def complete(self, request, *, model, native_schema):
+        config = load_config()
+        self.adapter = OpenAICompatibleProvider("deepseek", config.providers["deepseek"])
+    def prepare(self, request, **kwargs):
+        self.current_request = request
+        return self.adapter.prepare(request, **kwargs)
+    def send(self, prepared):
         self.calls += 1
-        task = json.loads(request.user)["task"]
+        task = json.loads(self.current_request.user)["task"]
         if task["id"] == "bootstrap" and self.bootstrap < 3:
             name, content = [("main.c", SOURCE), ("Makefile", MAKEFILE), ("README.md", "Test-only echo project")][self.bootstrap]
             self.bootstrap += 1
@@ -78,8 +86,10 @@ class TestProvider:
             claims = [{"id": ref, "status": "already_present", "reason": "test provider claim, not semantic proof",
                        "code_refs": ["main.c:1"]} for ref in task["requirement_ids"]]
             action = {"tool": "finish", "arguments": {"summary": "request host checks", "claims": claims}}
-        return LLMResponse(text=json.dumps(action), tokens_in=10, tokens_out=10, cost_cny=0, model=model,
-                           parameter_support={}, provider_metadata={"finish_reason": "stop"})
+        return LLMResponse(text=json.dumps(action), tokens_in=10, tokens_out=10, cost_cny=0, model=prepared.model,
+                           parameter_support={}, provider_metadata={"finish_reason": "stop",
+                           "returned_model_identity_observed": True, "returned_model_identity": prepared.model,
+                           "usage": {"prompt_tokens": 10, "completion_tokens": 10}})
 
 @pytest.mark.sandbox_integration
 def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
@@ -99,6 +109,12 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
     run_dir = Path(value["run_dir"])
     report = json.loads((run_dir / "report.json").read_bytes())
     assert report["status"] == "success"
+    assert report["schema_version"] == "5.0" and report["exposure"] == "private_isolated"
+    state = json.loads((run_dir / "run.json").read_bytes())
+    assert state["schema_version"] == "7.0" and state["config_snapshot"]["schema_version"] == "3.0"
+    assert "acceptance" not in state["inputs"]
+    assert (run_dir / "private/assets/check.py").is_file()
+    assert not (run_dir / "inputs/checks").exists()
     from nepa.speclib.lint import _schema_errors
     assert not _schema_errors(report, "report.schema.json")
     assert value["tasks_passed"] == value["tasks_total"] == 5
@@ -110,3 +126,28 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
     assert (run_dir / "run.json").read_bytes() == before
     assert runner.invoke(cli.app, ["resume", value["run_id"], "--runs-root", str(tmp_path / "runs")]).exit_code == 0
     assert provider.calls == 8
+
+
+def test_cli_rejects_legacy_config_before_initialization(tmp_path, capsys):
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text('{"schema_version":"2.0"}')
+    code = cli.main(["run", "--spec", str(ROOT / "gold_file/mqtt/specIR.json"),
+                     "--target", str(ROOT / "gold_file/mqtt/target.json"),
+                     "--acceptance", str(ROOT / "gold_file/mqtt/acceptance.json"),
+                     "--config", str(legacy), "--runs-root", str(tmp_path / "runs")])
+    assert code == 20
+    assert "baseline" in json.loads(capsys.readouterr().out)["error"]
+    assert not (tmp_path / "runs").exists()
+
+
+def test_cli_rejects_legacy_run_without_migrating_it(tmp_path, capsys):
+    from nepa.run_store import RunStore
+    store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                                ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", load_config())
+    legacy = {**store.run, "schema_version": "6.0"}
+    path = store.root / "run.json"
+    path.write_text(json.dumps(legacy))
+    before = path.read_bytes()
+    assert cli.main(["resume", store.run_id, "--runs-root", str(store.root.parent)]) == 20
+    assert "baseline" in json.loads(capsys.readouterr().out)["error"]
+    assert path.read_bytes() == before

@@ -1,0 +1,12 @@
+{
+  "schema_version": "public-tools/1",
+  "files": {
+    "Makefile": "09f0d7f9ac2fa79352e62c5e84e7b7af4b8d28f1c167e553bc8fc3d8a507b150",
+    "acceptance.json": "98da4e0d7481312e3a372941b03fb8d9289d7f4dde3d17919bcf8dd102561544",
+    "contract.txt": "49f1b82e99b578abaf42b69128ba1eeff6fa78db73070b145191a070e30ff5a0",
+    "spec.json": "63cdc80d26c42bacd04f8faace0c45fd58ac41fd62c1f0c5e58c9a80e6819ef9",
+    "suite.json": "4739bd48cb14a0c435b8f92eda40ece9ea86a72689783c282ba493fdc3e34f86",
+    "system.md": "6614369c2511a25df95fd51786f6a5eac9b8ff8088e53214575ed1eb658b25b1",
+    "target.json": "93f5083d68c7aab56b7fcd41404d21c49e6ddf88b2393c15483106ee9e6da577"
+  }
+}

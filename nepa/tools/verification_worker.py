@@ -1,64 +1,48 @@
-"""Stdlib-only trusted supervisor, executed inside the verification sandbox."""
+"""Stdlib-only private checker; generated code never enters this container."""
 from __future__ import annotations
+import hashlib
 import json
 import os
 from pathlib import Path
-import signal
-import socket
 import subprocess
 import sys
-import tempfile
 
 SANITIZER_MARKERS = ("AddressSanitizer", "UndefinedBehaviorSanitizer", "runtime error:", "LeakSanitizer")
 
 
 def supervise(payload: dict) -> dict:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    params = {"host": "127.0.0.1", "port": str(port), "artifact": payload["artifact"]}
-    argv = [part.format(**params) for part in payload["run"]]
+    params = {"host": "127.0.0.1", "port": str(payload["port"])}
     rows = []
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        server = subprocess.Popen(argv, stdout=out, stderr=err, start_new_session=True)
-        timed_out = False
-        early_exit = None
+    for index, check in enumerate(payload["checks"]):
+        command = [part.format(**params) for part in check["argv"]]
+        env = dict(os.environ)
+        env["NEPA_ORACLE_SEED"] = hashlib.sha256(
+            (str(payload["seed"]) + ":case:" + check["id"]).encode()).hexdigest()
+        env["NEPA_ORACLE_TRACE_FILE"] = f"/verification/trace-{index:04d}.jsonl"
+        row = {"id": check["id"], "required": check["required"], "req_ids": check["req_ids"],
+               "argv": command, "passed": False, "category": "checker_result_invalid", "observation": {}}
         try:
-            for check in payload["checks"]:
-                command = [part.format(**params) for part in check["argv"]]
-                try:
-                    result = subprocess.run(command, capture_output=True, timeout=check["timeout_s"])
-                    stdout = result.stdout.decode(errors="replace")
-                    stderr = result.stderr.decode(errors="replace")
-                    rows.append({"id": check["id"], "required": check["required"], "req_ids": check["req_ids"],
-                                 "argv": command, "returncode": result.returncode, "stdout": stdout, "stderr": stderr,
-                                 "passed": result.returncode == 0})
-                except subprocess.TimeoutExpired as exc:
-                    rows.append({"id": check["id"], "required": check["required"], "req_ids": check["req_ids"],
-                                 "argv": command, "returncode": None, "passed": False, "error": "client timeout",
-                                 "stdout": (exc.stdout or b"").decode(errors="replace"),
-                                 "stderr": (exc.stderr or b"").decode(errors="replace")})
-            early_exit = server.poll()
-        finally:
-            if server.poll() is None:
-                os.killpg(server.pid, signal.SIGTERM)
-                try:
-                    server.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    os.killpg(server.pid, signal.SIGKILL)
-                    server.wait()
-            out.seek(0)
-            err.seek(0)
-            stdout = out.read().decode(errors="replace")
-            stderr = err.read().decode(errors="replace")
-        diagnostics = stdout + stderr + "".join(r.get("stdout", "") + r.get("stderr", "") for r in rows)
-        sanitizer = any(marker in diagnostics for marker in SANITIZER_MARKERS)
-        passed = (early_exit is None and server.returncode == 0 and not timed_out and not sanitizer
-                  and all(r["passed"] for r in rows if r["required"]))
-        return {"passed": passed, "checks": rows, "server_argv": argv, "server_returncode": server.returncode,
-                "early_exit": early_exit, "stop_timeout": timed_out, "sanitizer_error": sanitizer,
-                "server_stdout": stdout, "server_stderr": stderr, "host": params["host"], "port": port}
+            result = subprocess.run(command, capture_output=True, timeout=check["timeout_s"], env=env)
+            row.update(returncode=result.returncode, stdout=result.stdout.decode(errors="replace"),
+                       stderr=result.stderr.decode(errors="replace"))
+            try:
+                # Exactly one structured result. A zero exit status alone cannot pass.
+                lines = row["stdout"].strip().splitlines()
+                value = json.loads(lines[0]) if len(lines) == 1 else None
+                valid = (isinstance(value, dict) and type(value.get("passed")) is bool
+                         and isinstance(value.get("category"), str) and 0 < len(value["category"]) <= 80
+                         and isinstance(value.get("observation"), dict))
+                if valid and isinstance(value, dict):
+                    row.update(category=value["category"], observation=value["observation"],
+                               passed=value["passed"] is True and result.returncode == 0)
+            except (ValueError, IndexError):
+                pass
+        except subprocess.TimeoutExpired as exc:
+            row.update(returncode=None, category="checker_timeout", error="client timeout",
+                       stdout=(exc.stdout or b"").decode(errors="replace"),
+                       stderr=(exc.stderr or b"").decode(errors="replace"))
+        rows.append(row)
+    return {"passed": bool(rows) and all(r["passed"] for r in rows if r["required"]), "checks": rows}
 
 
 if __name__ == "__main__":

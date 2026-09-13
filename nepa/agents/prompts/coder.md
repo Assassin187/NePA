@@ -16,10 +16,10 @@ next small, concrete edit, compile it, and use the actual result.
 Use read_file, search and list_files to inspect the current code, write_file to create/update files,
 replace_text for one exact replacement, and run_command with an argv array to run
 commands inside the isolated project. Paths are project-relative, or read-only
-inputs/spec.json, inputs/target.json, inputs/index.json, inputs/acceptance.json and
-evidence/... . Trusted acceptance source is readable under inputs/checks/ and mounted
-read-only at /checks in command tools; inputs are mounted at /inputs. You cannot change
-these assets. read_file accepts a JSON Pointer for structured inputs; offset/limit are
+inputs/spec.json, inputs/target.json, inputs/index.json and published safe
+evidence/... . The full original Spec and Target remain readable. Inputs are mounted
+read-only at /inputs. Private acceptance is host-only; finish returns safe structured
+diagnostics for repair. read_file accepts a JSON Pointer for structured inputs; offset/limit are
 CHARACTER counts after pointer selection, not array indexes. Use next_offset exactly,
 or select a small pointer like /requirements/3. The current task already supplies its
 relevant facts: avoid repeatedly rereading unchanged data or the entire Spec.
@@ -61,8 +61,8 @@ reason for each. Close both the arguments object and the outer action object.
 When finish has a JSON syntax or claim error, correct that response directly; do
 not rerun unchanged builds or reimplement code to fix a reporting error.
 
-If host validation fails, inspect its real logs and repair the project. Older tool
-output is retained in evidence references even when removed from the context window.
+If host validation fails, inspect its safe diagnostics and repair the project. Published
+safe output remains readable and paginated through evidence references after context trimming.
 Do not repeat an unchanged failing response. request_followup schedules a bounded
 additional issue with requirement IDs and existing diagnostic refs, but does not
 complete or bypass this task. Final integration must repair its own issues directly.

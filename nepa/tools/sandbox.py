@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -44,25 +44,57 @@ class SandboxExecutor:
             raise ValueError("sandbox cwd must be an existing workspace directory")
         mounts = []
         for destination, source in (readonly or {}).items():
-            if destination == "/workspace" or not destination.startswith("/"):
+            if destination not in {"/inputs", "/evidence"}:
                 raise ValueError("invalid read-only mount")
             mounts.extend(["-v", f"{source.resolve()}:{destination}:ro"])
         return [
             "docker", "run", "--rm", "--network", "none", "--init",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--cpus", str(self.cpu), "--memory", f"{self.mem_gb}g",
             "--user", f"{os.getuid()}:{os.getgid()}",
             "-v", f"{workspace}:/workspace:rw", *mounts, "-w", "/workspace", self.image, *cmd,
         ]
 
+    def create_container(self, name: str, cmd: list[str], *, network: str,
+                         readonly: dict[str, Path], writable: dict[str, Path] | None = None,
+                         cwd: str = "/tmp") -> str:
+        """Create one half of the verification pair, with independent filesystem/PIDs."""
+        mounts = []
+        for mode, sources in (("ro", readonly), ("rw", writable or {})):
+            for destination, source in sources.items():
+                mounts.extend(["--mount", f"type=bind,src={source.resolve()},dst={destination}" +
+                               (",readonly" if mode == "ro" else "")])
+        command = ["docker", "create", "--name", name, "--network", network,
+                   "--read-only", "--log-driver", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                   "--cpus", str(self.cpu / 2), "--memory", str(int(self.mem_gb * 1024**3 / 2)),
+                   "--memory-swap", str(int(self.mem_gb * 1024**3 / 2)),
+                   "--user", f"{os.getuid()}:{os.getgid()}", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+                   *mounts, "-w", cwd, self.image, *cmd]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError("verification container creation failed: " + result.stderr)
+        return result.stdout.strip()
+
+    @staticmethod
+    def remove_container(identifier: str) -> None:
+        result = subprocess.run(["docker", "rm", "-f", identifier], capture_output=True, text=True, timeout=30)
+        if result.returncode and "No such container" not in result.stderr:
+            raise RuntimeError("owned verification container could not be removed")
+
     def exec(self, cmd: list[str], cwd: str, timeout_s: int, net: Literal["none", "loopback", "internal"] = "none", *, readonly: dict[str, Path] | None = None) -> ExecResult:
         if timeout_s <= 0:
             raise ValueError("sandbox timeout must be positive")
         base_command = self.command_vector(cmd, cwd, net=net, readonly=readonly)
-        descriptor, cid_name = tempfile.mkstemp(prefix="nepa-cid-")
-        os.close(descriptor)
-        cid_path = Path(cid_name)
-        cid_path.unlink()
-        command = [*base_command[:2], "--cidfile", os.fspath(cid_path), *base_command[2:]]
+        from ..run_store import atomic_json
+        workspace = Path(cwd).resolve()
+        run_root = next((parent for parent in workspace.parents if (parent / "run.json").is_file()), None)
+        journal_root = run_root / "evidence/containers" if run_root else workspace.parent / ".nepa-containers"
+        identifier = "nepa-command-" + uuid.uuid4().hex
+        journal = journal_root / identifier / "containers.json"
+        ownership = {"command": identifier, "cleaned": False}
+        atomic_json(journal, ownership)
+        cid_path = journal.with_name("cid")
+        command = [*base_command[:2], "--name", identifier, "--cidfile", os.fspath(cid_path), *base_command[2:]]
         started = time.monotonic()
         stdout_buffer = bytearray()
         stderr_buffer = bytearray()
@@ -96,11 +128,7 @@ class SandboxExecutor:
                 process.wait()
                 timed_out = True
                 returncode = None
-                cid = cid_path.read_text(encoding="ascii").strip() if cid_path.exists() else ""
-                if cid:
-                    cleanup = subprocess.run(["docker", "rm", "-f", cid], capture_output=True, check=False)
-                    if cleanup.returncode != 0:
-                        raise RuntimeError("timed-out sandbox container could not be removed")
+                self.remove_container(identifier)
                 if not isinstance(interruption, subprocess.TimeoutExpired):
                     for reader in readers:
                         reader.join()
@@ -115,7 +143,11 @@ class SandboxExecutor:
         except OSError:
             raise
         finally:
-            cid_path.unlink(missing_ok=True)
+            if cid_path.exists():
+                ownership["command_id"] = cid_path.read_text(encoding="ascii").strip()
+            self.remove_container(identifier)
+            ownership["cleaned"] = True
+            atomic_json(journal, ownership)
         duration_ms = int((time.monotonic() - started) * 1000)
         return ExecResult(command=command, returncode=returncode, stdout=stdout, stderr=stderr, duration_ms=duration_ms, timed_out=timed_out, observation=observation)
 

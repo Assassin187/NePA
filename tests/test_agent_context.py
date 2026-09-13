@@ -4,9 +4,8 @@ from pathlib import Path
 import pytest
 
 from nepa.agents.context import CodingContext
-from nepa.config import CoderConfig
-from nepa.llm.client import LLMRequestError
-from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
+from nepa.config import CoderConfig, load_config
+from nepa.llm.client import LLMClient, LLMRequestError
 from nepa.tools.sandbox import SandboxExecutor
 from nepa.tools.workspace import WorkspaceTools
 
@@ -17,8 +16,9 @@ def context(tmp_path):
         (tmp_path / name).mkdir()
     tools = WorkspaceTools(tmp_path / "project", tmp_path / "inputs", tmp_path / "evidence",
                            SandboxExecutor("nepa-sandbox:refactor", 1, 1))
+    config = load_config(overrides={"coder": {"context_max_bytes": 50000}})
     return CodingContext("one action", {"task": {"id": "generic", "requirements": ["all facts"]}},
-                         CoderConfig(context_max_bytes=50000), tools)
+                         config.coder, tools, client=LLMClient(config))
 
 
 def read(context, path):
@@ -43,8 +43,7 @@ def test_required_source_working_set_survives_long_transcript_and_three_sessions
                            {"tool_result": {"returncode": 0}})
             read(context, "module-0.c")
             request = context.request({"session": session, "decisions_left": 40 - step})
-            payload = OpenAICompatibleProvider._payload(request, context.coder.model, False)
-            assert len(json.dumps(payload, ensure_ascii=False).encode()) <= 50000
+            assert context.prepared_request.wire_bytes <= 50000
             assert {r["read"]["path"]: r["result"]["content"] for r in initial(request)["current_observations"]} == sources
             assert [m["role"] for m in request.messages] == ["user"] + ["assistant", "user"] * ((len(request.messages) - 1) // 2)
     assert context.evicted_transactions > 0
@@ -112,11 +111,60 @@ def test_pointer_observations_are_versioned_by_original_file(context):
 
 def test_json_object_wire_bytes_are_included_in_context_limit(context):
     request = context.request({})
-    context.coder.context_max_bytes = len(json.dumps(
-        OpenAICompatibleProvider._payload(request, context.coder.model, False), ensure_ascii=False).encode())
+    context.coder.context_max_bytes = context.prepared_request.wire_bytes
     context.request({})
     from nepa.schemas import load_schema
     context.schema = load_schema("agent-action.schema.json")
     context.coder.action_format = "tool_calls"
     with pytest.raises(LLMRequestError):
         context.request({})
+
+
+def test_selected_provider_prepares_actual_bytes_including_native_reasoning(context):
+    from nepa.llm.client import LLMResponse, PreparedRequest
+    from nepa.schemas import load_schema
+
+    class DifferentWireProvider:
+        def prepare(self, request, *, model, capabilities, native_schema=False):
+            # Deliberately differs from the OpenAI payload in both shape and size.
+            wire = {"selected_model": model, "native_request": request.model_dump(), "provider_overhead": "x" * 8000}
+            body = json.dumps(wire, ensure_ascii=False, separators=(",", ":")).encode()
+            return PreparedRequest("deepseek", model, wire, body, len(body), request.max_tokens + 10, capabilities)
+
+    context.client.providers["deepseek"] = DifferentWireProvider()
+    context.schema = load_schema("agent-action.schema.json")
+    context.coder.action_format = "tool_calls"
+    response = LLMResponse(text="", reasoning_content="思考" * 1000, tokens_in=1, tokens_out=1,
+                           cost_cny=0, model=context.coder.model, parameter_support={},
+                           tool_calls=[{"id": "native-id", "type": "function", "function": {
+                               "name": "read_file", "arguments": '{"path":"a.c"}'}}])
+    context.record(response, {"tool_result": {"error": "missing"}})
+    context.request({})
+    prepared = context.prepared_request
+    assert prepared.wire["native_request"]["messages"][1] == response.assistant_message()
+    assert prepared.wire["native_request"]["messages"][2]["tool_call_id"] == "native-id"
+    assert prepared.billable_output_tokens == context.coder.max_tokens + 10
+    context.coder.context_max_bytes = prepared.wire_bytes - 1
+    with pytest.raises(LLMRequestError, match="context capacity exhausted"):
+        context.request({})
+
+
+def test_native_multiple_and_zero_calls_receive_whole_error_transactions(context):
+    from nepa.llm.client import LLMResponse
+    from nepa.schemas import load_schema
+    context.coder.action_format = "tool_calls"
+    context.schema = load_schema("agent-action.schema.json")
+    response = LLMResponse(text="", reasoning_content="reasoning", tokens_in=1, tokens_out=1,
+                           cost_cny=0, model=context.coder.model, parameter_support={},
+                           tool_calls=[{"id": f"native-{i}", "type": "function", "function": {
+                               "name": "write_file", "arguments": '{"path":"a.c","content":"x"}'}} for i in range(2)])
+    context.record(response, {"format_errors": ["Exactly one tool required; no tool executed."]})
+    request = context.request({})
+    assert [m["role"] for m in request.messages] == ["user", "assistant", "tool", "tool"]
+    assert [m["tool_call_id"] for m in request.messages[2:]] == ["native-0", "native-1"]
+    response = response.model_copy(update={"tool_calls": []})
+    context.record(response, {"format_errors": ["No tool executed."]})
+    context.coder.context_max_bytes = context.prepared_request.wire_bytes
+    request = context.request({})
+    assert context.evicted_transactions == 1
+    assert [m["role"] for m in request.messages] == ["user", "assistant", "user"]

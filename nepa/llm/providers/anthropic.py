@@ -8,11 +8,11 @@ from collections.abc import Callable
 import httpx
 
 from ...config import ProviderConfig
-from ..client import LLMConfigurationError, LLMRequest, LLMResponse
-from .openai_compat import DEFAULT_HTTP_TIMEOUT, _complete_chat_stream
+from ..client import LLMConfigurationError
+from .openai_compat import DEFAULT_HTTP_TIMEOUT, OpenAICompatibleProvider
 
 
-class AnthropicProvider:
+class AnthropicProvider(OpenAICompatibleProvider):
     """Use the configured Anthropic gateway URL byte-for-byte as the request target."""
 
     native_structured_output = False
@@ -45,15 +45,3 @@ class AnthropicProvider:
                 f"missing API key for provider {self.provider_name} in {self.config.api_key_env}"
             )
         return value
-
-    def complete(self, request: LLMRequest, *, model: str, native_schema: bool = False) -> LLMResponse:
-        api_key = self._api_key()
-        return _complete_chat_stream(
-            self.client,
-            endpoint=self.endpoint,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            request=request,
-            model=model,
-            native_schema=native_schema,
-            provider_name=self.provider_name,
-        )

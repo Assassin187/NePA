@@ -12,7 +12,7 @@ from .tools.workspace import WorkspaceTools
 def build_orchestrator(store: RunStore, providers: dict[str, Provider] | None = None) -> Orchestrator:
     config = store.config
     executor = SandboxExecutor(config.sandbox.image, config.sandbox.cpu, config.sandbox.mem_gb)
-    tools = WorkspaceTools(store.project, store.root / "inputs", store.root / "evidence", executor, config.sandbox.command_timeout_s)
+    tools = WorkspaceTools(store.project, store.root / "inputs", store.root / "agent-evidence", executor, config.sandbox.command_timeout_s)
     session = CodingSession(LLMClient(config, providers), store, tools,
                             BuildRunner(executor, config.sandbox.build_timeout_s), VerificationRunner(executor))
     return Orchestrator(session)

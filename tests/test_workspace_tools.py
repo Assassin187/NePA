@@ -43,17 +43,15 @@ def test_evidence_root_lists_real_evidence_and_remains_readonly(tools):
         tools.execute("write_file", {"path": "evidence", "content": "no"})
 
 @pytest.mark.sandbox_integration
-def test_oracle_is_readable_but_not_writable(tools):
-    checks = tools.inputs / "checks"
-    checks.mkdir()
-    (checks / "check.py").write_text("print('trusted')\n")
-    assert tools.execute("list_files", {"path": "inputs"})["files"][0]["path"] == "inputs/checks/check.py"
-    assert tools.execute("search", {"path": "inputs", "pattern": "trusted"})["matches"]
-    with pytest.raises(ValueError):
-        tools.execute("write_file", {"path": "inputs/checks/check.py", "content": "changed"})
-    result = tools.execute("run_command", {"argv": ["sh", "-c", "python /checks/check.py && ! touch /checks/changed"]})
-    assert result["returncode"] == 0 and "trusted" in result["stdout"]
-    assert not (checks / "changed").exists()
+def test_private_assets_and_raw_evidence_are_not_mounted(tools):
+    private = tools.project.parent / "private"
+    private.mkdir()
+    (private / "secret.py").write_text("PRIVATE_CANARY")
+    result = tools.execute("run_command", {"argv": ["sh", "-c",
+        "test ! -e /checks && test ! -e /private && test ! -e /inputs/acceptance.json && test ! -e /var/run/docker.sock"]})
+    assert result["returncode"] == 0
+    assert str(tools.project.parent) not in str(result)
+    assert result["command"][:2] == ["sh", "-c"]
 
 @pytest.mark.sandbox_integration
 def test_real_compile_failure_then_fix(tools):

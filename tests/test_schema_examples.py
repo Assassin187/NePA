@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 from nepa.config import load_config
-from nepa.report import publish_report
+from nepa.report import publish_report, public_report
 from nepa.run_store import RunStore
 from nepa.speclib.lint import _schema_errors
 
@@ -22,3 +22,5 @@ def test_actual_plan_run_and_failed_report_match_current_contracts(tmp_path):
     store.run.update(status="failed", exit_code=2, reason="test-only interrupted attempt")
     report = publish_report(store)
     assert not _schema_errors(report, "report.schema.json")
+
+    assert not _schema_errors(public_report(report), "report.schema.json")

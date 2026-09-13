@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 import pytest
 from nepa.config import load_config, ConfigError, public_config_snapshot
-from nepa.llm.client import LLMClient, LLMRequest, ProviderError, extract_first_json_value
+from nepa.llm.client import LLMClient, LLMRequest, ProviderError, decode_action
 from nepa.llm.telemetry import calculate_cost
+from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
 from nepa.run_store import RunStore
 from nepa.report import publish_report
 from nepa.llm.client import structured_validation_errors
@@ -37,7 +38,14 @@ def test_authorized_cost_ceilings_do_not_change_time_budget():
 
 @pytest.mark.parametrize("text", ['{"a":1}', '\x60\x60\x60json\n{"a":1}\n\x60\x60\x60', 'answer: {"a":1}'])
 def test_json_envelope_parsing(text):
-    assert extract_first_json_value(text) == {"a": 1}
+    from nepa.llm.client import LLMResponse
+    schema = {"type": "object", "required": ["a"]}
+    response = LLMResponse(text=text, tokens_in=1, tokens_out=1, cost_cny=0, model="fixture", parameter_support={})
+    parsed, errors = decode_action(response, "json_object", schema)
+    if text == '{"a":1}':
+        assert parsed == {"a": 1} and not errors
+    else:
+        assert parsed is None and errors
 
 def test_action_error_identifies_missing_argument_not_generic_schema_dump():
     errors = structured_validation_errors({"tool": "finish", "arguments": {"summary": "ready"}},
@@ -64,15 +72,17 @@ def test_fast_initial_coding_and_pro_complexity_escalation(kind):
 
 def test_selected_model_controls_wire_and_cost(tmp_path):
     from nepa.llm.client import LLMResponse
-    class Provider:
-        native_structured_output = False
-        def complete(self, request, *, model, native_schema):
-            assert model == request.model == "deepseek-flash"
+    class Provider(OpenAICompatibleProvider):
+        def send(self, prepared):
+            model = prepared.model
+            assert model == prepared.wire["model"] == "deepseek-flash"
             return LLMResponse(text="{}", tokens_in=100, tokens_out=200, cost_cny=0,
-                               model=model, parameter_support={})
+                               model=model, parameter_support={}, provider_metadata={
+                                   "returned_model_identity": model, "returned_model_identity_observed": True,
+                                   "usage": {"prompt_tokens": 100, "completion_tokens": 200}})
     config = load_config(ROOT / "configs/default.yaml")
     store = make_store(tmp_path, config)
-    response = LLMClient(config, {"deepseek": Provider()}).complete(
+    response = LLMClient(config, {"deepseek": Provider("deepseek", config.providers["deepseek"])}).complete(
         LLMRequest(role="coder", model="deepseek-flash", action_format="json_object", system="s", user="u", temperature=0, max_tokens=1000),
         store=store, task_id="bootstrap")
     assert response.pricing is not None
@@ -85,11 +95,12 @@ def test_selected_model_controls_wire_and_cost(tmp_path):
         load_config(overrides={"coder": {"fast_model": "unpriced"}})
 
 def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypatch):
-    class FailingProvider:
+    class FailingProvider(OpenAICompatibleProvider):
         native_structured_output = False
         def __init__(self):
+            super().__init__("deepseek", load_config().providers["deepseek"])
             self.calls = 0
-        def complete(self, request, *, model, native_schema):
+        def send(self, prepared):
             self.calls += 1
             raise ProviderError("service unavailable", provider="deepseek", status_code=503)
     store = make_store(tmp_path)
@@ -104,11 +115,12 @@ def test_provider_retry_is_bounded_and_all_attempts_accounted(tmp_path, monkeypa
     assert store.run["budget"]["cost_cny"] > 0
 
 def test_provider_payment_rejection_is_not_retried_or_accounted_as_free(tmp_path):
-    class PaymentRejected:
+    class PaymentRejected(OpenAICompatibleProvider):
         native_structured_output = False
         def __init__(self):
+            super().__init__("deepseek", load_config().providers["deepseek"])
             self.calls = 0
-        def complete(self, request, **kwargs):
+        def send(self, prepared):
             self.calls += 1
             raise ProviderError("deepseek returned HTTP 402", provider="deepseek", status_code=402)
     provider = PaymentRejected()
@@ -174,3 +186,33 @@ def test_default_pytest_discovery_does_not_import_generated_project_scripts(tmp_
     assert result.returncode == 0, result.stdout + result.stderr
     assert "test_owned.py::test_owned" in result.stdout
     assert "test_generated" not in result.stdout
+
+
+@pytest.mark.parametrize('fault', ['identity', 'usage', 'usage_mismatch'])
+def test_injected_provider_has_no_identity_or_usage_exemption(tmp_path, fault):
+    from nepa.llm.client import LLMResponse, ResponseIdentityError, ResponseUsageError
+    class InvalidProvider(OpenAICompatibleProvider):
+        def send(self, prepared):
+            metadata = {'returned_model_identity': prepared.model, 'returned_model_identity_observed': True,
+                        'usage': {'prompt_tokens': 10, 'completion_tokens': 20}}
+            if fault == 'identity':
+                metadata.pop('returned_model_identity_observed')
+            elif fault == 'usage':
+                metadata.pop('usage')
+            else:
+                metadata['usage']['completion_tokens'] = 21
+            return LLMResponse(text='{"tool":"finish","arguments":{"summary":"done","claims":[]}}',
+                               model=prepared.model, tokens_in=10, tokens_out=20, cost_cny=0,
+                               parameter_support={}, provider_metadata=metadata)
+    config = load_config()
+    store = make_store(tmp_path, config)
+    client = LLMClient(config, {'deepseek': InvalidProvider('deepseek', config.providers['deepseek'])})
+    req = LLMRequest(role='coder', system='JSON', user='finish', temperature=0, max_tokens=1000)
+    reserved = client.prepare(req).reservation_cny
+    with pytest.raises(ResponseIdentityError if fault == 'identity' else ResponseUsageError):
+        client.complete(req, store=store, task_id='bootstrap')
+    assert store.run['budget']['calls'] == 1 and store.run['budget']['cost_cny'] == reserved
+    assert len(store.run['pending_calls']) == 1
+    saved = json.loads((store.root / 'evidence/calls/000001.fault-response.json').read_text())
+    assert 'finish' in saved['text'] and saved['tokens_out'] == 20
+    assert not (store.root / 'evidence/calls/000001.response.json').exists()

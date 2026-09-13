@@ -10,7 +10,7 @@ import os
 import signal
 from pathlib import Path
 import time
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal, cast
 import uuid
 
 from .config import ResolvedConfig, public_config_snapshot
@@ -66,8 +66,8 @@ def campaign_cost_cny(root: Path) -> float:
     total = 0.0
     for path in root.glob("*/run.json"):
         value = json.loads(path.read_bytes())
-        if value.get("schema_version") != "6.0":
-            raise RunStoreError("Use a new CNY campaign root; historical USD runs remain separate: " + str(path))
+        if value.get("schema_version") != "7.0":
+            raise RunStoreError("Use a new CNY campaign root; legacy schema/currency runs remain separate: " + str(path))
         total += value["budget"]["cost_cny"]
     return total
 
@@ -89,7 +89,7 @@ class RunStore:
     def __init__(self, root: Path | str):
         self.root = Path(root).resolve()
         self.run = json.loads((self.root / "run.json").read_bytes())
-        if self.run.get("schema_version") != "6.0":
+        if self.run.get("schema_version") != "7.0":
             raise RunStoreError("unsupported legacy run; use baseline code, not in-place resume")
         errors = _schema_errors(self.run, "run.schema.json")
         if errors:
@@ -120,16 +120,20 @@ class RunStore:
         staging = runs_root / (".initializing-" + run_id)
         staging.mkdir()
         (staging / "inputs").mkdir()
+        (staging / "private").mkdir()
+        (staging / "agent-evidence").mkdir()
         refs = {}
         for key, data in raw.items():
-            path = staging / "inputs" / (key + ".json")
+            path = staging / ("private" if key == "acceptance" else "inputs") / (key + ".json")
             path.write_bytes(data)
             refs[key] = {"path": str(path.relative_to(staging)), "sha256": hashlib.sha256(data).hexdigest()}
-        check_root = staging / "inputs" / "checks"
+        check_root = staging / "private" / "assets"
         check_root.mkdir()
         for asset in values["acceptance"]["assets"]:
             name = safe_relative(asset)
             source = sources["acceptance"].parent / name
+            if not source.resolve().is_relative_to(sources["acceptance"].parent):
+                raise RunStoreError("private asset escaped its source root")
             data = source.read_bytes()
             dest = check_root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -144,14 +148,18 @@ class RunStore:
         (staging / "evidence").mkdir()
         checkpoint = GitCheckpoints(staging / "checkpoints.git", staging / "project").initialize()
         now = time.time()
-        run = {"schema_version": "6.0", "run_id": run_id, "created_at": now, "updated_at": now,
-               "status": "pending", "exit_code": None, "inputs": refs, "runtime": runtime_fingerprint(),
+        run = {"schema_version": "7.0", "run_id": run_id, "created_at": now, "updated_at": now,
+               "status": "pending", "exit_code": None, "inputs": {k: v for k, v in refs.items() if k in {"spec", "target", "index"}},
+               "private_inputs": {k: v for k, v in refs.items() if k not in {"spec", "target", "index"}},
+               "verification_policy": {"exposure": "private_isolated", "verifier_version": "private-isolated/1", "randomization_version": "random-inputs/1"},
+               "runtime": runtime_fingerprint(),
                "config_snapshot": public_config_snapshot(config), "config_sha256": digest(public_config_snapshot(config)),
                "active_plan": {"path": "plans/0001.json", "sha256": digest(plan)}, "accepted_checkpoint": checkpoint,
                "tasks": {t["id"]: {"status": "pending", "sessions": 0, "decisions": 0, "claims": [], "evidence": []} for t in plan["tasks"]},
                "current_task": None, "pending_action": None, "working_hashes": {},
-               "budget": {"cost_cny": 0.0, "settled_cny": {"peak": 0.0, "off_peak": 0.0, "unclassified": 0.0}, "tokens_in": 0, "tokens_out": 0, "calls": 0},
-               "call_counter": 0, "pending_calls": {}, "followups": 0, "final_repairs": 0, "history": []}
+               "budget": {"cost_cny": 0.0, "settled_cny": {"peak": 0.0, "off_peak": 0.0, "flat": 0.0, "unclassified": 0.0}, "tokens_in": 0, "tokens_out": 0, "calls": 0},
+               "phase_cost_cny": {"capability": 0.0, "public_tools": 0.0, "generation": 0.0},
+               "liability_overflow_cny": 0.0, "call_counter": 0, "pending_calls": {}, "followups": 0, "final_repairs": 0, "history": []}
         atomic_json(staging / "run.json", run)
         for key, path in sources.items():
             if path.read_bytes() != raw[key]:
@@ -204,11 +212,41 @@ class RunStore:
     def inputs(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         if digest(self.run["config_snapshot"]) != self.run["config_sha256"]:
             raise RunStoreError("configuration snapshot drift")
-        for ref in self.run["inputs"].values():
+        for ref in {**self.run["inputs"], **self.run["private_inputs"]}.values():
             path = self.root / safe_relative(ref["path"])
             if not path.resolve().is_relative_to(self.root) or hashlib.sha256(path.read_bytes()).hexdigest() != ref["sha256"]:
                 raise RunStoreError("input snapshot drift")
-        return tuple(self.read_ref(self.run["inputs"][key]) for key in ("spec", "target", "acceptance"))  # type: ignore[return-value]
+        return tuple(self.read_ref(({**self.run["inputs"], **self.run["private_inputs"]})[key]) for key in ("spec", "target", "acceptance"))  # type: ignore[return-value]
+
+    @property
+    def private_checks(self) -> Path:
+        return self.root / "private/assets"
+
+    def publish_agent_evidence(self, name: str, value: Any) -> dict[str, str]:
+        """Publish an already projected value; the logical evidence root is public only."""
+        name = safe_relative(name)
+        path = self.root / "agent-evidence" / name
+        if not path.resolve().is_relative_to(self.root / "agent-evidence"):
+            raise RunStoreError("published evidence escaped its root")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = canonical_json_bytes(value)
+        with path.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {"path": "evidence/" + name, "sha256": hashlib.sha256(data).hexdigest()}
+
+    def read_agent_evidence(self, ref: dict[str, str]) -> Any:
+        name = safe_relative(ref["path"])
+        if not name.startswith("evidence/"):
+            raise RunStoreError("diagnostic reference is not published evidence")
+        path = self.root / "agent-evidence" / name.removeprefix("evidence/")
+        if not path.resolve().is_relative_to(self.root / "agent-evidence"):
+            raise RunStoreError("diagnostic reference escaped published evidence")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != ref["sha256"]:
+            raise RunStoreError("published diagnostic hash mismatch")
+        return json.loads(data)
 
     def plan(self) -> dict[str, Any]:
         return self.read_ref(self.run["active_plan"])
@@ -227,15 +265,27 @@ class RunStore:
         return {"path": str(path.relative_to(self.root)), "sha256": hashlib.sha256(data).hexdigest()}
 
     def check_budget(self) -> None:
+        if self.run["liability_overflow_cny"] > 0:
+            raise BudgetExhausted("known provider liability exceeded reservation; further calls blocked")
         if time.time() - self.run["created_at"] >= self.config.budgets.wall_clock_hours * 3600:
             raise BudgetExhausted("run time limit reached")
         if self.run["budget"]["cost_cny"] >= self.config.budgets.max_cost_cny:
             raise BudgetExhausted("run cost limit reached")
 
-    def reserve_call(self, task_id: str, reservation: float, wire: dict[str, Any]) -> int:
+    def reserve_call(self, task_id: str, reservation: float, wire: dict[str, Any], *, phase: str = "generation") -> int:
+        if phase not in {"capability", "public_tools", "generation"}:
+            raise RunStoreError("unknown campaign phase")
+        if not isinstance(reservation, (int, float)) or not 0 <= reservation < float("inf"):
+            raise RunStoreError("invalid reservation")
         self.check_budget()
         with file_lock(self.root.parent / ".campaign.lock", nonblocking=False):
             total = campaign_cost_cny(self.root.parent)
+            campaign_runs = [json.loads(path.read_bytes()) for path in self.root.parent.glob("*/run.json")]
+            if any(run.get("liability_overflow_cny", 0) > 0 for run in campaign_runs):
+                raise BudgetExhausted("campaign has known liability above a reservation")
+            phase_total = sum(run["phase_cost_cny"].get(phase, 0.0) for run in campaign_runs)
+            if phase in {"capability", "public_tools"} and phase_total + reservation > self.config.campaign.phase_max_cost_cny[cast(Literal["capability", "public_tools"], phase)]:
+                raise BudgetExhausted("campaign phase cost limit reached: " + phase)
             if total + reservation > self.config.budgets.campaign_max_cost_cny:
                 raise BudgetExhausted("campaign cost limit reached")
             if self.run["budget"]["cost_cny"] + reservation > self.config.budgets.max_cost_cny:
@@ -247,9 +297,10 @@ class RunStore:
             self.run["call_counter"] = sequence
             self.run["budget"]["calls"] += 1
             self.run["budget"]["cost_cny"] += reservation
-            self.run["pending_calls"][str(sequence)] = {"reserved": reservation, "task_id": task_id, "started_at": time.time()}
+            self.run["phase_cost_cny"][phase] += reservation
+            self.run["pending_calls"][str(sequence)] = {"reserved": reservation, "task_id": task_id, "started_at": time.time(), "phase": phase}
             self.save()
-            self.evidence(f"calls/{sequence:06d}.request.json", {"task_id": task_id, "wire": wire, "reserved_cny": reservation,
+            self.evidence(f"calls/{sequence:06d}.request.json", {"task_id": task_id, "wire": wire, "reserved_cny": reservation, "phase": phase,
                           "started_at": self.run["pending_calls"][str(sequence)]["started_at"]})
             return sequence
 
@@ -258,15 +309,21 @@ class RunStore:
         with file_lock(self.root.parent / ".campaign.lock", nonblocking=False):
             pending = self.run["pending_calls"].pop(str(sequence))
             self.run["budget"]["cost_cny"] += response["cost_cny"] - pending["reserved"]
+            self.run["phase_cost_cny"][pending["phase"]] += response["cost_cny"] - pending["reserved"]
+            self.run["liability_overflow_cny"] += max(0.0, response["cost_cny"] - pending["reserved"])
             period = (response.get("pricing") or {}).get("period", "unclassified")
+            if period not in self.run["budget"]["settled_cny"]:
+                period = "unclassified"
             self.run["budget"]["settled_cny"][period] += response["cost_cny"]
             self.run["budget"]["tokens_in"] += response["tokens_in"]
             self.run["budget"]["tokens_out"] += response["tokens_out"]
             self.run["last_response"] = ref
             self.save()
 
-    def fail_call(self, sequence: int, error: BaseException, *, elapsed_s: float) -> None:
-        self.evidence(f"calls/{sequence:06d}.error.json", {"error": type(error).__name__, "message": str(error), "elapsed_s": elapsed_s,
+    def fail_call(self, sequence: int, error: BaseException, *, elapsed_s: float, raw_response: Any = None) -> None:
+        if raw_response is not None:
+            self.evidence(f"calls/{sequence:06d}.fault-response.json", raw_response)
+        self.evidence(f"calls/{sequence:06d}.error.json", {"error": type(error).__name__, "failure_class": getattr(error, "failure_class", type(error).__name__), "message": str(error), "elapsed_s": elapsed_s,
                                                         "accounting": "unknown usage; reservation retained"})
         self.save()
 
@@ -300,7 +357,7 @@ class RunStore:
         """Explicit development continuation; caller holds the run lock."""
         if not reason.strip():
             raise RunStoreError("configuration change requires a recorded reason")
-        if self.run["status"] == "success" or self.run.get("delivery"):
+        if self.run["status"] in {"success", "study_complete"} or self.run.get("delivery"):
             raise RunStoreError("completed delivery cannot be reconfigured")
         self.inputs()
         self.plan()
@@ -325,7 +382,22 @@ class RunStore:
         self.config = config
         self.save()
 
+    def cleanup_verification(self) -> None:
+        from .tools.sandbox import SandboxExecutor
+        for path in (self.root / "evidence").rglob("containers.json"):
+            record = json.loads(path.read_bytes())
+            if record.get("cleaned"):
+                continue
+            for role in ("checker", "server", "command"):
+                if role in record:
+                    SandboxExecutor.remove_container(record[role])
+            record["cleaned"] = True
+            atomic_json(path, record)
+
     def recover(self) -> None:
+        if self.run["status"] == "study_complete":
+            raise RunStoreError("completed study cannot resume as production generation")
+        self.cleanup_verification()
         if self.run["runtime"]["package_sha256"] != runtime_fingerprint()["package_sha256"]:
             raise RunStoreError("runtime code/prompts changed; preserve this run and start a new one")
         self.inputs()
@@ -356,7 +428,7 @@ class RunStore:
         if not request.get("issue") or not request.get("diagnostic_refs") or not set(request.get("requirement_ids", [])).issubset(known):
             raise ValueError("follow-up requires issue, valid requirements and diagnostic refs")
         for ref in request["diagnostic_refs"]:
-            self.read_ref(ref)
+            self.read_agent_evidence(ref)
         plan = self.plan()
         number = self.run["followups"] + 1
         identifier = f"followup:{number:03d}"

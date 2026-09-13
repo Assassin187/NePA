@@ -16,7 +16,7 @@ SCHEMA = load_schema('agent-action.schema.json')
 def response(name='write_file', arguments='{"path":"a.c","content":"hello"}', count=1, reason='tool_calls'):
     return LLMResponse(text='', tool_calls=[{'id': f'call_{i}', 'type': 'function', 'function': {'name': name, 'arguments': arguments}} for i in range(count)],
                        reasoning_content='provider reasoning fixture', tokens_in=12, tokens_out=15, cost_cny=0,
-                       model='deepseek-v4-pro', parameter_support={}, provider_metadata={'finish_reason': reason})
+                       model='deepseek-v4-pro', parameter_support={}, provider_metadata={'finish_reason': reason, 'returned_model_identity': 'deepseek-v4-pro', 'returned_model_identity_observed': True, 'usage': {'prompt_tokens': 12, 'completion_tokens': 15}})
 
 
 @pytest.mark.parametrize('value', [response(count=0), response(count=2), response(name='unknown'),
@@ -68,7 +68,8 @@ def test_native_stream_assembly_real_http_and_accounting(tmp_path, monkeypatch):
 
 
 def test_native_transactions_reasoning_pairing_and_eviction():
-    context = CodingContext('s', {'task': {}}, CoderConfig(action_format='tool_calls'), None, SCHEMA)
+    client = LLMClient(load_config(overrides={'coder': {'action_format': 'tool_calls'}}))
+    context = CodingContext('s', {'task': {}}, client.config.coder, None, SCHEMA, client=client)
     value = response(count=2)
     context.record(value, {'format_errors': ['one action only']})
     req = context.request({})
@@ -76,7 +77,7 @@ def test_native_transactions_reasoning_pairing_and_eviction():
     assert [m['tool_call_id'] for m in req.messages[2:]] == ['call_0', 'call_1']
     assert req.messages[1]['reasoning_content'] == value.reasoning_content
     context.record(response(), {'tool_result': {'ok': True}})
-    context.coder.context_max_bytes = len(json.dumps(OpenAICompatibleProvider._payload(req, req.model, False), ensure_ascii=False).encode())
+    context.coder.context_max_bytes = client.prepare(req).wire_bytes
     trimmed = context.request({})
     assert context.evicted_transactions == 1
     assert [m['role'] for m in trimmed.messages] == ['user', 'assistant', 'tool']
@@ -95,11 +96,10 @@ def test_native_session_rejects_invalid_calls_then_repairs_real_compiler(tmp_pat
               response(name='finish', arguments='{"summary":"check compilation","claims":[]}'),
               response(arguments=json.dumps({'path': 'main.c', 'content': 'int main(void){return 0;}'})),
               response(name='finish', arguments='{"summary":"fixed actual diagnostic","claims":[]}')]
-    class Provider:
-        native_structured_output = False
-        def complete(self, request, **kwargs):
+    class Provider(OpenAICompatibleProvider):
+        def send(self, prepared):
             return values.pop(0)
-    session = build_orchestrator(store, {'deepseek': Provider()}).session
+    session = build_orchestrator(store, {'deepseek': Provider('deepseek', config.providers['deepseek'])}).session
     assert session.run(store.plan()['tasks'][0])
     assert store.run['budget']['calls'] == 8
     assert len(list((store.root / 'evidence/actions').glob('*.json'))) == 5

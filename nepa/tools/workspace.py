@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from ..speclib.lint import safe_relative
 from .sandbox import SandboxExecutor
+from .verification import safe_feedback
 
 
 class WorkspaceTools:
@@ -19,7 +20,7 @@ class WorkspaceTools:
         name = safe_relative(name)
         if name == "inputs" or name.startswith("inputs/"):
             if write:
-                raise ValueError("input and acceptance assets are read-only")
+                raise ValueError("public inputs are read-only")
             root, name = self.inputs, name.removeprefix("inputs/")
             if name == "inputs":
                 name = "."
@@ -40,6 +41,8 @@ class WorkspaceTools:
     def display(self, path: Path) -> str:
         for prefix, root in (("inputs/", self.inputs), ("evidence/", self.evidence), ("", self.project)):
             if path.is_relative_to(root):
+                if not path.resolve().is_relative_to(root):
+                    raise ValueError("path or symlink escaped its allowed root")
                 return prefix + path.relative_to(root).as_posix()
         raise ValueError("path outside tool roots")
 
@@ -47,10 +50,23 @@ class WorkspaceTools:
         return hashlib.sha256(self.path(name).read_bytes()).hexdigest()
 
     def execute(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._execute(tool, args)
+        except OSError as exc:
+            # OSError.filename is an absolute host path, never a tool diagnostic.
+            raise ValueError(f"file operation failed (errno={exc.errno})") from None
+
+    def _execute(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         if tool == "list_files":
             root = self.path(args.get("path", "."))
-            return {"files": [{"path": self.display(p), "size": p.lstat().st_size}
-                              for p in sorted(root.rglob("*")) if p.is_file() and not p.is_symlink()][:500]}
+            files = []
+            for path in sorted(root.rglob("*")):
+                logical = self.display(path)  # Resolve every descendant before stat/read.
+                if path.is_file():
+                    files.append({"path": logical, "size": path.stat().st_size})
+                if len(files) >= 500:
+                    break
+            return {"files": files}
         if tool == "read_file":
             path = self.path(args["path"])
             data = path.read_bytes()
@@ -74,7 +90,8 @@ class WorkspaceTools:
             matches = []
             paths = [root] if root.is_file() else sorted(root.rglob("*"))
             for path in paths:
-                if not path.is_file() or path.is_symlink():
+                self.display(path)
+                if not path.is_file():
                     continue
                 try:
                     for number, line in enumerate(path.read_text().splitlines(), 1):
@@ -98,8 +115,6 @@ class WorkspaceTools:
             path.write_text(content)
             return {"written": args["path"], "bytes": len(content.encode())}
         if tool == "run_command":
-            readonly = {"/inputs": self.inputs}
-            if (self.inputs / "checks").is_dir():
-                readonly["/checks"] = self.inputs / "checks"
-            return asdict(self.executor.exec(args["argv"], str(self.project), self.timeout_s, readonly=readonly))
+            readonly = {"/inputs": self.inputs, "/evidence": self.evidence}
+            return safe_feedback(asdict(self.executor.exec(args["argv"], str(self.project), self.timeout_s, readonly=readonly)))
         raise ValueError(f"unknown workspace tool: {tool}")

@@ -47,7 +47,7 @@ def test_campaign_counts_other_runs(store):
         store.reserve_call("bootstrap", 101, {})
     other = store.root.parent / "other"
     other.mkdir()
-    (other / "run.json").write_text(json.dumps({"schema_version": "6.0", "budget": {"cost_cny": store.config.budgets.campaign_max_cost_cny - .01}}))
+    (other / "run.json").write_text(json.dumps({"schema_version": "7.0", "phase_cost_cny": {"generation": 0}, "budget": {"cost_cny": store.config.budgets.campaign_max_cost_cny - .01}}))
     with pytest.raises(BudgetExhausted):
         store.reserve_call("bootstrap", .02, {})
 
@@ -125,7 +125,7 @@ def test_checkpoint_before_state_publication_is_not_accepted(store, monkeypatch)
 
 def test_followup_is_versioned_bounded_and_does_not_claim_primary_requirements(store):
     old = (store.root / "plans/0001.json").read_bytes()
-    ref = store.evidence("diagnostic.json", {"error": "test-only integration gap"})
+    ref = store.publish_agent_evidence("diagnostic.json", {"error": "test-only integration gap"})
     request = {"issue": "repair shared call site", "requirement_ids": [], "diagnostic_refs": [ref]}
     for _ in range(3):
         store.append_followup(request, "shared-wire")
@@ -179,3 +179,17 @@ def test_configuration_migration_refuses_manual_drift_or_completed_delivery(stor
     store.run["status"] = "success"
     with pytest.raises(RunStoreError, match="completed"):
         store.reconfigure(config, reason="test")
+
+
+def test_study_completion_is_not_generation_success_or_resumable(store):
+    config = store.config.model_copy(update={"campaign": store.config.campaign.model_copy(update={"phase": "capability"})})
+    store.reconfigure(config, reason="offline capability fixture")
+    store.run.update(status="study_complete", exit_code=0)
+    store.save()
+    reopened = RunStore(store.root)
+    assert reopened.run["status"] != "success"
+    assert all(t["status"] == "pending" for t in reopened.run["tasks"].values())
+    with pytest.raises(RunStoreError, match="completed study"):
+        reopened.recover()
+    with pytest.raises(RunStoreError, match="completed"):
+        reopened.reconfigure(store.config, reason="must start a fresh generation")

@@ -49,3 +49,32 @@ def test_variant_failure_and_sanitizer_override_claims_and_old_success():
             d['early_exit'] = 0
         current['previous_attempt'] = old
         assert requirement_verification('R', TARGET, ACCEPTANCE, current)['status'] == 'failed'
+
+
+def test_checker_exit_is_independent_of_server_supervision():
+    for fault in ("nonzero", "sanitizer", "early_exit", "stop_timeout", "checker_case"):
+        f = final()
+        variant = f["result"]["verification"]["variants"][1]
+        detail = variant["detail"]
+        detail["passed"] = False
+        if fault == "nonzero":
+            detail["server_returncode"] = 1
+        elif fault == "sanitizer":
+            detail["sanitizer_error"] = True
+        elif fault == "early_exit":
+            detail["early_exit"] = 0
+        elif fault == "stop_timeout":
+            detail["stop_timeout"] = True
+        else:
+            variant["execution"]["returncode"] = 1
+            detail["checks"][0].update(passed=False, returncode=1)
+        assert requirement_verification("R", TARGET, ACCEPTANCE, f)["status"] == "failed"
+
+
+def test_duplicate_or_missing_unmapped_checks_do_not_establish_complete_coverage():
+    a = deepcopy(ACCEPTANCE)
+    a["checks"].append({"id": "other", "req_ids": [], "required": True})
+    f = final()
+    assert requirement_verification("R", TARGET, a, f)["status"] == "incomplete"
+    f["result"]["verification"]["variants"].append(f["result"]["verification"]["variants"][0])
+    assert requirement_verification("R", TARGET, ACCEPTANCE, f)["status"] == "incomplete"

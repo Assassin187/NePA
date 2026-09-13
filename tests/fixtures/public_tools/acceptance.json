@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "description": "Public tool exercise placeholder for RunStore input validation; never a private protocol acceptance result. The harness checks actual output independently.",
+  "assets": [
+    "contract.txt"
+  ],
+  "checks": [
+    {
+      "id": "public-output",
+      "required": true,
+      "argv": [
+        "python3",
+        "-c",
+        "raise SystemExit(\"Public fixture only: use the harness output audit, not private protocol verification\")"
+      ],
+      "timeout_s": 2,
+      "req_ids": [
+        "REQ-PUBLIC-OUTPUT-001"
+      ]
+    }
+  ]
+}

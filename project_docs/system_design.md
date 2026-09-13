@@ -163,8 +163,10 @@ the working-set invariants above, not the larger number alone, fix the mechanism
 Optional coder.fast_model uses the same configured provider and requires an explicit
 price. Bootstrap, message and requirement tasks use it for their first session;
 shared-wire, integration, follow-up and repair/retry sessions use coder.model (Pro).
-A failed build or private check promotes subsequent repair decisions to the configured
+A failed build, private check, or workspace command promotes subsequent repair decisions to the configured
 strong model within the same existing decision/session budget. Record the transition.
+Nonzero/timed-out command results conservatively route as tool_failure_repair; this
+covers compiler errors without guessing compiler wrappers from command strings.
 Selection is based on task kind and observed failure/session exhaustion, not protocol names
 or requirement prefixes. The selected model must drive the actual wire request,
 context sizing and usage/reservation pricing; record route reasons in call context.
@@ -272,6 +274,10 @@ Vary identifiers and inputs; run both variants. Oracle unit-test doubles do not 
 as real generation. Remaining protocol behavior is explicitly unverified.
 
 ## 5. State, repair and recovery
+
+Completed capability/public-tool samples use study_complete, never production
+success; their unexecuted Plan tasks remain unexecuted. Such study records cannot
+be resumed as a production generation. Their costs and reservations remain charged.
 
 One atomic Run 7.0 run.json is authoritative: input/config refs, immutable active
 plan ref, task/session counters, accepted Git checkpoint, budgets, current operation

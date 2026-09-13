@@ -1,0 +1,23 @@
+{
+  "schema_version": "3.0",
+  "protocol": {
+    "name": "ControlledEcho",
+    "version": "1",
+    "roles": [
+      "server"
+    ]
+  },
+  "types": [],
+  "messages": [],
+  "requirements": [
+    {
+      "id": "REQ-ECHO-001",
+      "text": "For each TCP connection, return every received byte exactly once and in order, including zero and non-ASCII bytes. After input EOF, deliver all pending echo bytes and close that connection. Accept subsequent connections; exit zero on SIGTERM.",
+      "level": "MUST",
+      "source_ref": {
+        "section": "controlled-echo/1",
+        "quote": "Every received byte is echoed exactly once in order, then EOF closes the connection."
+      }
+    }
+  ]
+}
