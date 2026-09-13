@@ -89,7 +89,10 @@ def experiment_config(base, phase, *, model=None, mode=None):
 
 def scoped_manifest(config, config_path=None):
     """Content identity intentionally excludes Git status and unrelated documents."""
-    files = {f'nepa/{name}': value for name, value in runtime_fingerprint()['files'].items()}
+    # Spec extraction is an independent offline input-preparation module. It is
+    # intentionally outside the frozen generation runtime manifest.
+    files = {f'nepa/{name}': value for name, value in runtime_fingerprint()['files'].items()
+             if not name.startswith('spec_extract/')}
     if config_path is not None:
         path = Path(config_path).resolve()
         files[path.relative_to(ROOT).as_posix()] = sha(path)
