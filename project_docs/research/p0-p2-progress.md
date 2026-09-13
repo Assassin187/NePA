@@ -52,3 +52,7 @@ G1 已提交 `351ff20`。Astra high 实施分工（不共享写入文件）：
 任何失败、预算耗尽或证据缺口都不改称完成。
 
 整体离线验证：382 项非付费测试全部通过，无跳过，340.859 秒；包含真实 Docker 控制。证据 runs/p0-p2-offline-results.xml。Ruff、mypy（30模块）、uv sdist/wheel打包通过，wheel中Run7/Report5/Acceptance1示例有效且无私有资产。中断后确认测试进程已结束，以落盘JUnit结果为准。Qwen真实阶段尚未启动。
+
+首轮真实能力探测 candidate-1 未通过：Flash JSON添加$schema被完整本地校验拒绝；两个native配置因持久化对象键顺序导致wire摘要变化，在API前停止。四次实际调用共¥0.0051909999999999994，全部保留于runs/qwen-e2e。修复为确定性wire键排序并补跨持久化回归，不放宽动作schema。公开JSON指令明确不复制schema元数据。提交26c065c，相关66项测试及新增provider29项通过；candidate-2重新冻结并启动能力探测。
+
+预算复核：前阶段 MQTT／HTTP 各自新账本 ¥300，旧账本不计入新上限，单次 ¥20／4 小时；接口评估 ¥10 计入新 MQTT。后续 Qwen 使用已有设计中的独立账本。candidate-2 及同候选重试均因 Plus 在读文件样本先列目录未通过，保持原判定和费用。探测指令改为明确直接调用 read_file，并说明文件存在；不改变动作契约或门槛，另建候选重新验证。

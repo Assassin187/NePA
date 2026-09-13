@@ -132,8 +132,9 @@ def assert_original_coverage():
 
 def probe_request(config, index):
     return LLMRequest(role='coder', system=system_prompt(config.coder.action_format),
-                      user=('Return the next action to read main.c.' if index == 0 else
-                            'Return the next action to list files in the current project.'),
+                      user=('Call read_file now with path main.c. The file exists in the current project; '
+                            'no preliminary discovery action is needed.' if index == 0 else
+                            'Call list_files now for the current project directory.'),
                       model=config.coder.model, action_format=config.coder.action_format,
                       json_schema=load_schema('agent-action.schema.json'), temperature=config.coder.temperature,
                       max_tokens=config.coder.max_tokens)
