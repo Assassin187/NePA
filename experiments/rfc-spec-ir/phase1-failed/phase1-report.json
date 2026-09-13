@@ -1,0 +1,37 @@
+{
+  "stage": "phase1",
+  "gold_blind": true,
+  "model": "deepseek-v4-pro",
+  "thinking": "disabled",
+  "runs": {
+    "mqtt": {
+      "segments": 4,
+      "requirements": 157,
+      "source_traceability": 1.0,
+      "schema_valid": true,
+      "messages": 4,
+      "types": 6,
+      "rejected_llm_outputs": 3,
+      "fields": 23
+    },
+    "http": {
+      "segments": 9,
+      "requirements": 310,
+      "source_traceability": 1.0,
+      "schema_valid": true,
+      "messages": 4,
+      "types": 0,
+      "fields": 10
+    }
+  },
+  "gates": {
+    "document_ingest": "pass",
+    "stable_segmentation": "pass",
+    "deepseek_json_extraction": "pass",
+    "source_evidence_validation": "pass",
+    "frozen_spec_ir_validation": "pass",
+    "representative_message_type_field_recall": "fail",
+    "gold_field_level_precision_recall": "fail"
+  },
+  "status": "not_complete"
+}
