@@ -5,14 +5,14 @@ target format and independent acceptance assets. Initial scope: Linux x86_64/C99
 servers, with MQTT as the first evaluation input, not a generator special case.
 
 See project_docs/system_design.md for the approved contract and
-project_docs/refactor_plan.md for actual implementation/acceptance status.
+project_docs/engineering/refactor_plan.md for actual implementation/acceptance status.
 
 Validated2026-09-12: one real development baseline, then two fresh optimized-candidate
 runs passed the defined builds and minimum interactions. The repeated runs took
 76.8/75.4 minutes versus128.8 baseline minutes excluding its recharge pause.
 This is not full MQTT conformance or three unchanged-candidate runs. Detailed
-evidence and limitations: project_docs/refactor_plan.md and
-project_docs/session_latency_analysis.md.
+evidence and limitations: project_docs/engineering/refactor_plan.md and
+project_docs/experiments/session_latency_analysis.md.
 
 ## Development
 
@@ -40,7 +40,7 @@ The supplied config uses V4.1 Flash (`deepseek-flash`) for initial ordinary codi
 sessions and V4 Pro for wire/integration and retry/repair sessions. Costs use domestic CNY rates and the Asia/Shanghai busy/off-peak schedule.
 Responses record cache usage when provided; missing cache counts assume misses.
 Unknown calls retain peak-price reservations. These are estimates, not invoices.
-See configs/default.yaml and project_docs/protocol_expansion.md.
+See configs/default.yaml and project_docs/experiments/protocol_expansion.md.
 
 An explicitly approved development continuation can change its active configuration:
 
@@ -80,4 +80,4 @@ each generation is capped at ¥20/four hours. The interface study has a fixed ¥
 sublimit within the new MQTT campaign. The user explicitly excluded old USD runs
 from these new ceilings; old evidence remains in its original historical root.
 Run6.0 and Config2.0 reject currency mixing. Evidence and remaining work:
-`project_docs/protocol_expansion.md`.
+`project_docs/experiments/protocol_expansion.md`.

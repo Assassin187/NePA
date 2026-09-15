@@ -1,7 +1,9 @@
 """Bounded tool loop over the retained API client."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
+import time
 from typing import Any, cast
 import uuid
 
@@ -13,6 +15,9 @@ from ..speclib.plan import validate_claims
 from ..tools.build import BuildRunner
 from ..tools.verification import VerificationRunner
 from ..tools.workspace import WorkspaceTools
+
+
+logger = logging.getLogger("nepa.runtime")
 
 
 class CodingSession:
@@ -56,6 +61,8 @@ class CodingSession:
             state["status"] = "running"
             store.run["current_task"] = task["id"]
             store.save()
+            logger.info("Task %s session %d/%d using model %s%s", task["id"], state["sessions"],
+                        config.budgets.sessions_per_task, selected.model, " (repair)" if repair else "")
             for decision in range(config.budgets.decisions_per_session):
                 store.check_budget()
                 state["decisions"] += 1
@@ -64,10 +71,17 @@ class CodingSession:
                             "model_route": route,
                             "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
                 current = context.request(progress)
+                logger.info("Task %s decision %d: waiting for model response", task["id"], state["decisions"])
+                started = time.monotonic()
                 response = self.client.complete(current, store=store, task_id=task["id"])
+                logger.info("Task %s decision %d: model responded in %.1fs (run calls=%d, cost=CNY %.4f)",
+                            task["id"], state["decisions"], time.monotonic() - started,
+                            store.run["budget"]["calls"], store.run["budget"]["cost_cny"])
                 action, errors = decode_action(response, selected.action_format, self.schema)
                 history = response if selected.action_format == "tool_calls" else response.text
                 if errors:
+                    logger.warning("Task %s decision %d: invalid action format; no tool executed",
+                                   task["id"], state["decisions"])
                     context.record(history,
                         {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason"),
                          "instruction": "No tool executed. Correct the intended action using " + selected.action_format + "; never XML/invoke tags.",
@@ -83,16 +97,21 @@ class CodingSession:
                 result: dict[str, Any]
                 try:
                     tool, args = action["tool"], action["arguments"]
+                    logger.info("Task %s decision %d: executing %s", task["id"], state["decisions"], tool)
                     if tool == "finish":
                         claims = args["claims"]
                         validate_claims(task, claims, store.project)
+                        logger.info("Task %s: running%s builds", task["id"], " clean" if task["kind"] == "integration" else "")
                         result = {"build": self.builder.run(target, store.project, clean=task["kind"] == "integration")}
                         finished = result["build"]["passed"]
+                        logger.info("Task %s: builds %s", task["id"], "passed" if finished else "failed")
                         if finished and task["kind"] == "integration":
+                            logger.info("Task %s: running independent protocol checks", task["id"])
                             result["verification"] = self.verifier.run(
                                 target, acceptance, store.project, store.root / "inputs/checks",
                                 store.root / "evidence" / ("verification-" + uuid.uuid4().hex))
                             finished = result["verification"]["passed"]
+                            logger.info("Task %s: protocol checks %s", task["id"], "passed" if finished else "failed")
                         result["accepted"] = finished
                     elif tool == "request_followup":
                         store.append_followup(args, task["id"])
@@ -100,6 +119,8 @@ class CodingSession:
                     else:
                         result = self.tools.execute(tool, args)
                 except (ValueError, OSError, KeyError) as exc:
+                    logger.warning("Task %s decision %d: %s failed: %s",
+                                   task["id"], state["decisions"], action.get("tool", "action"), exc)
                     result = {"error": type(exc).__name__, "message": str(exc), "accepted": False}
                 ref = store.finish_action(identifier, result)
                 if finished:
@@ -113,4 +134,5 @@ class CodingSession:
                 store.save()
         state["status"] = "failed"
         store.save()
+        logger.error("Task %s exhausted its available sessions", task["id"])
         return False

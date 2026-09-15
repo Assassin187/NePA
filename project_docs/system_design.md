@@ -1,7 +1,7 @@
 # NePA System Design 10.0
 
 Status: approved architecture. Actual implementation/acceptance progress is in
-`refactor_plan.md`. Replaces 8.0.3 and the separate S4–S9 pipeline design.
+`engineering/refactor_plan.md`. Replaces 8.0.3 and the separate S4–S9 pipeline design.
 
 ## 1. Success contract
 
@@ -146,7 +146,7 @@ strict local action schema/claim checks and all host build/oracle gates remain.
 Empty, malformed or schema-invalid responses execute no tool and consume their
 normal decision/cost budget. Do not scrape DSML/XML or execute nested fragments.
 The first complete run spent31.3 API minutes on205 invalid action responses;
-see session_latency_analysis.md. Keep reasoning effort, full task scope and all
+see experiments/session_latency_analysis.md. Keep reasoning effort, full task scope and all
 existing resource/output/context limits unchanged while evaluating this correction.
 Include concrete JSON action examples, reject XML pseudo-tool calls with corrective
 feedback, and show the remaining decision budget. Search accepts regular expressions.

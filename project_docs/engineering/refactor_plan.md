@@ -208,7 +208,7 @@ on the identical frozen candidate; these two can run concurrently.
 
 The fc170b1 parallel batch failed: two task-session exhaustions and one subsequent
 user-authorized interruption, cumulative campaign USD49.02257712. See
-session_context_failure_analysis.md for the exact runs and transcript audit.
+../experiments/session_context_failure_analysis.md for the exact runs and transcript audit.
 Its one-time adoption scheduler is preserved byte-for-byte in that batch's
 scheduler.py (SHA256 matches batch.harness_sha256); its completed adoption CLI has
 been removed from the active test harness. The active harness gates repetitions
@@ -314,7 +314,7 @@ Both variants' server/client exits0, no sanitizer reports, no manual generated e
 Run accountingUSD21.78629862; campaignUSD70.80887574, retaining402 reservation.
 
 The user then required time analysis and optimization before further experiments.
-See session_latency_analysis.md:147.36 wall minutes including18.58-minute recharge/
+See ../experiments/session_latency_analysis.md:147.36 wall minutes including18.58-minute recharge/
 development pause;125.35 API minutes,31.28 spent on205 invalid action responses.
 The next candidate enables explicit JSON-object output in config/request/context/
 provider payload. It keeps model routing, thinking defaults, full context/output
@@ -369,7 +369,7 @@ merge or external deployment. First-run snapshot/config-change records and faile
 experiments remain preserved. Original user worktree remains untouched.
 
 Compared with the first baseline excluding its18.58-minute pause, fresh runs took
-40.4% and41.5% less wall time. See session_latency_analysis.md for measured categories,
+40.4% and41.5% less wall time. See ../experiments/session_latency_analysis.md for measured categories,
 remaining format errors and comparison limitations. Packaging was rebuilt/reinstalled
 outside the checkout; installed JSON wire mode and all three input lints passed.
 

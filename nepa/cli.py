@@ -1,6 +1,7 @@
 """Generation, resume and read-only status with explicit terminal outcomes."""
 from __future__ import annotations
 import json
+import logging
 from typing import Sequence
 import typer
 from .application import build_orchestrator
@@ -11,6 +12,17 @@ from .speclib.lint import lint_acceptance, lint_spec, lint_target, read_json, _s
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 lint_app = typer.Typer(no_args_is_help=True)
 app.add_typer(lint_app, name="lint")
+
+
+def configure_progress_logging() -> None:
+    """Emit human-readable progress to stderr while stdout stays machine-readable."""
+    logger = logging.getLogger("nepa.runtime")
+    logger.handlers.clear()
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
 
 def output(value: object) -> None:
@@ -31,6 +43,7 @@ def run_command(
     acceptance: str = typer.Option(..., "--acceptance"), config_path: str | None = typer.Option(None, "--config"),
     runs_root: str = typer.Option("runs/e2e", "--runs-root"),
 ) -> None:
+    configure_progress_logging()
     store = RunStore.initialize(runs_root, spec, target, acceptance, load_config(config_path))
     code = build_orchestrator(store).run(store)
     output(status_value(store))
@@ -42,6 +55,7 @@ def resume_command(run_id: str, runs_root: str = typer.Option("runs/e2e", "--run
                    config_path: str | None = typer.Option(None, "--config"),
                    accept_runtime_change: bool = typer.Option(False, "--accept-runtime-change"),
                    change_reason: str | None = typer.Option(None, "--change-reason")) -> None:
+    configure_progress_logging()
     store = RunStore.open(runs_root, run_id)
     if config_path is not None:
         if not change_reason:

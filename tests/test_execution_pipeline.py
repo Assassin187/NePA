@@ -95,7 +95,11 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
                           "--target", str(ROOT / "gold_file/mqtt/target.json"), "--acceptance", str(tmp_path / "acceptance.json"),
                           "--runs-root", str(tmp_path / "runs")])
     assert result.exit_code == 0, result.output
-    value = json.loads(result.output)
+    value = json.loads(result.stdout)
+    assert "Task 1/5 starting: bootstrap" in result.stderr
+    assert "waiting for model response" in result.stderr
+    assert "Final export passed" in result.stderr
+    assert "finished with status=success" in result.stderr
     run_dir = Path(value["run_dir"])
     report = json.loads((run_dir / "report.json").read_bytes())
     assert report["status"] == "success"
