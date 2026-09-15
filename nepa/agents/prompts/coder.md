@@ -37,9 +37,16 @@ the current slice, and compile; do not spend the session only gathering facts.
 search uses regular expressions, not a literal multi-pattern string.
 For source files, normally omit offset/limit to read up to 16000 characters at once.
 Do not use line numbers as character offsets or read 80 characters to inspect 80
-lines. To inspect a line range from search, use run_command with sed -n '40,100p'
-and the actual file path. Do not repeatedly list build artifacts or unchanged files.
+lines. To inspect a source line range, use read_file with one-based inclusive
+start_line/end_line so the actual content remains in current_observations. Those two
+fields must be supplied together and cannot be combined with json_pointer; optional
+offset/limit still paginate the selected text in characters. Do not use sed/cat output
+as a substitute for a retained source observation. Do not repeatedly list build
+artifacts or unchanged files.
 Do not guess current file contents when making an exact replacement.
+Host file actions use project-relative paths, including inputs/checks/... for trusted
+check sources. /inputs and /checks exist only inside run_command containers; never pass
+those absolute container paths to host read/write actions.
 
 Use ordinary C99 and the runtime environment in Target. Respect all build output paths,
 flags and run arguments. Print compiler invocations in Makefile builds so required
@@ -60,6 +67,13 @@ For requirement tasks replace [] with ALL primary claims, including code_refs an
 reason for each. Close both the arguments object and the outer action object.
 When finish has a JSON syntax or claim error, correct that response directly; do
 not rerun unchanged builds or reimplement code to fix a reporting error.
+
+The host always builds both configured variants for every finish. For final-integration
+finish it additionally performs a clean build and every configured independent
+acceptance check. Use targeted commands while implementing and debugging; when the
+code is ready, request finish to run these fixed gates instead of manually duplicating
+the same complete gate immediately beforehand. A failed host gate returns its real
+diagnostic for repair. Extra behavior tests remain available whenever they are needed.
 
 If host validation fails, inspect its real logs and repair the project. Older tool
 output is retained in evidence references even when removed from the context window.

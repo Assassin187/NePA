@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from .lint import digest, lint_spec, lint_target
-from .planning import message_context, referenced_requirements
+from .planning import message_context, referenced_requirements, requirement_navigation
 
 
 def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -45,7 +45,7 @@ def compile_plan(spec: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]
         add(task_id, "requirements", "Implement and integrate every primary requirement, including definitions, using the "
             "current real source. Read other messages/requirements when needed. Connect behavior to the actual runtime path. "
             "Do not limit implementation to minimum acceptance checks. Report exactly these primary requirements at finish.",
-            {"requirements": batch}, ids)
+            {"requirements": batch, "structure_navigation": requirement_navigation(spec, ids)}, ids)
         primary.update({req: task_id for req in ids})
     add("final-integration", "integration", "Integrate the entire project, review requirement claims and runtime dispatch. "
         "Use real builds and independent acceptance feedback to fix all mandatory checks. Ensure standalone README, "

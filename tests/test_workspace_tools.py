@@ -36,6 +36,25 @@ def test_input_pointer_and_pagination(tools):
     assert result["content"] == '"abcd'
     assert result["next_offset"] == 5
 
+
+def test_line_range_is_one_based_inclusive_and_then_character_paginated(tools):
+    tools.execute("write_file", {"path": "unicode.c", "content": "first\n二行\nthird\nfourth"})
+    result = tools.execute("read_file", {"path": "unicode.c", "start_line": 2, "end_line": 3,
+                                          "offset": 1, "limit": 6})
+    assert result["content"] == "行\nthir"
+    assert result["total_chars"] == len("二行\nthird\n")
+    assert result["next_offset"] == 7
+    assert result["start_line"] == 2 and result["end_line"] == 3
+    with pytest.raises(ValueError, match="provided together"):
+        tools.execute("read_file", {"path": "unicode.c", "start_line": 2})
+    with pytest.raises(ValueError, match="invalid one-based"):
+        tools.execute("read_file", {"path": "unicode.c", "start_line": 5, "end_line": 5})
+    with pytest.raises(ValueError, match="invalid one-based"):
+        tools.execute("read_file", {"path": "unicode.c", "start_line": 3, "end_line": 5})
+    with pytest.raises(ValueError, match="cannot be combined"):
+        tools.execute("read_file", {"path": "unicode.c", "start_line": 2, "end_line": 3,
+                                     "json_pointer": "/x"})
+
 def test_evidence_root_lists_real_evidence_and_remains_readonly(tools):
     (tools.evidence / "action.json").write_text('{}')
     assert tools.execute("list_files", {"path": "evidence"})["files"][0]["path"] == "evidence/action.json"

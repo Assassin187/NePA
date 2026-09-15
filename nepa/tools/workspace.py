@@ -55,16 +55,32 @@ class WorkspaceTools:
             path = self.path(args["path"])
             data = path.read_bytes()
             text = data.decode("utf-8")
+            if "json_pointer" in args and ("start_line" in args or "end_line" in args):
+                raise ValueError("json_pointer cannot be combined with start_line/end_line")
             if "json_pointer" in args:
                 value = json.loads(text)
                 for key in args["json_pointer"].split("/")[1:]:
                     key = key.replace("~1", "/").replace("~0", "~")
                     value = value[int(key)] if isinstance(value, list) else value[key]
                 text = json.dumps(value, ensure_ascii=False, indent=2)
+            elif "start_line" in args or "end_line" in args:
+                if "start_line" not in args or "end_line" not in args:
+                    raise ValueError("start_line and end_line must be provided together")
+                start_line, end_line = args["start_line"], args["end_line"]
+                lines = text.splitlines(keepends=True)
+                if start_line < 1 or end_line < start_line or start_line > len(lines) or end_line > len(lines):
+                    raise ValueError(
+                        f"invalid one-based inclusive line range {start_line}:{end_line}; file has {len(lines)} lines"
+                    )
+                text = "".join(lines[start_line - 1:end_line])
             offset, limit = args.get("offset", 0), args.get("limit", 16000)
-            return {"path": self.display(path), "file_sha256": hashlib.sha256(data).hexdigest(),
+            result = {"path": self.display(path), "file_sha256": hashlib.sha256(data).hexdigest(),
                     "content": text[offset:offset + limit], "offset": offset, "offset_unit": "characters",
                     "next_offset": offset + limit if offset + limit < len(text) else None, "total_chars": len(text)}
+            for key in ("json_pointer", "start_line", "end_line"):
+                if key in args:
+                    result[key] = args[key]
+            return result
         if tool == "search":
             root = self.path(args.get("path", "."))
             try:

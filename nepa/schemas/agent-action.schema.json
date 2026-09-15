@@ -50,10 +50,31 @@
             },
             "json_pointer": {
               "type": "string"
+            },
+            "start_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "minimum": 1
             }
           },
           "required": [
             "path"
+          ],
+          "allOf": [
+            {
+              "if": {"required": ["start_line"]},
+              "then": {"required": ["end_line"]}
+            },
+            {
+              "if": {"required": ["end_line"]},
+              "then": {"required": ["start_line"]}
+            },
+            {
+              "not": {"required": ["json_pointer", "start_line"]}
+            }
           ]
         }
       },

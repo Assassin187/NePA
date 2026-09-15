@@ -110,6 +110,34 @@ def test_pointer_observations_are_versioned_by_original_file(context):
     assert initial(context.request({}))["current_observations"] == []
 
 
+def test_successful_edit_refreshes_only_existing_real_read_selections(context):
+    (context.tools.project / "a.c").write_text("one\ntwo\nthree\n")
+    action = {"tool": "read_file", "arguments": {"path": "a.c", "start_line": 2, "end_line": 3}}
+    result = context.tools.execute("read_file", action["arguments"])
+    context.record(json.dumps(action), {"tool_result": result, "evidence_ref": {"path": "read", "sha256": "old"}}, action=action)
+    context.tools.execute("replace_text", {"path": "a.c", "old": "two", "new": "changed"})
+    refresh = context.refresh_after_edit("a.c")
+    edit_ref = {"path": "edit", "sha256": "new"}
+    context.adopt_refreshed_observations(refresh, edit_ref)
+    observation = initial(context.request({}))["current_observations"][0]
+    assert observation["result"]["content"] == "changed\nthree\n"
+    assert observation["result"]["file_sha256"] == context.tools.file_sha256("a.c")
+    assert observation["evidence_ref"] == edit_ref
+    assert observation["read"]["start_line"] == 2
+
+
+def test_edit_refresh_drops_selection_that_is_no_longer_valid(context):
+    (context.tools.project / "a.json").write_text('{"kept": 1, "removed": 2}')
+    action = {"tool": "read_file", "arguments": {"path": "a.json", "json_pointer": "/removed"}}
+    result = context.tools.execute("read_file", action["arguments"])
+    context.record(json.dumps(action), {"tool_result": result, "evidence_ref": {}}, action=action)
+    context.tools.execute("write_file", {"path": "a.json", "content": '{"kept": 1}'})
+    refresh = context.refresh_after_edit("a.json")
+    assert not refresh["observations"] and refresh["errors"]
+    context.adopt_refreshed_observations(refresh, {})
+    assert initial(context.request({}))["current_observations"] == []
+
+
 def test_json_object_wire_bytes_are_included_in_context_limit(context):
     request = context.request({})
     context.coder.context_max_bytes = len(json.dumps(

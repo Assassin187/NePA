@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from nepa.speclib.plan import compile_plan, validate_claims
 from nepa.speclib.lint import lint_acceptance, lint_spec, lint_target
-from nepa.speclib.planning import message_context
+from nepa.speclib.planning import message_context, requirement_navigation
 
 ROOT = Path(__file__).parents[1]
 
@@ -63,6 +63,35 @@ def test_full_type_and_constraint_context_preserved():
     context = message_context(spec, message)
     assert context["message"] == message
     assert {t["id"] for t in context["types"]} >= {"mqtt_utf8_string", "mqtt_subscription_entry", "mqtt_subscription_list"}
+
+
+def test_requirement_navigation_uses_only_explicit_refs_and_type_closure():
+    spec, target = inputs()
+    requirement_id = next(field["req_ids"][0] for message in spec["messages"]
+                          for field in message["fields"] if field["req_ids"])
+    rows = requirement_navigation(spec, [requirement_id])
+    assert rows[0]["requirement_id"] == requirement_id
+    expected_direct = []
+    for message_index, message in enumerate(spec["messages"]):
+        for field_index, field in enumerate(message["fields"]):
+            if requirement_id in field["req_ids"]:
+                expected_direct.append(f"/messages/{message_index}/fields/{field_index}")
+    assert [entry["pointer"] for entry in rows[0]["direct"] if entry["kind"] == "field"] == expected_direct
+    plan = compile_plan(spec, target)
+    task = next(task for task in plan["tasks"] if requirement_id in task["requirement_ids"])
+    assert task["context"]["structure_navigation"] == requirement_navigation(spec, task["requirement_ids"])
+    assert "not exhaustive" in rows[0]["scope"]
+
+
+def test_http_requirement_navigation_is_deterministic_without_protocol_branches():
+    root = ROOT / "gold_file/http"
+    spec = json.loads((root / "specIR.json").read_bytes())
+    target = json.loads((root / "target.json").read_bytes())
+    plan = compile_plan(spec, target)
+    assert plan == compile_plan(spec, target)
+    assert len(plan["primary_tasks"]) == len(spec["requirements"])
+    assert all("structure_navigation" in task["context"]
+               for task in plan["tasks"] if task["kind"] == "requirements")
 
 def test_claims_cannot_omit_or_defer_requirements(tmp_path):
     task = {"requirement_ids": ["r"]}

@@ -20,6 +20,37 @@ class CodingContext:
         self.evicted_transactions = 0
         self.latest_diagnostic: dict[str, Any] | None = None
 
+    @staticmethod
+    def _observation_key(read: dict[str, Any]) -> str:
+        return json.dumps(read, sort_keys=True)
+
+    def _store_observation(self, read: dict[str, Any], result: dict[str, Any], evidence_ref: dict[str, Any]) -> None:
+        self.observations[self._observation_key(read)] = {
+            "read": read, "result": result, "evidence_ref": evidence_ref,
+        }
+
+    def refresh_after_edit(self, name: str) -> dict[str, Any]:
+        """Reread only selections already observed for one successfully edited file."""
+        canonical = self.tools.display(self.tools.path(name))
+        selections = [value["read"] for value in self.observations.values()
+                      if value["result"]["path"] == canonical]
+        refreshed, errors = [], []
+        for read in selections:
+            try:
+                result = self.tools.execute("read_file", read)
+                refreshed.append({"read": read, "result": result})
+            except (OSError, ValueError, KeyError, UnicodeError) as exc:
+                errors.append({"read": read, "error": type(exc).__name__, "message": str(exc)})
+        return {"path": canonical, "observations": refreshed, "errors": errors}
+
+    def adopt_refreshed_observations(self, refresh: dict[str, Any], evidence_ref: dict[str, Any]) -> None:
+        canonical = refresh["path"]
+        for key, observation in list(self.observations.items()):
+            if observation["result"]["path"] == canonical:
+                del self.observations[key]
+        for value in refresh["observations"]:
+            self._store_observation(value["read"], value["result"], evidence_ref)
+
     def record(self, response: str | LLMResponse, feedback: dict[str, Any], *, action: dict[str, Any] | None = None) -> dict[str, Any]:
         result = feedback.get("tool_result", {})
         if "build" in result or "verification" in result or result.get("error") or result.get("returncode", 0) != 0:
@@ -27,8 +58,7 @@ class CodingContext:
         if action and action["tool"] == "read_file" and "file_sha256" in result:
             read = {**action["arguments"], "path": result["path"],
                     "offset": result["offset"], "limit": action["arguments"].get("limit", 16000)}
-            key = json.dumps(read, sort_keys=True)
-            self.observations[key] = {"read": read, "result": result, "evidence_ref": feedback["evidence_ref"]}
+            self._store_observation(read, result, feedback["evidence_ref"])
             feedback = {**feedback, "tool_result": {"read": read, "file_sha256": result["file_sha256"],
                                                    "observation": "Content is in current_observations while this file version is current.",
                                                    "next_offset": result["next_offset"]}}
