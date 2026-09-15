@@ -1,6 +1,6 @@
 # NePA runtime optimization execution record
 
-Status: implementation in progress. This record is derived from
+Status: P0/P1 implementation complete; live promotion remains blocked/not admitted. This record is derived from
 `../experiments/mqtt_runtime_latency_analysis_20260914.md` and the current runtime.
 It does not replace `../system_design.md`.
 
@@ -76,8 +76,50 @@ evidence, not statistical proof of an unchanged population success rate.
 - P2 remains deferred. Cross-task carry-over needs post-P1 live evidence; parallel
   verification has an MQTT upper bound below one percent of wall time and still
   requires isolated workspaces plus multi-container interruption cleanup.
-- Pending: freeze the control/candidate experiment assets and run paid staged A/B.
-- Paid model experiments have not been started by this optimization iteration.
+- 2026-09-15: froze candidate commit `50dea22`, runtime/config/input/image
+  fingerprints, and started the first paid staged MQTT/HTTP candidate batch at
+  `runs/protocol-expansion/6e05a18d10c54f6b832b7126e2a7dfb1` from a clean
+  detached worktree. The protocols run independently, so one failure does not cancel
+  the other.
+- 2026-09-15: MQTT candidate run `20260915T090928Z-dc874827` was rejected before
+  provider I/O (zero calls and zero cost). Its configured campaign root contains
+  Run6 CNY evidence plus zero-cost Run7 invalid records, while
+  `runs/mqtt-e2e-cny` contains separate Run7 charged evidence. The Run6 executor
+  correctly refused to reinterpret or omit incompatible campaign records. Preserve
+  this failed sample. Selecting a compatible root is blocked on resolving which
+  existing ledger is authoritative; do not create a fresh ledger or exclude charged
+  history merely to make the test run.
+- 2026-09-15: HTTP candidate run `20260915T090928Z-6f4e0a83` succeeded. All 10
+  tasks, 27 primary claims, release/sanitizer clean builds, in-run acceptance,
+  exported-copy checks and a second independent rebuild/acceptance passed. The run
+  used 205 provider attempts, 10 sessions with no continuation, 1,197.509 API
+  seconds, 46 strict rejections (22.44%, 120.622 API seconds), 3,364,172 input and
+  179,166 output tokens, and CNY4.120943. Independent rebuild plus acceptance took
+  8.401 seconds. The total wall time was 1,558.299 seconds.
+- 2026-09-15: compared with successful HTTP baseline
+  `runs/baseline-10cb-http/20260914T151924Z-92347b6d`, the candidate reduced calls
+  8.89%, strict rejects 9.80%, rejected-response API time 17.43%, input tokens 5.76%,
+  actions 8.62%, and continuation count from one to zero. At a common peak-price
+  normalization, cost fell from CNY5.231968 to CNY4.120943 (21.24%). Actual charged
+  cost is not directly comparable because the baseline ran fully off-peak and the
+  candidate fully at peak. Wall time increased 15.66%, API time 7.36%, output tokens
+  19.90%, failed actions from four to six, and agent-command time 66.78%. This single
+  candidate therefore does not meet the performance promotion gate despite complete
+  stability checks.
+- 2026-09-15: 40 of the 46 HTTP rejections contained a DSML/native wrapper. The
+  strict accepted set remains unchanged. Commit `5e1ec44` adds a deterministic
+  wrapper subtype, exact correction text, an end-of-decision outer-JSON reminder,
+  and independently persisted real diagnostics so a format error cannot hide a
+  build/verification failure after process re-entry. This post-run refinement passed
+  186 tests with one paid-live test skipped, Ruff, mypy and package build. The paid
+  HTTP run predates this commit and is screening evidence only.
+- Paid cost in this optimization iteration is CNY4.120943 settled; the MQTT
+  infrastructure rejection used zero calls and zero cost. There are no unknown
+  reservations from the completed batch.
+- Pending: resolve the MQTT campaign-version ambiguity without changing or bypassing
+  budget evidence, then run the final commit's paired candidate screening and the
+  preregistered alternating A/B repetitions. No candidate has met the live promotion
+  gate.
 
 ## Resume checklist
 
