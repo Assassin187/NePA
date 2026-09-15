@@ -58,6 +58,7 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
         assert "No tool executed" in provider.requests[1].messages[-1]["content"]
     assert "decisions_left" in provider.requests[-1].messages[-1]["content"]
     assert "End immediately after its closing brace" in provider.requests[-1].messages[-1]["content"]
+    assert "prefer replace_text" in provider.requests[-1].messages[-1]["content"]
     assert any("error:" in json.dumps(request.messages) for request in provider.requests[3:])
     assert any(message["role"] == "assistant" for message in provider.requests[-1].messages)
     assert (store.project / "build/san/protocol-server").is_file()

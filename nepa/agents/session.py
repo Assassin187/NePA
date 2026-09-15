@@ -126,7 +126,10 @@ class CodingSession:
                 store.save()
                 progress = {"session": state["sessions"], "decisions_left": config.budgets.decisions_per_session - decision,
                             "model_route": route,
-                            "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
+                            "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery.",
+                            "edit_contract": ("For a localized change to an existing observed file, prefer replace_text "
+                                              "with exact old/new text. Use write_file for new files or when most of an "
+                                              "existing file must change.")}
                 if selected.action_format == "json_object":
                     progress["response_contract"] = ("Return exactly one complete outer JSON object with top-level keys "
                                                      "tool and arguments. End immediately after its closing brace.")
