@@ -2,10 +2,12 @@
 from __future__ import annotations
 import json
 import logging
+from pathlib import Path
 from typing import Sequence
 import typer
 from .application import build_orchestrator
 from .config import ConfigError, load_config
+from .performance import summarize_run
 from .run_store import RunStore, RunStoreError
 from .speclib.lint import lint_acceptance, lint_spec, lint_target, read_json, _schema_errors
 
@@ -72,6 +74,16 @@ def resume_command(run_id: str, runs_root: str = typer.Option("runs/e2e", "--run
 @app.command("status")
 def status_command(run_id: str, runs_root: str = typer.Option("runs/e2e", "--runs-root")) -> None:
     output(status_value(RunStore.open(runs_root, run_id)))
+
+
+@app.command("analyze")
+def analyze_command(run_dir: str, output_path: str | None = typer.Option(None, "--output")) -> None:
+    """Summarize durable timing, action, cost and outcome evidence without running a model."""
+    value = summarize_run(run_dir)
+    if output_path is not None:
+        from .run_store import atomic_json
+        atomic_json(Path(output_path), value)
+    output(value)
 
 
 def finish(report: dict) -> None:

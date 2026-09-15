@@ -232,7 +232,8 @@ class RunStore:
         if self.run["budget"]["cost_cny"] >= self.config.budgets.max_cost_cny:
             raise BudgetExhausted("run cost limit reached")
 
-    def reserve_call(self, task_id: str, reservation: float, wire: dict[str, Any]) -> int:
+    def reserve_call(self, task_id: str, reservation: float, wire: dict[str, Any],
+                     *, context: dict[str, Any] | None = None) -> int:
         self.check_budget()
         with file_lock(self.root.parent / ".campaign.lock", nonblocking=False):
             total = campaign_cost_cny(self.root.parent)
@@ -249,8 +250,11 @@ class RunStore:
             self.run["budget"]["cost_cny"] += reservation
             self.run["pending_calls"][str(sequence)] = {"reserved": reservation, "task_id": task_id, "started_at": time.time()}
             self.save()
-            self.evidence(f"calls/{sequence:06d}.request.json", {"task_id": task_id, "wire": wire, "reserved_cny": reservation,
-                          "started_at": self.run["pending_calls"][str(sequence)]["started_at"]})
+            request_evidence = {"task_id": task_id, "wire": wire, "reserved_cny": reservation,
+                                "started_at": self.run["pending_calls"][str(sequence)]["started_at"]}
+            if context is not None:
+                request_evidence["context"] = context
+            self.evidence(f"calls/{sequence:06d}.request.json", request_evidence)
             return sequence
 
     def settle_call(self, sequence: int, response: dict[str, Any], *, elapsed_s: float) -> None:
@@ -270,16 +274,27 @@ class RunStore:
                                                         "accounting": "unknown usage; reservation retained"})
         self.save()
 
-    def start_action(self, task_id: str, action: dict[str, Any]) -> str:
+    def start_action(self, task_id: str, action: dict[str, Any],
+                     *, context: dict[str, Any] | None = None) -> str:
         if tree_hashes(self.project) != self.run["working_hashes"]:
             raise RunStoreError("unrecorded project changes detected before action; refusing to overwrite")
         identifier = uuid.uuid4().hex
-        self.run["pending_action"] = {"id": identifier, "task_id": task_id, "action": action}
+        self.run["pending_action"] = {"id": identifier, "task_id": task_id, "action": action,
+                                      "started_at": time.time(), "context": context}
         self.save()
         return identifier
 
-    def finish_action(self, identifier: str, result: Any) -> dict[str, str]:
-        ref = self.evidence(f"actions/{identifier}.json", {"action": self.run["pending_action"], "result": result})
+    def finish_action(self, identifier: str, result: Any,
+                      *, execution_elapsed_s: float | None = None) -> dict[str, str]:
+        pending = self.run["pending_action"]
+        finished_at = time.time()
+        evidence = {
+            "action": pending, "result": result, "finished_at": finished_at,
+            "elapsed_s": max(0.0, finished_at - pending.get("started_at", finished_at)),
+        }
+        if execution_elapsed_s is not None:
+            evidence["execution_elapsed_s"] = execution_elapsed_s
+        ref = self.evidence(f"actions/{identifier}.json", evidence)
         self.run["pending_action"] = None
         self.run["working_hashes"] = tree_hashes(self.project)
         self.save()

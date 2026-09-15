@@ -107,6 +107,10 @@ def test_real_cli_to_export_and_read_only_status(tmp_path, monkeypatch):
     assert not _schema_errors(report, "report.schema.json")
     assert value["tasks_passed"] == value["tasks_total"] == 5
     assert provider.calls == 8
+    performance = [json.loads(path.read_bytes()) for path in (run_dir / "evidence/performance").rglob("*.json")]
+    assert any(value["event"] == "run_invocation_finished" and value["status"] == "success"
+               for value in performance)
+    assert any(value["event"] == "export_finished" and value["passed"] for value in performance)
     assert (run_dir / "delivery/build/release/protocol-server").is_file()
     assert (run_dir / "delivery/build/san/protocol-server").is_file()
     before = (run_dir / "run.json").read_bytes()

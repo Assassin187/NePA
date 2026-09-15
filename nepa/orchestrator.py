@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from typing import Any
 import uuid
 
@@ -31,6 +32,11 @@ class Orchestrator:
             orphan.parent.mkdir(exist_ok=True)
             os.replace(store.root / "delivery", orphan)
         candidate = store.root / "export-attempts" / uuid.uuid4().hex
+        attempt_id = candidate.name
+        attempt_started_at, attempt_started = time.time(), time.monotonic()
+        store.evidence(f"performance/exports/{attempt_id}-start.json", {
+            "event": "export_started", "attempt_id": attempt_id, "started_at": attempt_started_at,
+        })
         logger.info("Preparing final export in %s", candidate.relative_to(store.root))
         shutil.copytree(store.project, candidate, symlinks=True)
         if not (candidate / "README.md").is_file() or not any(candidate.rglob("*.c")):
@@ -49,6 +55,10 @@ class Orchestrator:
         ref = store.evidence("exports/" + candidate.name + ".json", result)
         store.run["final_checks"] = {"result": result, "evidence": ref}
         store.save()
+        store.evidence(f"performance/exports/{attempt_id}-end.json", {
+            "event": "export_finished", "attempt_id": attempt_id, "passed": result["passed"],
+            "finished_at": time.time(), "elapsed_s": time.monotonic() - attempt_started,
+        })
         if not result["passed"]:
             logger.warning("Final export checks failed")
             return False
@@ -64,6 +74,11 @@ class Orchestrator:
 
     def run(self, store: RunStore, *, resume: bool = False) -> int:
         with store.lock(), store.deadline():
+            invocation_id = uuid.uuid4().hex
+            invocation_started_at, invocation_started = time.time(), time.monotonic()
+            store.evidence(f"performance/run-invocations/{invocation_id}-start.json", {
+                "event": "run_invocation_started", "resume": resume, "started_at": invocation_started_at,
+            })
             try:
                 logger.info("%s NePA run %s (%s)", "Resuming" if resume else "Starting", store.run_id, store.root)
                 if store.run["status"] == "success":
@@ -128,6 +143,11 @@ class Orchestrator:
             level = logging.INFO if store.run["exit_code"] == 0 else logging.ERROR
             logger.log(level, "Run %s finished with status=%s: %s",
                        store.run_id, store.run["status"], store.run.get("reason"))
+            store.evidence(f"performance/run-invocations/{invocation_id}-end.json", {
+                "event": "run_invocation_finished", "resume": resume, "status": store.run["status"],
+                "exit_code": store.run["exit_code"], "finished_at": time.time(),
+                "elapsed_s": time.monotonic() - invocation_started,
+            })
             return int(store.run["exit_code"])
 
     def resume(self, store: RunStore) -> int:

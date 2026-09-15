@@ -61,6 +61,26 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     assert any(message["role"] == "assistant" for message in provider.requests[-1].messages)
     assert (store.project / "build/san/protocol-server").is_file()
     assert all(request.system.count("Action schema:") == 1 for request in provider.requests)
+    final_observations = json.loads(provider.requests[-1].messages[0]["content"])["current_observations"]
+    assert any("return 0" in observation["result"]["content"] for observation in final_observations)
+    assert any(observation["evidence_ref"]["path"].startswith("evidence/actions/")
+               for observation in final_observations)
+    edit_receipts = []
+    for message in provider.requests[-1].messages:
+        if message["role"] != "user":
+            continue
+        try:
+            receipt = json.loads(message["content"])
+        except json.JSONDecodeError:
+            continue
+        if "observation_refresh" in receipt.get("tool_result", {}):
+            edit_receipts.append(receipt["tool_result"]["observation_refresh"])
+    assert edit_receipts and all("observations" not in receipt for receipt in edit_receipts)
+    request_evidence = json.loads((store.root / "evidence/calls/000001.request.json").read_text())
+    assert request_evidence["context"]["session"] == 1
+    assert request_evidence["context"]["decision"] == 1
+    performance = list((store.root / "evidence/performance").rglob("*.json"))
+    assert any(json.loads(path.read_text())["event"] == "task_invocation_finished" for path in performance)
     if long_history:
         from nepa.llm.providers.openai_compat import OpenAICompatibleProvider
         observations = json.loads(provider.requests[-1].messages[0]["content"])["current_observations"]
@@ -71,4 +91,19 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
             assert json.loads(request.messages[0]["content"].split("\nDecision budget:")[0])["task"] == store.plan()["tasks"][0]
     if malformed and malformed.startswith("{"):
         correction = provider.requests[1].messages[-1]["content"]
-        assert "Invalid JSON" in correction and "closing braces" in correction
+        assert "Invalid JSON" in correction and "required delimiters" in correction
+
+
+def test_format_feedback_is_classified_persisted_and_executes_nothing(tmp_path):
+    config = load_config(overrides={"budgets": {"sessions_per_task": 1, "decisions_per_session": 1}})
+    store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                                ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", config)
+    provider = SequenceProvider(['{"tool":"list_files","arguments":{}}<invoke/>'])
+    session = build_orchestrator(store, {"deepseek": provider}).session
+    assert not session.run(store.plan()["tasks"][0])
+    feedback = store.run["tasks"]["bootstrap"]["last_feedback"]
+    assert feedback["format_errors"][0]["code"] == "trailing_data"
+    assert "no prose, tags" in feedback["instruction"]
+    assert feedback["response_ref"]["path"].endswith("000001.response.json")
+    assert "finish_format" not in feedback
+    assert not list((store.root / "evidence/actions").glob("*.json"))

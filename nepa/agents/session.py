@@ -38,9 +38,47 @@ class CodingSession:
         if store.config.coder.action_format == "json_object":
             self.system += "\nAction schema:\n" + json.dumps(self.schema, ensure_ascii=False, separators=(",", ":"))
 
+    @staticmethod
+    def _format_feedback(errors: list[dict[str, Any]], action: Any, task: dict[str, Any],
+                         finish_reason: Any, response_ref: Any) -> dict[str, Any]:
+        codes = {error.get("code") for error in errors}
+        if "trailing_data" in codes:
+            instruction = ("No tool executed. Return exactly one complete outer JSON action with no prose, tags "
+                           "or additional JSON values before or after it.")
+        elif "empty_response" in codes:
+            instruction = "No tool executed. Return one complete action using the configured action format."
+        elif "incomplete_response" in codes:
+            instruction = "No tool executed because the provider response was incomplete. Return one smaller complete action."
+        elif codes.intersection({"native_call_count", "native_envelope"}):
+            instruction = "No tool executed. Return exactly one complete native function call."
+        elif "schema_invalid" in codes:
+            instruction = "No tool executed. Correct only the fields identified by the action schema errors."
+        else:
+            instruction = "No tool executed. Return one complete valid JSON action with all required delimiters."
+        feedback: dict[str, Any] = {"format_errors": errors, "finish_reason": finish_reason,
+                                    "instruction": instruction, "response_ref": response_ref}
+        if isinstance(action, dict) and action.get("tool") == "finish":
+            feedback.update(
+                required_primary_ids=task["requirement_ids"],
+                finish_format='{"tool":"finish","arguments":{"summary":"explanation","claims":[...]}}',
+                claim_format={"id": "one of required_primary_ids", "status": "implemented",
+                              "reason": "actual implementation explanation", "code_refs": ["actual/file.c:line"]},
+            )
+        return feedback
+
+    def _performance_event(self, category: str, identifier: str, value: dict[str, Any]) -> None:
+        self.store.evidence(f"performance/{category}/{identifier}.json", value)
+
     def run(self, task: dict[str, Any], *, repair: bool = False, feedback: Any = None) -> bool:
         store, config = self.store, self.store.config
         state = store.run["tasks"][task["id"]]
+        invocation_id = uuid.uuid4().hex
+        invocation_started_at, invocation_started = time.time(), time.monotonic()
+        self._performance_event("task-invocations", invocation_id + "-start", {
+            "event": "task_invocation_started", "task_id": task["id"], "kind": task["kind"],
+            "repair": repair, "started_at": invocation_started_at, "starting_sessions": state["sessions"],
+            "starting_decisions": state["decisions"],
+        })
         spec, target, acceptance = store.inputs()
         index = store.read_ref(store.run["inputs"]["index"])
         index = {key: value for key, value in index.items() if key != "requirements"}
@@ -58,9 +96,17 @@ class CodingSession:
             route = {"model": selected.model, "task_kind": task["kind"],
                      "reason": "fast initial coding" if selected.model != config.coder.model else "complex task or retry/repair or no fast model"}
             state["sessions"] += 1
+            session_number = state["sessions"]
+            session_id = uuid.uuid4().hex
+            session_started_at, session_started = time.time(), time.monotonic()
             state["status"] = "running"
             store.run["current_task"] = task["id"]
             store.save()
+            self._performance_event("sessions", session_id + "-start", {
+                "event": "session_started", "task_invocation_id": invocation_id, "task_id": task["id"],
+                "session": session_number, "repair": repair, "route": route, "started_at": session_started_at,
+                "starting_decisions": state["decisions"],
+            })
             logger.info("Task %s session %d/%d using model %s%s", task["id"], state["sessions"],
                         config.budgets.sessions_per_task, selected.model, " (repair)" if repair else "")
             for decision in range(config.budgets.decisions_per_session):
@@ -70,10 +116,17 @@ class CodingSession:
                 progress = {"session": state["sessions"], "decisions_left": config.budgets.decisions_per_session - decision,
                             "model_route": route,
                             "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
+                context_started = time.monotonic()
                 current = context.request(progress)
+                context_elapsed_s = time.monotonic() - context_started
+                call_context = {"task_invocation_id": invocation_id, "session_id": session_id,
+                                "session": session_number, "decision": state["decisions"],
+                                "decision_in_session": decision + 1, "route": route,
+                                "context_assembly_elapsed_s": context_elapsed_s}
                 logger.info("Task %s decision %d: waiting for model response", task["id"], state["decisions"])
                 started = time.monotonic()
-                response = self.client.complete(current, store=store, task_id=task["id"])
+                response = self.client.complete(current, store=store, task_id=task["id"],
+                                                call_context=call_context)
                 logger.info("Task %s decision %d: model responded in %.1fs (run calls=%d, cost=CNY %.4f)",
                             task["id"], state["decisions"], time.monotonic() - started,
                             store.run["budget"]["calls"], store.run["budget"]["cost_cny"])
@@ -82,19 +135,20 @@ class CodingSession:
                 if errors:
                     logger.warning("Task %s decision %d: invalid action format; no tool executed",
                                    task["id"], state["decisions"])
-                    context.record(history,
-                        {"format_errors": errors, "finish_reason": response.provider_metadata.get("finish_reason"),
-                         "instruction": "No tool executed. Correct the intended action using " + selected.action_format + "; never XML/invoke tags.",
-                         "required_primary_ids": task["requirement_ids"],
-                         "finish_format": '{"tool":"finish","arguments":{"summary":"explanation","claims":[...]}}',
-                         "claim_format": {"id": "one of required_primary_ids", "status": "implemented",
-                                          "reason": "actual implementation explanation", "code_refs": ["actual/file.c:line"]}})
+                    correction = self._format_feedback(
+                        errors, action, task, response.provider_metadata.get("finish_reason"),
+                        store.run.get("last_response"),
+                    )
+                    state["last_feedback"] = context.record(history, correction)
+                    store.save()
                     continue
                 action = cast(dict[str, Any], action)
-                identifier = store.start_action(task["id"], action)
+                identifier = store.start_action(task["id"], action, context=call_context)
+                action_started = time.monotonic()
                 finished = False
                 claims: list[dict[str, Any]] = []
                 result: dict[str, Any]
+                refresh: dict[str, Any] | None = None
                 try:
                     tool, args = action["tool"], action["arguments"]
                     logger.info("Task %s decision %d: executing %s", task["id"], state["decisions"], tool)
@@ -118,21 +172,68 @@ class CodingSession:
                         result = {"scheduled": True, "current_task_still_requires_completion": True}
                     else:
                         result = self.tools.execute(tool, args)
+                        if tool in {"write_file", "replace_text"}:
+                            refresh = context.refresh_after_edit(args["path"])
+                            if refresh["observations"] or refresh["errors"]:
+                                result["observation_refresh"] = refresh
                 except (ValueError, OSError, KeyError) as exc:
                     logger.warning("Task %s decision %d: %s failed: %s",
                                    task["id"], state["decisions"], action.get("tool", "action"), exc)
                     result = {"error": type(exc).__name__, "message": str(exc), "accepted": False}
-                ref = store.finish_action(identifier, result)
+                    if action.get("tool") == "finish":
+                        result.update(
+                            instruction="Correct the finish envelope and report exactly the required primary claims; do not rerun unchanged checks.",
+                            required_primary_ids=task["requirement_ids"],
+                            finish_format='{"tool":"finish","arguments":{"summary":"explanation","claims":[...]}}',
+                        )
+                    if isinstance(exc, ValueError) and ("unsafe relative path" in str(exc) or "absolute" in str(exc)):
+                        result["instruction"] = ("Host file actions require project-relative paths. Read trusted checks as "
+                                                 "inputs/checks/...; /inputs and /checks are only container paths inside run_command.")
+                ref = store.finish_action(identifier, result,
+                                          execution_elapsed_s=time.monotonic() - action_started)
+                if refresh is not None:
+                    context.adopt_refreshed_observations(refresh, ref)
                 if finished:
                     store.accept(task["id"], claims, ref)
+                    self._performance_event("sessions", session_id + "-end", {
+                        "event": "session_finished", "task_invocation_id": invocation_id,
+                        "task_id": task["id"], "session": session_number, "outcome": "passed",
+                        "finished_at": time.time(), "elapsed_s": time.monotonic() - session_started,
+                        "ending_decisions": state["decisions"],
+                    })
+                    self._performance_event("task-invocations", invocation_id + "-end", {
+                        "event": "task_invocation_finished", "task_id": task["id"], "kind": task["kind"],
+                        "repair": repair, "outcome": "passed", "finished_at": time.time(),
+                        "elapsed_s": time.monotonic() - invocation_started, "ending_sessions": state["sessions"],
+                        "ending_decisions": state["decisions"],
+                    })
                     return True
-                view = json.dumps(result, ensure_ascii=False)
-                feedback_row = {"tool_result": result if tool == "read_file" or len(view) <= 20000 else
+                model_result = result
+                if refresh is not None:
+                    model_result = {key: value for key, value in result.items() if key != "observation_refresh"}
+                    model_result["observation_refresh"] = {
+                        "path": refresh["path"], "refreshed": len(refresh["observations"]),
+                        "errors": refresh["errors"],
+                        "observation": "Refreshed content is in current_observations with the edit evidence reference.",
+                    }
+                view = json.dumps(model_result, ensure_ascii=False)
+                feedback_row = {"tool_result": model_result if tool == "read_file" or len(view) <= 20000 else
                                 {"excerpt": view[:20000], "complete_result_ref": ref}, "evidence_ref": ref,
                                 "instruction": "This action has already executed. Continue with the next necessary action."}
                 state["last_feedback"] = context.record(history, feedback_row, action=action)
                 store.save()
+            self._performance_event("sessions", session_id + "-end", {
+                "event": "session_finished", "task_invocation_id": invocation_id, "task_id": task["id"],
+                "session": session_number, "outcome": "decision_budget_exhausted", "finished_at": time.time(),
+                "elapsed_s": time.monotonic() - session_started, "ending_decisions": state["decisions"],
+            })
         state["status"] = "failed"
         store.save()
+        self._performance_event("task-invocations", invocation_id + "-end", {
+            "event": "task_invocation_finished", "task_id": task["id"], "kind": task["kind"],
+            "repair": repair, "outcome": "sessions_exhausted", "finished_at": time.time(),
+            "elapsed_s": time.monotonic() - invocation_started, "ending_sessions": state["sessions"],
+            "ending_decisions": state["decisions"],
+        })
         logger.error("Task %s exhausted its available sessions", task["id"])
         return False

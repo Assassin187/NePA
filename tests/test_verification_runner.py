@@ -55,6 +55,8 @@ def test_independent_oracle_correct_and_wrong_responses(tmp_path, mode, expected
     runner = VerificationRunner(SandboxExecutor("nepa-sandbox:refactor", 1, 1))
     result = runner.run(target, acceptance, project, ROOT / "gold_file/mqtt", tmp_path / "evidence")
     assert result["passed"] is expected, result
+    assert all(row["detail"]["elapsed_s"] >= row["detail"]["checks"][0]["elapsed_s"] >= 0
+               for row in result["variants"])
     if mode == "sanitizer":
         assert all(v["detail"]["sanitizer_error"] for v in result["variants"])
 

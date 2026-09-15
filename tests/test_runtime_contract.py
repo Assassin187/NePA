@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 from nepa.config import load_config, ConfigError, public_config_snapshot
-from nepa.llm.client import LLMClient, LLMRequest, ProviderError, extract_first_json_value
+from nepa.llm.client import LLMClient, LLMRequest, LLMResponse, ProviderError, decode_action, extract_first_json_value
 from nepa.llm.telemetry import calculate_cost
 from nepa.run_store import RunStore
 from nepa.report import publish_report
@@ -42,7 +42,33 @@ def test_json_envelope_parsing(text):
 def test_action_error_identifies_missing_argument_not_generic_schema_dump():
     errors = structured_validation_errors({"tool": "finish", "arguments": {"summary": "ready"}},
                                           load_schema("agent-action.schema.json"))
-    assert errors == [{"path": ["arguments"], "message": "'claims' is a required property"}]
+    assert errors == [{"code": "schema_invalid", "path": ["arguments"],
+                       "message": "'claims' is a required property"}]
+
+
+@pytest.mark.parametrize(("text", "finish_reason", "code"), [
+    ("", "stop", "empty_response"),
+    ('{"tool":"list_files","arguments":{}} trailing', "stop", "trailing_data"),
+    ('{"tool":', "stop", "invalid_json"),
+    ('{"tool":"list_files","arguments":{}}', "length", "incomplete_response"),
+])
+def test_strict_action_error_categories_do_not_change_rejection(text, finish_reason, code):
+    response = LLMResponse(text=text, tokens_in=1, tokens_out=1, cost_cny=0,
+                           model="deepseek-flash", parameter_support={},
+                           provider_metadata={"finish_reason": finish_reason})
+    action, errors = decode_action(response, "json_object", load_schema("agent-action.schema.json"))
+    assert action is None and errors[0]["code"] == code
+
+
+def test_read_line_range_schema_requires_pair_and_excludes_json_pointer():
+    schema = load_schema("agent-action.schema.json")
+    valid = {"tool": "read_file", "arguments": {"path": "a.c", "start_line": 2, "end_line": 4}}
+    assert structured_validation_errors(valid, schema) == []
+    assert structured_validation_errors(
+        {"tool": "read_file", "arguments": {"path": "a.c", "start_line": 2}}, schema)
+    assert structured_validation_errors(
+        {"tool": "read_file", "arguments": {"path": "a.c", "start_line": 2, "end_line": 4,
+                                               "json_pointer": "/a"}}, schema)
 
 def test_pricing_known_and_negative():
     config = load_config()

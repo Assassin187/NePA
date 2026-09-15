@@ -109,13 +109,16 @@ def action_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
 def decode_action(response: LLMResponse, action_format: str, schema: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
     """Only a complete outer JSON action or one genuine native function may execute."""
     if response.provider_metadata.get("finish_reason") in {"length", "content_filter"}:
-        return None, [{"path": [], "message": "Incomplete provider response; no tool executed."}]
+        return None, [{"code": "incomplete_response", "path": [],
+                       "message": "Incomplete provider response; no tool executed."}]
     if action_format == "tool_calls":
         if len(response.tool_calls) != 1:
-            return None, [{"path": [], "message": "Exactly one native tool call is required; no tool executed."}]
+            return None, [{"code": "native_call_count", "path": [],
+                           "message": "Exactly one native tool call is required; no tool executed."}]
         call = response.tool_calls[0]
         if not call.get("id") or call.get("type") != "function" or not isinstance(call.get("function"), dict):
-            return None, [{"path": [], "message": "Invalid native tool envelope; no tool executed."}]
+            return None, [{"code": "native_envelope", "path": [],
+                           "message": "Invalid native tool envelope; no tool executed."}]
         function = call["function"]
         raw = function.get("arguments", "")
     else:
@@ -125,8 +128,21 @@ def decode_action(response: LLMResponse, action_format: str, schema: dict[str, A
         if action_format == "tool_calls":
             action = {"tool": function.get("name"), "arguments": action}
         return action, structured_validation_errors(action, schema)
-    except (json.JSONDecodeError, TypeError) as exc:
-        return None, [{"path": [], "message": f"Invalid JSON: {exc}. Return the complete action/arguments with all closing braces."}]
+    except json.JSONDecodeError as exc:
+        if not isinstance(raw, str) or not raw.strip():
+            code = "empty_response"
+            message = "Empty response; return one complete action. No tool executed."
+        elif exc.msg == "Extra data":
+            code = "trailing_data"
+            message = ("Invalid JSON: trailing data after the first value. Return exactly one complete outer action "
+                       "with no prose, tags or additional values before or after it. No tool executed.")
+        else:
+            code = "invalid_json"
+            message = f"Invalid JSON: {exc}. Return one complete JSON action with all required delimiters. No tool executed."
+        return None, [{"code": code, "path": [], "message": message}]
+    except TypeError as exc:
+        return None, [{"code": "invalid_json", "path": [],
+                       "message": f"Invalid JSON value: {exc}. No tool executed."}]
 
 
 class Provider(Protocol):
@@ -157,7 +173,8 @@ class LLMClient:
                 raise LLMConfigurationError(f"unsupported provider kind: {config.kind}")
         return self.providers[name]
 
-    def complete(self, request: LLMRequest, *, store: Any, task_id: str) -> LLMResponse:
+    def complete(self, request: LLMRequest, *, store: Any, task_id: str,
+                 call_context: dict[str, Any] | None = None) -> LLMResponse:
         import os
         from .providers.openai_compat import OpenAICompatibleProvider
         coder = self.config.coder
@@ -177,7 +194,7 @@ class LLMClient:
         price = configured_model_price(self.config, coder.provider, model)
         reservation = calculate_cost(price, wire_bytes + 64, request.max_tokens)
         for attempt in range(3):
-            sequence = store.reserve_call(task_id, reservation, wire)
+            sequence = store.reserve_call(task_id, reservation, wire, context=call_context)
             started = time.monotonic()
             try:
                 response = provider.complete(request, model=model, native_schema=False)
@@ -226,5 +243,5 @@ def structured_validation_errors(value: Any, schema: dict[str, Any]) -> list[dic
             if branch.get("properties", {}).get("tool", {}).get("const") == value.get("tool"):
                 schema = branch
                 break
-    return [{"path": list(error.absolute_path), "message": error.message}
+    return [{"code": "schema_invalid", "path": list(error.absolute_path), "message": error.message}
             for error in Draft202012Validator(schema).iter_errors(value)]

@@ -8,11 +8,13 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 SANITIZER_MARKERS = ("AddressSanitizer", "UndefinedBehaviorSanitizer", "runtime error:", "LeakSanitizer")
 
 
 def supervise(payload: dict) -> dict:
+    supervision_started = time.monotonic()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -26,18 +28,21 @@ def supervise(payload: dict) -> dict:
         try:
             for check in payload["checks"]:
                 command = [part.format(**params) for part in check["argv"]]
+                check_started = time.monotonic()
                 try:
                     result = subprocess.run(command, capture_output=True, timeout=check["timeout_s"])
                     stdout = result.stdout.decode(errors="replace")
                     stderr = result.stderr.decode(errors="replace")
                     rows.append({"id": check["id"], "required": check["required"], "req_ids": check["req_ids"],
                                  "argv": command, "returncode": result.returncode, "stdout": stdout, "stderr": stderr,
-                                 "passed": result.returncode == 0})
+                                 "passed": result.returncode == 0,
+                                 "elapsed_s": time.monotonic() - check_started})
                 except subprocess.TimeoutExpired as exc:
                     rows.append({"id": check["id"], "required": check["required"], "req_ids": check["req_ids"],
                                  "argv": command, "returncode": None, "passed": False, "error": "client timeout",
                                  "stdout": (exc.stdout or b"").decode(errors="replace"),
-                                 "stderr": (exc.stderr or b"").decode(errors="replace")})
+                                 "stderr": (exc.stderr or b"").decode(errors="replace"),
+                                 "elapsed_s": time.monotonic() - check_started})
             early_exit = server.poll()
         finally:
             if server.poll() is None:
@@ -58,7 +63,8 @@ def supervise(payload: dict) -> dict:
                   and all(r["passed"] for r in rows if r["required"]))
         return {"passed": passed, "checks": rows, "server_argv": argv, "server_returncode": server.returncode,
                 "early_exit": early_exit, "stop_timeout": timed_out, "sanitizer_error": sanitizer,
-                "server_stdout": stdout, "server_stderr": stderr, "host": params["host"], "port": port}
+                "server_stdout": stdout, "server_stderr": stderr, "host": params["host"], "port": port,
+                "elapsed_s": time.monotonic() - supervision_started}
 
 
 if __name__ == "__main__":
