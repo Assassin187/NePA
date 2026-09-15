@@ -57,6 +57,7 @@ def test_agent_uses_actual_diagnostic_and_fixes_code(tmp_path, malformed, long_h
     if malformed is not None:
         assert "No tool executed" in provider.requests[1].messages[-1]["content"]
     assert "decisions_left" in provider.requests[-1].messages[-1]["content"]
+    assert "End immediately after its closing brace" in provider.requests[-1].messages[-1]["content"]
     assert any("error:" in json.dumps(request.messages) for request in provider.requests[3:])
     assert any(message["role"] == "assistant" for message in provider.requests[-1].messages)
     assert (store.project / "build/san/protocol-server").is_file()
@@ -103,7 +104,43 @@ def test_format_feedback_is_classified_persisted_and_executes_nothing(tmp_path):
     assert not session.run(store.plan()["tasks"][0])
     feedback = store.run["tasks"]["bootstrap"]["last_feedback"]
     assert feedback["format_errors"][0]["code"] == "trailing_data"
-    assert "no prose, tags" in feedback["instruction"]
+    assert feedback["format_errors"][0]["detail"] == "foreign_action_wrapper"
+    assert "complete outer object" in feedback["instruction"]
     assert feedback["response_ref"]["path"].endswith("000001.response.json")
     assert "finish_format" not in feedback
     assert not list((store.root / "evidence/actions").glob("*.json"))
+
+
+@pytest.mark.sandbox_integration
+def test_resume_keeps_real_diagnostic_after_format_error(tmp_path):
+    config = load_config(overrides={"budgets": {"sessions_per_task": 1, "decisions_per_session": 4}})
+    store = RunStore.initialize(tmp_path / "runs", ROOT / "gold_file/mqtt/specIR.json",
+                                ROOT / "gold_file/mqtt/target.json", ROOT / "gold_file/mqtt/acceptance.json", config)
+    makefile = ("release:\n\tmkdir -p build/release\n\t"
+                "gcc -std=c99 -Wall -Wextra -Werror main.c -o build/release/protocol-server\n"
+                "san:\n\tmkdir -p build/san\n\t"
+                "gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-pie -no-pie "
+                "main.c -o build/san/protocol-server\nclean:\n\trm -rf build\n")
+    first = SequenceProvider([
+        action("write_file", path="Makefile", content=makefile),
+        action("write_file", path="main.c", content="int main(void){ broken syntax }"),
+        action("finish", summary="run checks", claims=[]),
+        '{"tool":"list_files","arguments":{}} trailing',
+    ])
+    assert not build_orchestrator(store, {"deepseek": first}).session.run(store.plan()["tasks"][0])
+    state = store.run["tasks"]["bootstrap"]
+    assert state["last_feedback"]["latest_diagnostic_ref"] == state["last_diagnostic"]["evidence_ref"]
+
+    reopened = RunStore(store.root)
+    second = SequenceProvider([
+        action("write_file", path="main.c", content="int main(void){return 0;}"),
+        action("finish", summary="fixed compiler error", claims=[]),
+    ])
+    assert build_orchestrator(reopened, {"deepseek": second}).session.run(
+        reopened.plan()["tasks"][0], repair=True
+    )
+    initial = json.loads(second.requests[0].messages[0]["content"].split("\nDecision budget:")[0])
+    assert initial["initial_feedback"]["format_errors"][0]["code"] == "trailing_data"
+    diagnostic = initial["latest_observed_diagnostic"]
+    assert diagnostic["evidence_ref"] == state["last_diagnostic"]["evidence_ref"]
+    assert diagnostic["tool_result"]["build"]["passed"] is False

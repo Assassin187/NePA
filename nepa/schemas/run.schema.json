@@ -201,6 +201,9 @@
           },
           "last_feedback": {
             "type": "object"
+          },
+          "last_diagnostic": {
+            "type": "object"
           }
         },
         "required": [

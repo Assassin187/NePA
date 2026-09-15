@@ -77,6 +77,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
         "cost_cny": 0.0, "rejected_actions": 0,
     })
     error_categories: Counter[str] = Counter()
+    error_details: Counter[str] = Counter()
     route_reasons: Counter[str] = Counter()
     decision_keys: set[tuple[Any, ...]] = set()
     responses = rejected = undecodable = 0
@@ -127,6 +128,8 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
             task["rejected_api_elapsed_s"] += elapsed
             model["rejected_actions"] += 1
             error_categories[errors[0].get("code", "unknown")] += 1
+            if errors[0].get("detail"):
+                error_details[errors[0]["detail"]] += 1
 
     action_counts: Counter[str] = Counter()
     action_failures: Counter[str] = Counter()
@@ -205,6 +208,7 @@ def summarize_run(run_dir: str | Path) -> dict[str, Any]:
                 "rejected_rate": rejected / responses if responses else None,
                 "rejected_api_elapsed_s": rejected_elapsed_s, "undecodable_responses": undecodable,
                 "error_categories": dict(sorted(error_categories.items())),
+                "error_details": dict(sorted(error_details.items())),
                 "route_reasons": dict(sorted(route_reasons.items())), "models": dict(sorted(models.items())),
                 "cache_hit_tokens": cache_hits, "cache_miss_tokens": cache_misses,
                 "cache_hit_rate": cache_hits / total_cache if total_cache else None},

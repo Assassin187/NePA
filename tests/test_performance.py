@@ -34,6 +34,7 @@ def test_performance_summary_uses_strict_decoder_and_durable_evidence(tmp_path):
     assert summary["llm"]["logical_decisions_observed"] == 1
     assert summary["llm"]["rejected_actions"] == 1
     assert summary["llm"]["error_categories"] == {"trailing_data": 1}
+    assert summary["llm"]["error_details"] == {}
     assert summary["llm"]["cache_hit_rate"] == .8
     assert summary["actions"]["failed_total"] == 1
     assert summary["actions"]["measured_execution_elapsed_s"] == .2

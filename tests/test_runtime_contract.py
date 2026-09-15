@@ -46,6 +46,16 @@ def test_action_error_identifies_missing_argument_not_generic_schema_dump():
                        "message": "'claims' is a required property"}]
 
 
+def test_foreign_wrapper_is_rejected_with_a_diagnostic_subtype():
+    response = LLMResponse(text='{"path":"src/main.c"}</｜｜DSML｜｜ parameter>', tokens_in=1, tokens_out=1,
+                           cost_cny=0, model="deepseek-flash", parameter_support={},
+                           provider_metadata={"finish_reason": "stop"})
+    action, errors = decode_action(response, "json_object", load_schema("agent-action.schema.json"))
+    assert action is None
+    assert errors[0]["code"] == "trailing_data"
+    assert errors[0]["detail"] == "foreign_action_wrapper"
+
+
 @pytest.mark.parametrize(("text", "finish_reason", "code"), [
     ("", "stop", "empty_response"),
     ('{"tool":"list_files","arguments":{}} trailing', "stop", "trailing_data"),

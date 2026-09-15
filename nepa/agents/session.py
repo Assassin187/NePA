@@ -42,7 +42,13 @@ class CodingSession:
     def _format_feedback(errors: list[dict[str, Any]], action: Any, task: dict[str, Any],
                          finish_reason: Any, response_ref: Any) -> dict[str, Any]:
         codes = {error.get("code") for error in errors}
-        if "trailing_data" in codes:
+        details = {error.get("detail") for error in errors}
+        if "foreign_action_wrapper" in details:
+            instruction = ('No tool executed. The response used a DSML/native wrapper, which is invalid in JSON mode. '
+                           'Return exactly one complete outer object such as '
+                           '{"tool":"read_file","arguments":{"path":"src/file.c"}} with no wrapper tags or '
+                           'other content before or after it.')
+        elif "trailing_data" in codes:
             instruction = ("No tool executed. Return exactly one complete outer JSON action with no prose, tags "
                            "or additional JSON values before or after it.")
         elif "empty_response" in codes:
@@ -83,12 +89,17 @@ class CodingSession:
         index = store.read_ref(store.run["inputs"]["index"])
         index = {key: value for key, value in index.items() if key != "requirements"}
         index["full_requirement_index"] = "inputs/index.json"
+        if feedback is not None:
+            state["last_diagnostic"] = feedback
+        resumed_feedback = feedback if feedback is not None else state.get("last_feedback")
+        resumed_diagnostic = state.get("last_diagnostic")
         base = {"task": task, "target": target, "spec_index": index,
                 "pipeline": [{"id": entry["id"], "kind": entry["kind"],
                               "primary_requirement_count": len(entry["requirement_ids"])}
                              for entry in store.plan()["tasks"]],
-                "initial_feedback": feedback if feedback is not None else state.get("last_feedback")}
+                "initial_feedback": resumed_feedback}
         context = CodingContext(self.system, base, config.coder, self.tools, self.schema)
+        context.latest_diagnostic = resumed_diagnostic if resumed_diagnostic != resumed_feedback else None
         remaining = 1 if repair else config.budgets.sessions_per_task - state["sessions"]
         for _ in range(remaining):
             selected = config.coder.for_task(task["kind"], retry=state["sessions"] > 0, repair=repair)
@@ -116,6 +127,11 @@ class CodingSession:
                 progress = {"session": state["sessions"], "decisions_left": config.budgets.decisions_per_session - decision,
                             "model_route": route,
                             "instruction": "Current file observations remain available across sessions. Implement using those facts and the latest diagnostic; do not restart source discovery."}
+                if selected.action_format == "json_object":
+                    progress["response_contract"] = ("Return exactly one complete outer JSON object with top-level keys "
+                                                     "tool and arguments. End immediately after its closing brace.")
+                else:
+                    progress["response_contract"] = "Return exactly one native function call with no extra call or wrapper."
                 context_started = time.monotonic()
                 current = context.request(progress)
                 context_elapsed_s = time.monotonic() - context_started
@@ -139,6 +155,8 @@ class CodingSession:
                         errors, action, task, response.provider_metadata.get("finish_reason"),
                         store.run.get("last_response"),
                     )
+                    if state.get("last_diagnostic", {}).get("evidence_ref"):
+                        correction["latest_diagnostic_ref"] = state["last_diagnostic"]["evidence_ref"]
                     state["last_feedback"] = context.record(history, correction)
                     store.save()
                     continue
@@ -221,6 +239,8 @@ class CodingSession:
                                 {"excerpt": view[:20000], "complete_result_ref": ref}, "evidence_ref": ref,
                                 "instruction": "This action has already executed. Continue with the next necessary action."}
                 state["last_feedback"] = context.record(history, feedback_row, action=action)
+                if context.latest_diagnostic is not None:
+                    state["last_diagnostic"] = context.latest_diagnostic
                 store.save()
             self._performance_event("sessions", session_id + "-end", {
                 "event": "session_finished", "task_invocation_id": invocation_id, "task_id": task["id"],

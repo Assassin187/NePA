@@ -129,6 +129,9 @@ def decode_action(response: LLMResponse, action_format: str, schema: dict[str, A
             action = {"tool": function.get("name"), "arguments": action}
         return action, structured_validation_errors(action, schema)
     except json.JSONDecodeError as exc:
+        foreign_wrapper = isinstance(raw, str) and any(
+            marker in raw for marker in ("DSML", "<invoke", "<tool_calls", "<｜｜")
+        )
         if not isinstance(raw, str) or not raw.strip():
             code = "empty_response"
             message = "Empty response; return one complete action. No tool executed."
@@ -139,7 +142,10 @@ def decode_action(response: LLMResponse, action_format: str, schema: dict[str, A
         else:
             code = "invalid_json"
             message = f"Invalid JSON: {exc}. Return one complete JSON action with all required delimiters. No tool executed."
-        return None, [{"code": code, "path": [], "message": message}]
+        error = {"code": code, "path": [], "message": message}
+        if foreign_wrapper:
+            error["detail"] = "foreign_action_wrapper"
+        return None, [error]
     except TypeError as exc:
         return None, [{"code": "invalid_json", "path": [],
                        "message": f"Invalid JSON value: {exc}. No tool executed."}]
