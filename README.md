@@ -1,20 +1,18 @@
 # NePA
 
-Generate a protocol project from manually curated Spec (including requirements),
-target format and independent acceptance assets. Initial scope: Linux x86_64/C99
-servers, with MQTT as the first evaluation input, not a generator special case.
+根据人工整理的 Spec（包括需求）、Target 格式和独立验收资产生成协议项目。初始范围为
+Linux x86_64/C99 服务器，首个评估输入为 MQTT；MQTT 不是生成器的特殊分支。
 
-See project_docs/system_design.md for the approved contract and
-project_docs/engineering/refactor_plan.md for actual implementation/acceptance status.
+已批准的契约见 `project_docs/system_design.md`，实际实现和验收状态见
+`project_docs/engineering/重构计划.md`。
 
-Validated2026-09-12: one real development baseline, then two fresh optimized-candidate
-runs passed the defined builds and minimum interactions. The repeated runs took
-76.8/75.4 minutes versus128.8 baseline minutes excluding its recharge pause.
-This is not full MQTT conformance or three unchanged-candidate runs. Detailed
-evidence and limitations: project_docs/engineering/refactor_plan.md and
-project_docs/experiments/session_latency_analysis.md.
+截至 2026-09-12 已验证：先完成一次真实开发基线运行，再完成两次全新的优化候选运行，
+均通过既定构建和最小交互检查。两次重复运行耗时分别为 76.8/75.4 分钟；基线耗时为
+128.8 分钟，其中不计入充值暂停时间。这不代表完整 MQTT 一致性，也不代表三次未改变
+候选版本的运行结果。详细证据和限制见 `project_docs/engineering/重构计划.md` 以及
+`project_docs/experiments/会话延迟分析.md`。
 
-## Development
+## 开发
 
 ```bash
 uv sync --extra dev
@@ -24,10 +22,9 @@ uv run ruff check nepa tests
 uv run mypy nepa
 ```
 
-## Generation: new CLI contract
+## 生成：新版 CLI 契约
 
-Set the API-key environment variable named by your provider configuration; never
-write credentials into committed configuration or a generated project.
+设置供应商配置指定名称的 API 密钥环境变量；不要将凭据写入已提交的配置或生成的项目。
 
 ```bash
 uv run nepa run --spec gold_file/mqtt/specIR.json --target gold_file/mqtt/target.json \
@@ -36,35 +33,33 @@ uv run nepa status RUN_ID --runs-root runs/mqtt-e2e
 uv run nepa resume RUN_ID --runs-root runs/mqtt-e2e
 ```
 
-The supplied config uses V4.1 Flash (`deepseek-flash`) for initial ordinary coding
-sessions and V4 Pro for wire/integration and retry/repair sessions. Costs use domestic CNY rates and the Asia/Shanghai busy/off-peak schedule.
-Responses record cache usage when provided; missing cache counts assume misses.
-Unknown calls retain peak-price reservations. These are estimates, not invoices.
-See configs/default.yaml and project_docs/experiments/protocol_expansion.md.
+随附配置为初始普通编码会话使用 V4.1 Flash（`deepseek-flash`），为线协议/集成以及
+重试/修复会话使用 V4 Pro。成本采用国内 CNY 费率以及 Asia/Shanghai 高峰/低谷时段。
+如果响应提供了缓存使用量，系统会记录该数据；缺失的缓存统计按未命中计算。
+未知调用保留高峰价格预留值。这些都是估算值，不是供应商账单。
+详见 `configs/default.yaml` 和 `project_docs/experiments/协议扩展实验.md`。
 
-An explicitly approved development continuation can change its active configuration:
+经过明确批准的开发续作可以修改当前生效配置：
 
 ```bash
 uv run nepa resume RUN_ID --runs-root runs/mqtt-e2e --config configs/default.yaml \
-  --accept-runtime-change --change-reason "Describe the authorized experiment change"
+  --accept-runtime-change --change-reason "描述已授权的实验变更"
 ```
 
-This preserves previous state/report evidence, costs, attempts and the original
-deadline. Ordinary resume rejects runtime drift. A mixed-version development run
-must not be presented as an unchanged-candidate stability sample.
+这会保留既有状态/报告证据、成本、尝试记录和原始截止时间。普通续作会拒绝运行时漂移。
+混合版本的开发运行不得作为未改变候选版本的稳定性样本展示。
 
-Successful exports contain sources, Makefile, README and release/san executables.
-Build without NePA using make clean then make release san. Exit zero requires all
-tasks, mandatory checks and published artifacts. Claims are not verified behavior.
+成功导出的项目包含源代码、Makefile、README 以及 release/san 可执行文件。
+不使用 NePA 构建时，执行 `make clean`，然后执行 `make release san`。返回码为零要求
+所有任务、必需检查和已发布产物均成功。文档中的声明不等于已验证的行为。
 
-Manual input sets are parallel: `gold_file/mqtt/` and `gold_file/http/`, each with
-`specIR.json`, `target.json`, `acceptance.json` and independent oracle scripts.
-MQTT retains 110 requirements and now has 20 core-behavior checks. HTTP contains
-27 manually curated fixed-length-subset requirements and 12 checks. Both use the
-same C99/server target. These checks do not establish full protocol conformance.
-Report4.0 joins every claim to actual final-export scenario results or explicit gaps.
-Config2.0 selects `coder.action_format: json_object` or `tool_calls`; local action
-validation stays strict in both modes. Old runs require their original runtime.
+人工输入集彼此并行：`gold_file/mqtt/` 和 `gold_file/http/`，每个输入集都包含
+`specIR.json`、`target.json`、`acceptance.json` 以及独立的预言脚本。
+MQTT 保留 110 条需求，目前有 20 个核心行为检查。HTTP 包含 27 条人工整理的定长子集
+需求和 12 个检查。两者使用相同的 C99/服务器 Target。这些检查不能证明完整协议一致性。
+Report4.0 会将每项声明关联到最终导出项目的实际场景结果或明确缺口。
+Config2.0 通过 `coder.action_format: json_object` 或 `tool_calls` 选择动作格式；两种
+模式下本地动作校验都保持严格。旧运行必须使用其原始运行时。
 
 ```bash
 uv run nepa run --spec gold_file/http/specIR.json --target gold_file/http/target.json \
@@ -72,12 +67,10 @@ uv run nepa run --spec gold_file/http/specIR.json --target gold_file/http/target
 NEPA_LIVE_E2E=1 uv run pytest -s -q -m live_e2e tests/test_live_e2e.py
 ```
 
-The opt-in paid harness runs fresh MQTT and HTTP generations concurrently after
-freezing both input sets and the same candidate, then independently checks each export.
-MQTT uses the new `runs/mqtt-e2e` CNY campaign; HTTP uses `runs/http-e2e`.
-Each has a ¥300 cumulative ceiling, including new failures and reservations;
-each generation is capped at ¥20/four hours. The interface study has a fixed ¥10
-sublimit within the new MQTT campaign. The user explicitly excluded old USD runs
-from these new ceilings; old evidence remains in its original historical root.
-Run6.0 and Config2.0 reject currency mixing. Evidence and remaining work:
-`project_docs/experiments/protocol_expansion.md`.
+选择性启用的付费测试工具会在冻结两套输入集和同一候选版本后，并发执行全新的 MQTT
+和 HTTP 生成，再分别检查每个导出结果。MQTT 使用新的 `runs/mqtt-e2e` CNY 计费活动；
+HTTP 使用 `runs/http-e2e`。每个计费活动的累计上限为 ¥300，其中包含新增失败和预留
+成本；每次生成上限为 ¥20 或四小时。接口研究在新的 MQTT 计费活动内有固定的 ¥10
+子上限。用户明确将旧 USD 运行排除在这些新上限之外；旧证据仍保留在原历史根目录。
+Run6.0 和 Config2.0 会拒绝混用货币。证据和剩余工作见
+`project_docs/experiments/协议扩展实验.md`。
