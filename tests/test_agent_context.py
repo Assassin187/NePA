@@ -21,8 +21,8 @@ def context(tmp_path):
                          CoderConfig(context_max_bytes=50000), tools)
 
 
-def read(context, path):
-    action = {"tool": "read_file", "arguments": {"path": path}}
+def read(context, path, **selection):
+    action = {"tool": "read_file", "arguments": {"path": path, **selection}}
     result = context.tools.execute("read_file", action["arguments"])
     context.record(json.dumps(action), {"tool_result": result, "evidence_ref": {"path": "test-only", "sha256": "test-only"}}, action=action)
 
@@ -108,6 +108,26 @@ def test_pointer_observations_are_versioned_by_original_file(context):
     assert initial(context.request({}))["current_observations"][0]["result"]["content"] == '"fact"'
     Path(path).write_text('{"a": "changed"}')
     assert initial(context.request({}))["current_observations"] == []
+
+
+def test_contained_raw_character_observation_keeps_only_largest_range(context):
+    (context.tools.project / "large.c").write_text("x" * 32000)
+    read(context, "large.c", offset=0, limit=16000)
+    read(context, "large.c", offset=0, limit=24000)
+    read(context, "large.c", offset=4000, limit=4000)
+    observations = initial(context.request({}))["current_observations"]
+    assert [(row["read"]["offset"], row["read"]["limit"]) for row in observations] == [(0, 24000)]
+    assert len(observations[0]["result"]["content"]) == 24000
+
+
+def test_partial_and_line_range_observations_remain_independent(context):
+    (context.tools.project / "large.c").write_text(("x" * 99 + "\n") * 320)
+    read(context, "large.c", offset=0, limit=24000)
+    read(context, "large.c", offset=16000, limit=16000)
+    read(context, "large.c", start_line=10, end_line=20)
+    observations = initial(context.request({}))["current_observations"]
+    assert len(observations) == 3
+    assert any(row["read"].get("start_line") == 10 for row in observations)
 
 
 def test_successful_edit_refreshes_only_existing_real_read_selections(context):

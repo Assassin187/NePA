@@ -24,7 +24,33 @@ class CodingContext:
     def _observation_key(read: dict[str, Any]) -> str:
         return json.dumps(read, sort_keys=True)
 
+    @staticmethod
+    def _raw_character_interval(read: dict[str, Any], result: dict[str, Any]) -> tuple[int, int] | None:
+        if any(key in read for key in ("json_pointer", "start_line", "end_line")):
+            return None
+        offset, content = result.get("offset"), result.get("content")
+        if result.get("offset_unit") != "characters" or not isinstance(offset, int) or not isinstance(content, str):
+            return None
+        return offset, offset + len(content)
+
     def _store_observation(self, read: dict[str, Any], result: dict[str, Any], evidence_ref: dict[str, Any]) -> None:
+        interval = self._raw_character_interval(read, result)
+        if interval is not None:
+            remove = []
+            for key, current in self.observations.items():
+                current_result = current["result"]
+                if (current_result["path"] != result["path"] or
+                        current_result["file_sha256"] != result["file_sha256"]):
+                    continue
+                current_interval = self._raw_character_interval(current["read"], current_result)
+                if current_interval is None:
+                    continue
+                if current_interval != interval and current_interval[0] <= interval[0] and current_interval[1] >= interval[1]:
+                    return
+                if interval[0] <= current_interval[0] and interval[1] >= current_interval[1]:
+                    remove.append(key)
+            for key in remove:
+                del self.observations[key]
         self.observations[self._observation_key(read)] = {
             "read": read, "result": result, "evidence_ref": evidence_ref,
         }
