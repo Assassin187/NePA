@@ -37,6 +37,9 @@ uv run nepa resume RUN_ID --runs-root runs/mqtt-e2e
 重试/修复会话使用 V4 Pro。成本采用国内 CNY 费率以及 Asia/Shanghai 高峰/低谷时段。
 如果响应提供了缓存使用量，系统会记录该数据；缺失的缓存统计按未命中计算。
 未知调用保留高峰价格预留值。这些都是估算值，不是供应商账单。
+全部预算字段均可在配置的 `budgets` 中独立设置；代码中的 20/300/4/40/3/3/3
+只是未提供相应字段时的缺省值，不是最大值。每次运行会冻结解析后的完整配置，
+后续修改磁盘上的 YAML 不会追溯改变该运行。
 详见 `configs/default.yaml` 和 `project_docs/experiments/协议扩展实验.md`。
 
 经过明确批准的开发续作可以修改当前生效配置：
@@ -69,8 +72,9 @@ NEPA_LIVE_E2E=1 uv run pytest -s -q -m live_e2e tests/test_live_e2e.py
 
 选择性启用的付费测试工具会在冻结两套输入集和同一候选版本后，并发执行全新的 MQTT
 和 HTTP 生成，再分别检查每个导出结果。MQTT 使用新的 `runs/mqtt-e2e` CNY 计费活动；
-HTTP 使用 `runs/http-e2e`。每个计费活动的累计上限为 ¥300，其中包含新增失败和预留
-成本；每次生成上限为 ¥20 或四小时。接口研究在新的 MQTT 计费活动内有固定的 ¥10
-子上限。用户明确将旧 USD 运行排除在这些新上限之外；旧证据仍保留在原历史根目录。
+HTTP 使用 `runs/http-e2e`。每次生成及其计费活动的成本、时长、会话、决策和修复预算
+均来自启动时解析并冻结的配置；随附 `configs/default.yaml` 当前设置为每次 ¥100、
+每个计费活动 ¥1500 和四小时。用户明确将旧 USD 运行排除在新 CNY 账本之外；
+旧证据仍保留在原历史根目录。
 Run6.0 和 Config2.0 会拒绝混用货币。证据和剩余工作见
 `project_docs/experiments/协议扩展实验.md`。

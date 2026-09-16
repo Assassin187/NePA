@@ -16,7 +16,7 @@
     }
   },
   "call_counter": 0,
-  "config_sha256": "d498e4ea58cbba8e4b54087ab0f4c7ce898a4ac783efe0ce80c954bbf1c1abf3",
+  "config_sha256": "fb8cf2fff62e167cb896c46e31d0c111259c5e0c679e274ae216b9ae3177fe6a",
   "config_snapshot": {
     "schema_version": "2.0",
     "providers": {
@@ -39,7 +39,7 @@
     "coder": {
       "provider": "deepseek",
       "model": "deepseek-v4-pro",
-      "fast_model": null,
+      "fast_model": "deepseek-flash",
       "action_format": "json_object",
       "temperature": 0.0,
       "max_tokens": 16000,
@@ -66,8 +66,8 @@
       }
     },
     "budgets": {
-      "max_cost_cny": 20.0,
-      "campaign_max_cost_cny": 300.0,
+      "max_cost_cny": 100.0,
+      "campaign_max_cost_cny": 1500.0,
       "wall_clock_hours": 4.0,
       "decisions_per_session": 40,
       "sessions_per_task": 3,

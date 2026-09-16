@@ -21,19 +21,84 @@ def test_config_override_and_secret_free_snapshot(monkeypatch):
     assert config.coder.max_tokens == 2000
     assert "secret-value" not in json.dumps(public_config_snapshot(config))
     with pytest.raises(ConfigError):
-        load_config(overrides={"budgets": {"max_cost_cny": 1000}})
-    with pytest.raises(ConfigError):
         load_config(overrides={"calibration_models": {}})
 
-def test_authorized_cost_ceilings_do_not_change_time_budget():
+
+def test_budget_defaults_and_yaml_overrides():
+    defaults = load_config().budgets
+    assert defaults.model_dump() == {
+        "max_cost_cny": 20,
+        "campaign_max_cost_cny": 300,
+        "wall_clock_hours": 4,
+        "decisions_per_session": 40,
+        "sessions_per_task": 3,
+        "followups": 3,
+        "final_repairs": 3,
+    }
     config = load_config(ROOT / "configs/default.yaml")
-    assert config.budgets.max_cost_cny == 20
-    assert config.budgets.campaign_max_cost_cny == 300
+    assert config.budgets.max_cost_cny == 100
+    assert config.budgets.campaign_max_cost_cny == 1500
     assert config.budgets.wall_clock_hours == 4
     assert config.coder.action_format == "json_object"
-    for key, limit in (("max_cost_cny", 20), ("campaign_max_cost_cny", 300)):
-        with pytest.raises(ConfigError):
-            load_config(overrides={"budgets": {key: limit + 1}})
+
+
+def test_all_budget_fields_can_exceed_previous_policy_caps():
+    values = {
+        "max_cost_cny": 100,
+        "campaign_max_cost_cny": 1500,
+        "wall_clock_hours": 24,
+        "decisions_per_session": 100,
+        "sessions_per_task": 10,
+        "followups": 10,
+        "final_repairs": 10,
+    }
+    assert load_config(overrides={"budgets": values}).budgets.model_dump() == values
+
+
+def test_partial_budget_yaml_and_overrides_preserve_other_defaults(tmp_path):
+    partial = tmp_path / "partial.yaml"
+    partial.write_text("budgets:\n  max_cost_cny: 125\n")
+    config = load_config(partial, overrides={"budgets": {"final_repairs": 8}})
+    assert config.budgets.max_cost_cny == 125
+    assert config.budgets.final_repairs == 8
+    assert config.budgets.campaign_max_cost_cny == 300
+    assert config.budgets.wall_clock_hours == 4
+    assert config.budgets.decisions_per_session == 40
+    assert config.budgets.sessions_per_task == 3
+    assert config.budgets.followups == 3
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("max_cost_cny", 0),
+    ("max_cost_cny", -1),
+    ("max_cost_cny", float("nan")),
+    ("max_cost_cny", float("inf")),
+    ("campaign_max_cost_cny", float("-inf")),
+    ("wall_clock_hours", 0),
+    ("wall_clock_hours", float("nan")),
+    ("decisions_per_session", 0),
+    ("sessions_per_task", -1),
+    ("followups", -1),
+    ("final_repairs", -1),
+])
+def test_invalid_budget_values_are_rejected(field, value):
+    with pytest.raises(ConfigError):
+        load_config(overrides={"budgets": {field: value}})
+
+
+def test_higher_yaml_budget_is_used_by_run_store(tmp_path):
+    config = load_config(ROOT / "configs/default.yaml")
+    store = make_store(tmp_path, config)
+    store.reserve_call("bootstrap", 21, {})
+    assert store.run["budget"]["cost_cny"] == 21
+
+
+def test_extended_time_budget_is_used_by_run_store(tmp_path):
+    import time
+    config = load_config(overrides={"budgets": {"wall_clock_hours": 24}})
+    store = make_store(tmp_path, config)
+    store.run["created_at"] = time.time() - 5 * 3600
+    store.check_budget()
 
 @pytest.mark.parametrize("text", ['{"a":1}', '\x60\x60\x60json\n{"a":1}\n\x60\x60\x60', 'answer: {"a":1}'])
 def test_json_envelope_parsing(text):

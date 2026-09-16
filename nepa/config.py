@@ -46,13 +46,13 @@ class CoderConfig(_Model):
 
 
 class BudgetConfig(_Model):
-    max_cost_cny: float = Field(default=20, gt=0, le=20)
-    campaign_max_cost_cny: float = Field(default=300, gt=0, le=300)
-    wall_clock_hours: float = Field(default=4, gt=0, le=4)
-    decisions_per_session: int = Field(default=40, gt=0, le=40)
-    sessions_per_task: int = Field(default=3, gt=0, le=3)
-    followups: int = Field(default=3, ge=0, le=3)
-    final_repairs: int = Field(default=3, ge=0, le=3)
+    max_cost_cny: float = Field(default=20, gt=0, allow_inf_nan=False)
+    campaign_max_cost_cny: float = Field(default=300, gt=0, allow_inf_nan=False)
+    wall_clock_hours: float = Field(default=4, gt=0, allow_inf_nan=False)
+    decisions_per_session: int = Field(default=40, gt=0)
+    sessions_per_task: int = Field(default=3, gt=0)
+    followups: int = Field(default=3, ge=0)
+    final_repairs: int = Field(default=3, ge=0)
 
 
 class SandboxConfig(_Model):

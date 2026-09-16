@@ -23,8 +23,8 @@ pricing:
     cache_hit_input_cny_per_million_tokens: 0.30
     off_peak_multiplier: 0.5
 budgets:
-  max_cost_cny: 20
-  campaign_max_cost_cny: 300
+  max_cost_cny: 100
+  campaign_max_cost_cny: 1500
   wall_clock_hours: 4
   decisions_per_session: 40
   sessions_per_task: 3

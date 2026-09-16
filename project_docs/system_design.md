@@ -52,12 +52,18 @@ The MQTT campaign retains its USD300 cumulative limit and all historical costs
 to that campaign. HTTP has a separately authorized USD300 campaign, in a separate
 runs root. Both retain USD100/four hours per run, including failures and reservations.
 
-The latest user authorization replaces the earlier USD budget policy for this round:
-use two NEW CNY campaigns, runs/mqtt-e2e and runs/http-e2e, each capped at CNY300.
-Old runs, costs and unknown reservations remain intact in their historical root and
-are explicitly excluded from these new limits. Each generation is capped at CNY20
-and four hours. The interface study has a fixed CNY10 total sublimit within the new
-MQTT campaign, including failures/reservations; retries do not replenish it.
+The earlier CNY20-per-run and CNY300-per-campaign values remain historical experiment
+facts, not runtime policy ceilings. Current runtime policy comes from the resolved
+Config2.0 `budgets` object. Its built-in 20/300/4/40/3/3/3 values are fallbacks only;
+an input YAML may override every cost, time, decision, session, follow-up and repair
+budget with any value satisfying the type and positive/non-negative constraints.
+Each run freezes the complete resolved configuration. Later YAML edits do not alter
+that run, and an explicit development reconfiguration never resets costs, pending
+reservations, counters, creation time or the original elapsed-time basis. Campaign
+cost still includes every compatible CNY run under the selected campaign root.
+Old runs, costs and unknown reservations remain intact in their historical roots.
+The CNY10 interface-study sublimit recorded for the earlier round likewise remains
+a historical experiment constraint, not a generic Config2.0 ceiling.
 Config2.0 uses CNY prices/limits and Run6.0 records CNY costs; reject attempts to mix
 legacy USD runs into a new CNY campaign or reinterpret old USD amounts as CNY.
 Use the official domestic DeepSeek price snapshot (2026-09-13): Flash peak cache-hit /
@@ -299,5 +305,6 @@ Research v2 stays unchanged. Adopt fact indexing, deterministic small tasks and 
 feedback. Defer OPIR, macro DSL, solvers, automatic extraction/test generation,
 additional languages and broad protocol validation. Historical calibration is not
 production admission. Evidence may justify within-scope design changes if reason,
-impact and replacement tests are recorded. Do not weaken acceptance, increase
-budgets, overwrite user work, push, merge or deploy without separate authorization.
+impact and replacement tests are recorded. Do not weaken acceptance, change a run's
+resolved budget configuration, overwrite user work, push, merge or deploy without
+separate authorization.
